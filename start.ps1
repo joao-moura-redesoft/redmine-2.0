@@ -5,14 +5,14 @@ Write-Host "  Iniciando servidor e frontend..." -ForegroundColor Gray
 Write-Host ""
 
 $serverJob = Start-Job -ScriptBlock {
-    Set-Location "C:\Users\joao.moura\Downloads\redmine-kanban"
+    Set-Location "$PSScriptRoot\server"
     node server/index.js
 }
 
 Start-Sleep -Seconds 2
 
 $clientJob = Start-Job -ScriptBlock {
-    Set-Location "C:\Users\joao.moura\Downloads\redmine-kanban\client"
+    Set-Location "$PSScriptRoot\client"
     npm run dev
 }
 
