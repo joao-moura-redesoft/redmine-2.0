@@ -1,0 +1,260 @@
+import { useState, useRef, useEffect } from 'react';
+import {
+  Bold, Italic, Heading2, List, Code, Link2, Paperclip, Send, X, Eye, Pencil, Image as ImageIcon, AtSign,
+} from 'lucide-react';
+import { Markdown } from './Markdown';
+
+interface Member { id: number; name: string; }
+
+interface Props {
+  onSubmit: (text: string, files: File[]) => void;
+  sending?: boolean;
+  draftKey?: string;          // ex: id da tarefa — persiste rascunho no localStorage
+  members?: Member[];         // para autocomplete de menções @
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// Detecta uma menção sendo digitada (@parcial) imediatamente antes do cursor
+function detectMention(value: string, caret: number): { query: string; start: number } | null {
+  const upto = value.slice(0, caret);
+  const m = upto.match(/(^|\s)@([\p{L}0-9._-]*)$/u);
+  if (!m) return null;
+  return { query: m[2], start: caret - m[2].length - 1 };
+}
+
+export function CommentComposer({ onSubmit, sending, draftKey, members = [] }: Props) {
+  const [text, setText] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [preview, setPreview] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [mention, setMention] = useState<{ query: string; start: number } | null>(null);
+  const [midx, setMidx] = useState(0);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const storageKey = draftKey ? `rk_draft_${draftKey}` : null;
+
+  // Carrega rascunho ao abrir (por tarefa)
+  useEffect(() => {
+    if (!storageKey) return;
+    try { const d = localStorage.getItem(storageKey); setText(d ?? ''); } catch { /* ignore */ }
+    setFiles([]); setPreview(false); setMention(null);
+  }, [storageKey]);
+
+  // Salva rascunho a cada mudança (limpa quando vazio)
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      if (text.trim()) localStorage.setItem(storageKey, text);
+      else localStorage.removeItem(storageKey);
+    } catch { /* quota */ }
+  }, [text, storageKey]);
+
+  const mentionMatches = mention
+    ? members.filter(m => m.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)
+    : [];
+
+  // Auto-resize do textarea
+  useEffect(() => {
+    const ta = taRef.current;
+    if (ta && !preview) {
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.min(ta.scrollHeight, 260)}px`;
+    }
+  }, [text, preview]);
+
+  const addFiles = (list: FileList | File[]) => {
+    const arr = Array.from(list);
+    if (arr.length) setFiles(f => [...f, ...arr]);
+  };
+  const removeFile = (i: number) => setFiles(f => f.filter((_, idx) => idx !== i));
+
+  const submit = () => {
+    if ((!text.trim() && files.length === 0) || sending) return;
+    onSubmit(text.trim(), files);
+    setText('');
+    setFiles([]);
+    setPreview(false);
+    setMention(null);
+    if (storageKey) { try { localStorage.removeItem(storageKey); } catch { /* ignore */ } }
+  };
+
+  // Insere "@Nome " no lugar da menção em digitação
+  const insertMention = (name: string) => {
+    const ta = taRef.current;
+    if (!mention || !ta) return;
+    const before = text.slice(0, mention.start);
+    const after = text.slice(ta.selectionStart);
+    const insert = `@${name} `;
+    const next = before + insert + after;
+    setText(next);
+    setMention(null);
+    const pos = before.length + insert.length;
+    requestAnimationFrame(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = pos; });
+  };
+
+  // Insere markdown ao redor da seleção
+  const surround = (pre: string, post: string, placeholder: string) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const s = ta.selectionStart, e = ta.selectionEnd;
+    const sel = text.slice(s, e) || placeholder;
+    const next = text.slice(0, s) + pre + sel + post + text.slice(e);
+    setText(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.selectionStart = s + pre.length;
+      ta.selectionEnd = s + pre.length + sel.length;
+    });
+  };
+  // Adiciona prefixo no início da linha
+  const prefixLine = (prefix: string) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const s = ta.selectionStart;
+    const lineStart = text.lastIndexOf('\n', s - 1) + 1;
+    const next = text.slice(0, lineStart) + prefix + text.slice(lineStart);
+    setText(next);
+    requestAnimationFrame(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = s + prefix.length; });
+  };
+
+  const tools = [
+    { icon: Bold, title: 'Negrito', action: () => surround('**', '**', 'negrito') },
+    { icon: Italic, title: 'Itálico', action: () => surround('_', '_', 'itálico') },
+    { icon: Heading2, title: 'Título', action: () => prefixLine('## ') },
+    { icon: List, title: 'Lista', action: () => prefixLine('- ') },
+    { icon: Code, title: 'Código', action: () => surround('`', '`', 'código') },
+    { icon: Link2, title: 'Link', action: () => surround('[', '](url)', 'texto') },
+  ];
+
+  return (
+    <div
+      className={`border rounded-lg bg-white transition-colors ${dragOver ? 'border-blue-400 ring-2 ring-blue-200' : 'border-slate-200'}`}
+      onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); }}
+    >
+      {/* Toolbar */}
+      <div className="flex items-center gap-0.5 px-2 py-1 border-b border-slate-100">
+        {tools.map(t => (
+          <button key={t.title} type="button" onClick={t.action} title={t.title}
+            className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-700">
+            <t.icon size={14} />
+          </button>
+        ))}
+        <button type="button" onClick={() => fileRef.current?.click()} title="Anexar arquivo"
+          className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-700">
+          <Paperclip size={14} />
+        </button>
+        <div className="flex-1" />
+        <button type="button" onClick={() => setPreview(p => !p)} title={preview ? 'Editar' : 'Pré-visualizar'}
+          className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${preview ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>
+          {preview ? <Pencil size={12} /> : <Eye size={12} />}
+          {preview ? 'Editar' : 'Prévia'}
+        </button>
+      </div>
+
+      {/* Corpo: editor ou prévia */}
+      {preview ? (
+        <div className="px-3 py-2 min-h-16 max-h-64 overflow-y-auto">
+          {text.trim()
+            ? <Markdown text={text} className="text-sm" />
+            : <p className="text-sm text-slate-300 italic">Nada para pré-visualizar.</p>}
+        </div>
+      ) : (
+        <div className="relative">
+          <textarea
+            ref={taRef}
+            value={text}
+            onChange={e => {
+              setText(e.target.value);
+              setMidx(0);
+              setMention(members.length ? detectMention(e.target.value, e.target.selectionStart) : null);
+            }}
+            onPaste={e => {
+              const imgs = Array.from(e.clipboardData.items)
+                .filter(i => i.type.startsWith('image/'))
+                .map(i => i.getAsFile())
+                .filter((f): f is File => !!f);
+              if (imgs.length) { e.preventDefault(); addFiles(imgs); }
+            }}
+            onKeyDown={e => {
+              if (mention && mentionMatches.length) {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setMidx(i => Math.min(i + 1, mentionMatches.length - 1)); return; }
+                if (e.key === 'ArrowUp') { e.preventDefault(); setMidx(i => Math.max(i - 1, 0)); return; }
+                if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(mentionMatches[midx].name); return; }
+                if (e.key === 'Escape') { e.preventDefault(); setMention(null); return; }
+              }
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+            }}
+            placeholder="Escreva em Markdown… (@ menciona alguém · convertido para o Redmine ao enviar)"
+            rows={2}
+            className="w-full text-sm px-3 py-2 resize-none focus:outline-none bg-transparent"
+          />
+          {mention && mentionMatches.length > 0 && (
+            <div className="absolute left-2 bottom-1 z-10 w-56 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden">
+              <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400 border-b border-slate-100 flex items-center gap-1">
+                <AtSign size={10} /> Mencionar
+              </p>
+              {mentionMatches.map((m, i) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onMouseEnter={() => setMidx(i)}
+                  onClick={() => insertMention(m.name)}
+                  className={`w-full text-left px-3 py-1.5 text-sm truncate ${i === midx ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}`}
+                >
+                  {m.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Anexos */}
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+          {files.map((f, i) => (
+            <span key={i} className="inline-flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 rounded-md pl-2 pr-1 py-1">
+              {f.type.startsWith('image/') ? <ImageIcon size={12} /> : <Paperclip size={12} />}
+              <span className="max-w-40 truncate">{f.name}</span>
+              <span className="text-slate-400">{fmtSize(f.size)}</span>
+              <button onClick={() => removeFile(i)} className="text-slate-400 hover:text-red-500 ml-0.5">
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Rodapé */}
+      <div className="flex items-center justify-between px-3 py-2 border-t border-slate-100">
+        <span className="text-[11px] text-slate-400">
+          {dragOver ? 'Solte para anexar' : 'Markdown · Ctrl+Enter envia · cole ou arraste imagens'}
+        </span>
+        <button
+          onClick={submit}
+          disabled={(!text.trim() && files.length === 0) || sending}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+        >
+          <Send size={14} />
+          {sending ? 'Enviando…' : 'Enviar'}
+        </button>
+      </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }}
+      />
+    </div>
+  );
+}

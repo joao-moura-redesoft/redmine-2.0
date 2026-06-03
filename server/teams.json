@@ -1,0 +1,7 @@
+{
+  "_comment": "Config de equipes. 'overrides': ID do usuário -> nome da equipe (tem prioridade máxima). 'teamSourceProjectId': ID do projeto de referência cujos papéis (DEV/REDES/etc) definem a equipe de cada pessoa em todas as telas; se omitido/null, o servidor detecta sozinho o melhor projeto entre as suas tarefas. Equipes válidas: Desenvolvimento, Suporte, Redes & Infra, Implantação, Projetos, Comercial, Customer Success, Contratos.",
+  "teamSourceProjectId": null,
+  "overrides": {
+    "336": "Desenvolvimento"
+  }
+}
