@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Eye, EyeOff, LayoutGrid, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
+import { Eye, EyeOff, Gem, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import { saveAuth, RedmineAuth } from '../api/redmine';
 import axios from 'axios';
 
@@ -52,9 +52,9 @@ export function Login({ onSuccess }: Props) {
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl flex items-center justify-center shadow-lg mb-4">
-            <LayoutGrid size={28} className="text-white" />
+            <Gem size={28} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Redmine Kanban</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Bluemine</h1>
           <p className="text-sm text-slate-500 mt-1">Entre com suas credenciais do Redmine</p>
         </div>
 

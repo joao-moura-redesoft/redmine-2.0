@@ -1,7 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { X, ExternalLink, ChevronDown, ChevronRight, ChevronLeft, Check, Pencil, Play, GitBranch, ArrowRight, Loader2, AlertCircle, RotateCcw, FileText, File, Star, Link2, GitMerge, Copy, Plus, CheckSquare, User, Clock, Tag, Calendar, Search, CircleDot, Image as ImageIcon, Paperclip, Download } from 'lucide-react';
 import type { Attachment } from '../types/redmine';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
+import { TimeTracker } from './TimeTracker';
+import { IssueAIPanel } from './IssueAIPanel';
 import { CommentComposer } from './CommentComposer';
 import { markdownToTextile } from '../utils/markdownToTextile';
 import { redmineApi } from '../api/redmine';
@@ -1024,6 +1026,8 @@ export function IssueModal({ issueId, onClose, onNavigate }: Props) {
   const [pendingNotes, setPendingNotes] = useState<PendingNote[]>([]);
   const [savingFields, setSavingFields] = useState<SavingField[]>([]);
   const [showDescription, setShowDescription] = useState(false);
+  const [phaseView, setPhaseView] = useState(() => localStorage.getItem('rk_phase_view') === '1');
+  const [aiDraftNote, setAiDraftNote] = useState<string | undefined>(undefined);
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
 
   // Clique em qualquer imagem do modal abre o lightbox (navegando entre todas)
@@ -1099,12 +1103,47 @@ export function IssueModal({ issueId, onClose, onNavigate }: Props) {
     return Array.isArray(v) ? v.join(', ') : (v ?? '');
   };
 
+  // Mapeia status para cor de fase (com suporte a dark mode)
+  const phaseStyle = (name: string) => {
+    const n = name.toLowerCase();
+    if (n.includes('andamento'))                               return { bg: 'bg-blue-50   dark:bg-blue-900/20',   border: 'border-blue-200   dark:border-blue-800',   text: 'text-blue-700   dark:text-blue-300',   dot: 'bg-blue-500'   };
+    if (n.includes('revisão') || n.includes('revisao'))       return { bg: 'bg-violet-50 dark:bg-violet-900/20', border: 'border-violet-200 dark:border-violet-800', text: 'text-violet-700 dark:text-violet-300', dot: 'bg-violet-500' };
+    if (n.includes('teste'))                                   return { bg: 'bg-yellow-50 dark:bg-yellow-900/20', border: 'border-yellow-200 dark:border-yellow-800', text: 'text-yellow-700 dark:text-yellow-300', dot: 'bg-yellow-500' };
+    if (n.includes('correção') || n.includes('correcao'))     return { bg: 'bg-orange-50 dark:bg-orange-900/20', border: 'border-orange-200 dark:border-orange-800', text: 'text-orange-700 dark:text-orange-300', dot: 'bg-orange-500' };
+    if (n.includes('integração') || n.includes('integracao')) return { bg: 'bg-indigo-50 dark:bg-indigo-900/20', border: 'border-indigo-200 dark:border-indigo-800', text: 'text-indigo-700 dark:text-indigo-300', dot: 'bg-indigo-500' };
+    if (n.includes('fechamento'))                              return { bg: 'bg-green-50  dark:bg-green-900/20',  border: 'border-green-200  dark:border-green-800',  text: 'text-green-700  dark:text-green-300',  dot: 'bg-green-500'  };
+    if (n.includes('impedido'))                                return { bg: 'bg-red-50    dark:bg-red-900/20',    border: 'border-red-200    dark:border-red-800',    text: 'text-red-700    dark:text-red-300',    dot: 'bg-red-500'    };
+    if (n.includes('fechad') || n.includes('cancelad'))       return { bg: 'bg-slate-100 dark:bg-slate-800/40',  border: 'border-slate-200  dark:border-slate-700',  text: 'text-slate-600  dark:text-slate-400',  dot: 'bg-slate-400'  };
+    if (n.includes('desenvolvimento'))                         return { bg: 'bg-cyan-50   dark:bg-cyan-900/20',   border: 'border-cyan-200   dark:border-cyan-800',   text: 'text-cyan-700   dark:text-cyan-300',   dot: 'bg-cyan-500'   };
+    if (n.includes('análise') || n.includes('analise'))       return { bg: 'bg-amber-50  dark:bg-amber-900/20',  border: 'border-amber-200  dark:border-amber-800',  text: 'text-amber-700  dark:text-amber-300',  dot: 'bg-amber-500'  };
+    return { bg: 'bg-slate-50 dark:bg-slate-800/40', border: 'border-slate-200 dark:border-slate-700', text: 'text-slate-600 dark:text-slate-400', dot: 'bg-slate-400' };
+  };
+
   const notesOnly = issue?.journals?.filter(j => j.notes?.trim()) ?? [];
+
+  // Agrupa comentários em fases por mudança de status (atribuições ignoradas)
+  const phases = useMemo(() => {
+    if (!issue?.journals) return [];
+    const result: { id: string; statusName: string; journals: typeof issue.journals }[] = [];
+    let current: typeof result[0] = { id: 'initial', statusName: '', journals: [] };
+
+    for (const j of issue.journals) {
+      const statusChange = j.details?.find(d => d.property === 'attr' && d.name === 'status_id');
+      if (statusChange?.new_value) {
+        if (current.journals.length) result.push(current);
+        const name = statuses?.find(s => s.id === Number(statusChange.new_value))?.name ?? '';
+        current = { id: `phase-${j.id}`, statusName: name, journals: [] };
+      }
+      if (j.notes?.trim()) current.journals.push(j);
+    }
+    if (current.journals.length) result.push(current);
+    return result;
+  }, [issue?.journals, statuses]);
 
   return (
     <>
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col" onClick={onModalClick}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col" onClick={onModalClick}>
 
         {/* Header */}
         <div className="flex items-start justify-between p-5 pb-3 border-b border-slate-200">
@@ -1165,7 +1204,7 @@ export function IssueModal({ issueId, onClose, onNavigate }: Props) {
         ) : (
           <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-y-auto md:overflow-hidden">
             {/* ── ESQUERDA: detalhe da tarefa ── */}
-            <div className="w-full md:w-[44%] md:border-r border-slate-100 md:overflow-y-auto scrollbar-thin bg-slate-50/40 flex flex-col">
+            <div className="w-full md:w-[44%] md:border-r border-slate-100 md:overflow-y-auto scrollbar-thin bg-slate-50/40 flex flex-col pb-6">
                 {/* Indicador de campos salvando/erro */}
                 {savingFields.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 px-5 pt-3">
@@ -1256,6 +1295,12 @@ export function IssueModal({ issueId, onClose, onNavigate }: Props) {
                         onSave={v => { const n = parseInt(v); if (!isNaN(n)) updateField({ done_ratio: Math.min(100, Math.max(0, n)) }); }}
                       />
                     </FieldRow>
+                  </div>
+
+                  {/* HORAS */}
+                  <div>
+                    <SectionHeader>Horas</SectionHeader>
+                    <TimeTracker issueId={issue.id} spentHours={issue.spent_hours} />
                   </div>
 
                   {/* DESENVOLVIMENTO */}
@@ -1421,13 +1466,87 @@ export function IssueModal({ issueId, onClose, onNavigate }: Props) {
                   onToggle={() => setShowDescription(v => !v)}
                 />
 
-                {/* Comentários */}
-                <div className="p-4 space-y-4">
-                  {notesOnly.length === 0 ? (
+                {/* Painel de IA — gera prompt, resumo de histórico e rascunho de nota */}
+                <div className="px-4 pt-3">
+                  <IssueAIPanel
+                    issue={issue}
+                    onInsertNote={text => {
+                      setAiDraftNote(text);
+                      // Limpa após injetar para permitir novo inject depois
+                      setTimeout(() => setAiDraftNote(undefined), 100);
+                    }}
+                  />
+                </div>
+
+                {/* Toggle de visualização por fase */}
+                <div className="flex items-center justify-end px-4 pt-3 pb-0">
+                  <button
+                    onClick={() => setPhaseView(v => {
+                      const next = !v;
+                      localStorage.setItem('rk_phase_view', next ? '1' : '0');
+                      return next;
+                    })}
+                    className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-md transition-colors ${
+                      phaseView
+                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title="Agrupar comentários por status"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${phaseView ? 'bg-blue-500' : 'bg-slate-300'}`} />
+                    Fases
+                  </button>
+                </div>
+
+                {/* Chat */}
+                <div className="p-4 space-y-3">
+                  {/* ── Vista por fases ── */}
+                  {phaseView && phases.length === 0 && (
                     <div className="flex items-center justify-center py-8">
                       <p className="text-sm text-slate-400">Nenhum comentário ainda.</p>
                     </div>
-                  ) : notesOnly.map(journal => (
+                  )}
+                  {phaseView && phases.map(phase => {
+                    const s = phaseStyle(phase.statusName);
+                    return (
+                      <div key={phase.id} className={`rounded-xl border ${s.bg} ${s.border} overflow-hidden`}>
+                        {phase.statusName && (
+                          <div className={`flex items-center gap-1.5 px-3 py-1.5 border-b ${s.border}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />
+                            <span className={`text-[11px] font-semibold ${s.text}`}>{phase.statusName}</span>
+                          </div>
+                        )}
+                        <div className="p-3 space-y-3">
+                          {phase.journals.map(journal => (
+                            <div key={journal.id} className="flex gap-3">
+                              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5">
+                                {journal.user.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-xs font-semibold text-slate-700">{journal.user.name}</span>
+                                  <span className="text-xs text-slate-400">
+                                    {formatDistanceToNow(new Date(journal.created_on), { addSuffix: true, locale: ptBR })}
+                                  </span>
+                                </div>
+                                <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl rounded-tl-sm px-3 py-2">
+                                  <Markdown text={journal.notes} attachments={issue.attachments} />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* ── Vista normal (padrão) ── */}
+                  {!phaseView && notesOnly.length === 0 && (
+                    <div className="flex items-center justify-center py-8">
+                      <p className="text-sm text-slate-400">Nenhum comentário ainda.</p>
+                    </div>
+                  )}
+                  {!phaseView && notesOnly.map(journal => (
                     <div key={journal.id} className="flex gap-3">
                       <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5">
                         {journal.user.name.charAt(0).toUpperCase()}
@@ -1505,6 +1624,8 @@ export function IssueModal({ issueId, onClose, onNavigate }: Props) {
                   sending={addNote.isPending}
                   draftKey={String(issueId)}
                   members={members ?? []}
+                  injectText={aiDraftNote}
+                  aiContext={{ subject: issue.subject, statusName: issue.status.name }}
                 />
               </div>
             </div>

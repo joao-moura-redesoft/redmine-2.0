@@ -51,12 +51,13 @@ export interface Issue {
   id: number;
   subject: string;
   description: string;
-  status: NamedRef;
+  status: IssueStatus;
   priority: NamedRef;
   project: NamedRef;
   tracker: NamedRef;
   assigned_to?: NamedRef;
   author: NamedRef;
+  fixed_version?: NamedRef;
   done_ratio: number;
   estimated_hours?: number | null;
   spent_hours?: number;
@@ -73,6 +74,33 @@ export interface Issue {
   relations?: IssueRelation[];
   watchers?: NamedRef[];
   attachments?: Attachment[];
+}
+
+export interface Version {
+  id: number;
+  name: string;
+  status: 'open' | 'locked' | 'closed';
+  due_date?: string;
+  description?: string;
+}
+
+export interface TimeEntryActivity {
+  id: number;
+  name: string;
+  is_default: boolean;
+}
+
+export interface TimeEntry {
+  id: number;
+  project: NamedRef;
+  issue?: { id: number };
+  user: NamedRef;
+  activity: NamedRef;
+  hours: number;
+  comments: string;
+  spent_on: string;
+  created_on: string;
+  updated_on: string;
 }
 
 export interface IssueStatus {

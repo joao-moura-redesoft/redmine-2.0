@@ -18,9 +18,16 @@ import { localWatches, useLocalWatches } from './utils/localWatches';
 import { Login } from './components/Login';
 import { GlobalSearch } from './components/GlobalSearch';
 import { getStoredAuth, clearAuth } from './api/redmine';
+import { getAIKey } from './utils/aiConfig';
 import { useActivityNotifications } from './hooks/useActivityNotifications';
+import { usePushNotifications } from './hooks/usePushNotifications';
+import { useBrowserNotifications } from './hooks/useBrowserNotifications';
 import { useTheme } from './hooks/useTheme';
-import { LayoutGrid, ChevronDown, Eye, PenLine, LogOut, Bell, X, BarChart3, Star, Sun, Moon, Users, CalendarDays, ClipboardCheck, Inbox, Plus, FlaskConical, GitMerge, Rocket } from 'lucide-react';
+import { useShortcuts } from './hooks/useShortcuts';
+import { SettingsModal } from './components/SettingsModal';
+import { StandupModal } from './components/StandupModal';
+import { TalkChat } from './components/TalkChat';
+import { LayoutGrid, Gem, ChevronDown, Eye, PenLine, LogOut, Bell, BellOff, X, BarChart3, Star, Sun, Moon, Users, CalendarDays, ClipboardCheck, Inbox, Plus, FlaskConical, GitMerge, Rocket, Settings, Sparkles } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -60,17 +67,14 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const watchedIds = useLocalWatches();
   const notifRef = useRef<HTMLDivElement>(null);
 
-  // Atalho global Ctrl/Cmd+K abre a paleta de comandos
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setPaletteOpen(o => !o);
-      }
-    };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, []);
+  const { focusedIssueId } = useShortcuts({
+    activeTab,
+    setActiveTab: setActiveTab as (tab: string) => void,
+    onOpenIssue: setSelectedIssueId,
+    onOpenPalette: () => setPaletteOpen(o => !o),
+    paletteOpen,
+    modalOpen: !!selectedIssueId,
+  });
 
   const { theme, toggle: toggleTheme } = useTheme();
   const monitored = useMonitoredIssues();
@@ -93,6 +97,38 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   }, [monitored.data, watched.data]);
 
   const { notifications, dismiss, dismissAll } = useActivityNotifications(allIssues, activityIssues, toReview.data);
+
+  // Permissão de notificação — exposta para o botão "Ativar" no navbar.
+  const { permission: notifPermission, requestPermission } = useBrowserNotifications();
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [showStandup, setShowStandup] = useState(false);
+
+  // Inscreve para Web Push (notificações com a aba fechada).
+  usePushNotifications();
+
+  // Abre a tarefa ao clicar numa notificação push:
+  // - Aba já aberta → SW manda postMessage com { type: 'open-issue', issueId }
+  // - Aba fechada   → app abre com ?issue=ID na URL
+  useEffect(() => {
+    // Lê ?issue= da URL (quando a aba estava fechada e o SW abriu uma nova).
+    const params = new URLSearchParams(window.location.search);
+    const issueParam = params.get('issue');
+    if (issueParam) {
+      setSelectedIssueId(Number(issueParam));
+      window.history.replaceState({}, '', '/');
+    }
+
+    // Escuta mensagens do SW (quando a aba já estava aberta).
+    if (!('serviceWorker' in navigator)) return;
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'open-issue' && e.data.issueId) {
+        setSelectedIssueId(Number(e.data.issueId));
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -128,10 +164,10 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
       <nav className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between flex-shrink-0 gap-4">
         <div className="flex items-center gap-2.5 flex-shrink-0">
           <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center">
-            <LayoutGrid size={16} className="text-white" />
+            <Gem size={16} className="text-white" />
           </div>
           <div className="hidden sm:block">
-            <h1 className="text-sm font-bold text-slate-900">Redmine Kanban</h1>
+            <h1 className="text-sm font-bold text-slate-900">Bluemine</h1>
             <p className="text-xs text-slate-400">b2click.com</p>
           </div>
         </div>
@@ -181,6 +217,26 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
+          {/* Ativar notificações — só aparece quando a permissão não foi concedida.
+              O clique é o gesto do usuário exigido pelos navegadores modernos. */}
+          {notifPermission !== 'granted' && 'Notification' in window && (
+            <button
+              onClick={requestPermission}
+              title={notifPermission === 'denied'
+                ? 'Notificações bloqueadas — desbloqueie nas configurações do navegador'
+                : 'Ativar notificações'}
+              disabled={notifPermission === 'denied'}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
+                notifPermission === 'denied'
+                  ? 'border-slate-200 text-slate-300 cursor-not-allowed'
+                  : 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
+              }`}
+            >
+              <BellOff size={13} />
+              {notifPermission === 'denied' ? 'Notificações bloqueadas' : 'Ativar notificações'}
+            </button>
+          )}
+
           {/* Sino de notificações */}
           <div className="relative" ref={notifRef}>
             <button
@@ -227,7 +283,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
                         <div className="flex-1 min-w-0">
                           <button
                             className="text-left w-full"
-                            onClick={() => { setSelectedIssueId(n.issue.id); setShowNotifications(false); }}
+                            onClick={() => { setSelectedIssueId(n.issue.id); setShowNotifications(false); dismiss(n.id); }}
                           >
                             <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">
                               {n.type === 'assigned' ? 'Atribuída a você' : n.type === 'review' ? 'Pedido de revisão' : 'Nova atividade'}
@@ -254,7 +310,19 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             )}
           </div>
 
-          {/* Avatar + Logout */}
+          {/* Standup — só aparece quando AI está configurada */}
+          {getAIKey() && (
+            <button
+              onClick={() => setShowStandup(true)}
+              title="Gerar daily standup com IA"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 border border-purple-200 dark:border-purple-700 rounded-lg transition-colors"
+            >
+              <Sparkles size={13} />
+              <span className="hidden sm:inline">Standup</span>
+            </button>
+          )}
+
+          {/* Avatar + Configurações + Logout */}
           {user && (
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold">
@@ -263,6 +331,13 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
               <span className="text-sm text-slate-600 hidden lg:block">
                 {user.firstname} {user.lastname}
               </span>
+              <button
+                onClick={() => setShowSettings(true)}
+                title="Configurações"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <Settings size={16} />
+              </button>
               <button
                 onClick={onLogout}
                 title="Sair"
@@ -319,6 +394,8 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             projectId={selectedProject}
             userName={user ? `${user.firstname} ${user.lastname}` : undefined}
             onIssueClick={setSelectedIssueId}
+            focusedIssueId={focusedIssueId ?? undefined}
+            onProjectChange={setSelectedProject}
           />
         )}
 
@@ -342,6 +419,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
               onIssueClick={setSelectedIssueId}
               showAssignee
               emptyMessage="Nenhuma tarefa aguardando sua revisão."
+              focusedIssueId={focusedIssueId ?? undefined}
             />
           </div>
         )}
@@ -359,6 +437,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
               onRefetch={issuesQuery.refetch}
               onIssueClick={setSelectedIssueId}
               emptyMessage="Nenhuma tarefa aguardando teste com você."
+              focusedIssueId={focusedIssueId ?? undefined}
             />
           </div>
         )}
@@ -376,6 +455,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
               onRefetch={issuesQuery.refetch}
               onIssueClick={setSelectedIssueId}
               emptyMessage="Nenhuma tarefa aguardando integração com você."
+              focusedIssueId={focusedIssueId ?? undefined}
             />
           </div>
         )}
@@ -396,6 +476,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
               onIssueClick={setSelectedIssueId}
               showAssignee
               emptyMessage="Nenhuma tarefa em monitoramento. Todas as suas tarefas estão com você ou fechadas."
+              focusedIssueId={focusedIssueId ?? undefined}
             />
           </div>
         )}
@@ -416,6 +497,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
               onIssueClick={setSelectedIssueId}
               showAssignee
               emptyMessage="Você não tem tarefas abertas criadas por você."
+              focusedIssueId={focusedIssueId ?? undefined}
             />
           </div>
         )}
@@ -436,6 +518,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
               onIssueClick={setSelectedIssueId}
               showAssignee
               emptyMessage="Você não está observando nenhuma tarefa. Abra uma tarefa e clique em 'Observar'."
+              focusedIssueId={focusedIssueId ?? undefined}
             />
           </div>
         )}
@@ -471,6 +554,20 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
 
       {/* Criar tarefa (via paleta) */}
       {showCreate && <CreateIssueModal onClose={() => setShowCreate(false)} />}
+
+      {/* Configurações */}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+
+      {/* Daily standup */}
+      {showStandup && (
+        <StandupModal
+          issues={allIssues ?? []}
+          onClose={() => setShowStandup(false)}
+        />
+      )}
+
+      {/* Nextcloud Talk — mini chat estilo LinkedIn */}
+      <TalkChat onIssueClick={setSelectedIssueId} />
     </div>
   );
 }

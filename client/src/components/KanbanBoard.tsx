@@ -9,8 +9,12 @@ import {
   useSensors,
   useDroppable,
 } from '@dnd-kit/core';
-import { Plus, RefreshCw, EyeOff, Search, AlertTriangle, Bell, BellRing, X, ArrowUpDown, Columns, ChevronDown, Archive, CheckSquare } from 'lucide-react';
-import { useIssues, useStatuses, useUpdateIssueStatus } from '../hooks/useRedmine';
+import { Plus, RefreshCw, EyeOff, Search, AlertTriangle, Bell, BellRing, X, ArrowUpDown, Columns, ChevronDown, Archive, CheckSquare, Rows3, Flag, Milestone, CalendarClock, Play, Square } from 'lucide-react';
+import { useIssues, useStatuses, useUpdateIssueStatus, useProjectVersions, useVersionIssues } from '../hooks/useRedmine';
+import { useTimer } from '../hooks/useTimer';
+import type { Version } from '../types/redmine';
+import { SavedFiltersBar } from './SavedFiltersBar';
+import type { SavedFilter } from '../utils/savedFilters';
 import { IssueCard } from './IssueCard';
 import { CreateIssueModal } from './CreateIssueModal';
 import type { Issue, IssueStatus } from '../types/redmine';
@@ -38,6 +42,100 @@ function sortIssues(issues: Issue[], by: SortBy): Issue[] {
     // updated — mais recente primeiro
     return new Date(b.updated_on).getTime() - new Date(a.updated_on).getTime();
   });
+}
+
+/* ── Sprint summary ── */
+function CircleProgress({ pct, size = 44 }: { pct: number; size?: number }) {
+  const r = (size - 7) / 2;
+  const circ = 2 * Math.PI * r;
+  return (
+    <svg width={size} height={size} className="-rotate-90 flex-shrink-0">
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#dbeafe" strokeWidth={6} />
+      <circle
+        cx={size / 2} cy={size / 2} r={r} fill="none"
+        stroke={pct >= 100 ? '#16a34a' : '#2563eb'} strokeWidth={6}
+        strokeDasharray={`${(pct / 100) * circ} ${circ}`}
+        strokeLinecap="round"
+        style={{ transition: 'stroke-dasharray 0.6s ease' }}
+      />
+    </svg>
+  );
+}
+
+function SprintSummary({ version, total, closed, myTotal }: {
+  version: Version;
+  total: number;
+  closed: number;
+  myTotal: number;
+}) {
+  const pct = total > 0 ? Math.round((closed / total) * 100) : 0;
+  const remaining = total - closed;
+
+  const daysLeft = (() => {
+    if (!version.due_date) return null;
+    const diff = Math.ceil(
+      (new Date(version.due_date + 'T00:00:00Z').getTime() - Date.now()) / 86_400_000,
+    );
+    return diff;
+  })();
+
+  const statusBadge = version.status === 'locked'
+    ? <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Bloqueada</span>
+    : version.status === 'closed'
+    ? <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Encerrada</span>
+    : null;
+
+  return (
+    <div className="flex items-center gap-4 px-4 py-2.5 mb-3 bg-blue-50 border border-blue-200 rounded-xl">
+      {/* Donut de progresso */}
+      <div className="relative flex-shrink-0">
+        <CircleProgress pct={pct} />
+        <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-blue-700">
+          {pct}%
+        </span>
+      </div>
+
+      {/* Nome + status */}
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-sm font-semibold text-blue-900 truncate">{version.name}</span>
+          {statusBadge}
+        </div>
+        <p className="text-xs text-blue-600 mt-0.5">
+          {closed} de {total} tarefa{total !== 1 ? 's' : ''} concluída{closed !== 1 ? 's' : ''}
+          {myTotal > 0 && <span className="ml-1 text-blue-400">· {myTotal} sua{myTotal !== 1 ? 's' : ''}</span>}
+        </p>
+      </div>
+
+      {/* Barra de progresso linear */}
+      <div className="flex-1 hidden sm:block">
+        <div className="h-2 bg-blue-200 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-green-500' : 'bg-blue-600'}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="flex justify-between mt-0.5 text-[10px] text-blue-500">
+          <span>{closed} fechadas</span>
+          {remaining > 0 && <span>{remaining} abertas</span>}
+        </div>
+      </div>
+
+      {/* Prazo */}
+      {daysLeft !== null && (
+        <div className={`flex items-center gap-1 text-xs font-medium flex-shrink-0 ${
+          daysLeft < 0 ? 'text-red-600' : daysLeft <= 3 ? 'text-orange-600' : 'text-blue-600'
+        }`}>
+          <CalendarClock size={13} />
+          {daysLeft < 0
+            ? `Venceu há ${Math.abs(daysLeft)}d`
+            : daysLeft === 0
+            ? 'Vence hoje'
+            : `${daysLeft}d restantes`}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ── Stats bar ── */
@@ -116,6 +214,14 @@ interface ColumnProps {
   onToggleSelect: (id: number) => void;
   pinned?: boolean;
   onUnpin?: () => void;
+  focusedIssueId?: number;
+  compactMode?: boolean;
+  onSubtaskOpen?: (id: number) => void;
+  onSubtaskDone?: (id: number, statusId: number) => void;
+  activeTimerIssueId?: number | null;
+  timerFormatted?: string;
+  onTimerStart?: (id: number) => void;
+  onTimerStop?: () => void;
 }
 
 const COL_COLORS: Record<string, string> = {
@@ -131,7 +237,7 @@ const COL_COLORS: Record<string, string> = {
   'Impedido': 'border-t-red-500',
 };
 
-function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, onQuickStatusChange, onArchive, onUnarchive, selectedIds, selectionMode, onToggleSelect, pinned, onUnpin }: ColumnProps) {
+function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, onQuickStatusChange, onArchive, onUnarchive, selectedIds, selectionMode, onToggleSelect, pinned, onUnpin, focusedIssueId, compactMode, onSubtaskOpen, onSubtaskDone, activeTimerIssueId, timerFormatted, onTimerStart, onTimerStop }: ColumnProps) {
   const { isOver, setNodeRef } = useDroppable({ id: `col-${status.id}` });
   const borderColor = COL_COLORS[status.name] ?? 'border-t-slate-400';
   const [archivedOpen, setArchivedOpen] = useState(false);
@@ -194,6 +300,14 @@ function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, 
             selected={selectedIds.has(issue.id)}
             selectionMode={selectionMode}
             onToggleSelect={onToggleSelect}
+            focused={focusedIssueId === issue.id}
+            compact={compactMode}
+            onSubtaskOpen={onSubtaskOpen}
+            onSubtaskDone={onSubtaskDone}
+            activeTimerIssueId={activeTimerIssueId}
+            timerFormatted={timerFormatted}
+            onTimerStart={onTimerStart}
+            onTimerStop={onTimerStop}
           />
         ))}
         {issues.length === 0 && (
@@ -218,7 +332,7 @@ function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, 
                 {archivedIssues.map(issue => (
                   <div key={issue.id} className="relative group/arch">
                     <div className="opacity-50 pointer-events-none">
-                      <IssueCard issue={issue} onClick={() => {}} />
+                      <IssueCard issue={issue} onClick={() => {}} navigable={false} />
                     </div>
                     {/* Overlay com ações sobre a área archivada */}
                     <div className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 group-hover/arch:opacity-100 transition-opacity bg-white/70 dark:bg-slate-900/80 rounded-lg">
@@ -247,17 +361,25 @@ function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, 
   );
 }
 
+const PRIORITY_DOTS: Record<string, string> = {
+  Imediata: 'bg-red-700', Urgente: 'bg-red-500', Alta: 'bg-orange-500',
+  Normal: 'bg-blue-500', Baixa: 'bg-slate-400',
+};
+
 /* ── Board ── */
 interface Props {
   projectId?: number;
   userName?: string;
   onIssueClick: (id: number) => void;
+  focusedIssueId?: number;
+  onProjectChange?: (id: number | undefined) => void;
 }
 
-export function KanbanBoard({ projectId, userName, onIssueClick }: Props) {
+export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId, onProjectChange }: Props) {
   const { data: allStatuses } = useStatuses();
   const { data: issues, isLoading, refetch, isFetching } = useIssues(projectId);
   const updateStatus = useUpdateIssueStatus();
+  const timer = useTimer();
 
   const [showCreate, setShowCreate] = useState(false);
   const [dragError, setDragError] = useState<string | null>(null);
@@ -273,7 +395,87 @@ export function KanbanBoard({ projectId, userName, onIssueClick }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
+  const [compactMode, setCompactMode] = useState(() => localStorage.getItem('kanban-compact') === 'true');
+  const [priorityFilter, setPriorityFilter] = useState('');
+  const [priorityOpen, setPriorityOpen] = useState(false);
+  const [selectedVersionId, setSelectedVersionId] = useState<number | undefined>(undefined);
+  const [versionOpen, setVersionOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
+
+  // Arrastar com o botão direito para rolar o board horizontalmente
+  useEffect(() => {
+    const el = boardRef.current;
+    if (!el) return;
+
+    let startX = 0;
+    let startScroll = 0;
+    let moved = false;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 2) return;
+      e.preventDefault(); // impede o menu de contexto de abrir durante o arraste
+      startX = e.clientX;
+      startScroll = el.scrollLeft;
+      moved = false;
+      document.body.style.cursor = 'grabbing';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - startX;
+      if (Math.abs(dx) > 3) moved = true;
+      el.scrollLeft = startScroll - dx;
+    };
+
+    const onMouseUp = () => {
+      document.body.style.removeProperty('cursor');
+      document.body.style.removeProperty('user-select');
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    // Suprime o contextmenu só se houve movimento real
+    const suppressCtx = (e: Event) => e.preventDefault();
+
+    el.addEventListener('mousedown', onMouseDown);
+    el.addEventListener('contextmenu', suppressCtx);
+    return () => {
+      el.removeEventListener('mousedown', onMouseDown);
+      el.removeEventListener('contextmenu', suppressCtx);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
+
+  const { data: versions } = useProjectVersions(projectId);
+  const { data: versionIssues } = useVersionIssues(projectId, selectedVersionId);
+
+  const toggleCompact = () => setCompactMode(v => {
+    const next = !v;
+    localStorage.setItem('kanban-compact', String(next));
+    return next;
+  });
+
+  // Reseta versão quando o projeto muda
+  const prevProjectRef = useRef(projectId);
+  if (prevProjectRef.current !== projectId) {
+    prevProjectRef.current = projectId;
+    if (selectedVersionId !== undefined) setSelectedVersionId(undefined);
+  }
+
+  const handleSubtaskDone = useCallback((subtaskId: number, statusId: number) => {
+    updateStatus.mutate({ id: subtaskId, statusId });
+  }, [updateStatus]);
+
+  const applyFilter = (f: SavedFilter) => {
+    setSortBy(f.sortBy);
+    setPriorityFilter(f.priorityFilter);
+    setActiveFilter(f.alertFilter);
+    if (onProjectChange) onProjectChange(f.projectId);
+  };
 
   const toggleSelect = useCallback((id: number) => {
     setSelectedIds(prev => {
@@ -326,7 +528,7 @@ export function KanbanBoard({ projectId, userName, onIssueClick }: Props) {
 
   const today = new Date().toISOString().split('T')[0];
 
-  // Aplica busca textual + filtro rápido de alertas
+  // Aplica busca textual + filtro rápido de alertas + filtro de prioridade
   const filteredIssues = useMemo(() => {
     if (!issues) return [];
     let list = issues;
@@ -337,6 +539,14 @@ export function KanbanBoard({ projectId, userName, onIssueClick }: Props) {
         i.subject.toLowerCase().includes(q) ||
         String(i.id).includes(q)
       );
+    }
+
+    if (priorityFilter) {
+      list = list.filter(i => i.priority.name === priorityFilter);
+    }
+
+    if (selectedVersionId) {
+      list = list.filter(i => i.fixed_version?.id === selectedVersionId);
     }
 
     if (activeFilter === 'overdue') {
@@ -354,7 +564,7 @@ export function KanbanBoard({ projectId, userName, onIssueClick }: Props) {
     }
 
     return list;
-  }, [issues, search, activeFilter, today]);
+  }, [issues, search, activeFilter, priorityFilter, selectedVersionId, today]);
 
   const visibleStatuses = useMemo(() => {
     if (!allStatuses || !filteredIssues) return [];
@@ -577,6 +787,124 @@ export function KanbanBoard({ projectId, userName, onIssueClick }: Props) {
             {selectionMode ? 'Concluir' : 'Selecionar'}
           </button>
 
+          {/* Filtro por versão/sprint (só aparece quando um projeto está selecionado) */}
+          {projectId && versions && versions.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setVersionOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                  selectedVersionId
+                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+                title="Filtrar por versão/sprint"
+              >
+                <Milestone size={13} />
+                {selectedVersionId
+                  ? (versions.find(v => v.id === selectedVersionId)?.name ?? 'Versão')
+                  : 'Versão'}
+                {selectedVersionId && (
+                  <span
+                    role="button"
+                    onClick={e => { e.stopPropagation(); setSelectedVersionId(undefined); }}
+                    className="text-indigo-400 hover:text-indigo-700"
+                  >
+                    <X size={11} />
+                  </span>
+                )}
+              </button>
+              {versionOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setVersionOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 w-56 max-h-64 overflow-y-auto scrollbar-thin">
+                    <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                      Versões do projeto
+                    </p>
+                    {versions.map(v => (
+                      <button
+                        key={v.id}
+                        onClick={() => { setSelectedVersionId(v.id); setVersionOpen(false); }}
+                        className={`w-full text-left flex items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-indigo-50 transition-colors ${
+                          selectedVersionId === v.id ? 'text-indigo-700 font-semibold bg-indigo-50' : 'text-slate-700'
+                        }`}
+                      >
+                        <span className="truncate">{v.name}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
+                          v.status === 'open' ? 'bg-green-100 text-green-700' :
+                          v.status === 'locked' ? 'bg-amber-100 text-amber-700' :
+                          'bg-slate-100 text-slate-500'
+                        }`}>
+                          {v.status === 'open' ? 'Aberta' : v.status === 'locked' ? 'Bloqueada' : 'Encerrada'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Filtro por prioridade */}
+          <div className="relative">
+            <button
+              onClick={() => setPriorityOpen(v => !v)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                priorityFilter
+                  ? 'bg-orange-50 border-orange-300 text-orange-700'
+                  : 'border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}
+              title="Filtrar por prioridade"
+            >
+              <Flag size={13} />
+              {priorityFilter || 'Prioridade'}
+              {priorityFilter && (
+                <span
+                  role="button"
+                  onClick={e => { e.stopPropagation(); setPriorityFilter(''); }}
+                  className="text-orange-400 hover:text-orange-700"
+                >
+                  <X size={11} />
+                </span>
+              )}
+            </button>
+            {priorityOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setPriorityOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 w-44">
+                  {['', 'Imediata', 'Urgente', 'Alta', 'Normal', 'Baixa'].map(p => (
+                    <button
+                      key={p}
+                      onClick={() => { setPriorityFilter(p); setPriorityOpen(false); }}
+                      className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-blue-50 transition-colors ${priorityFilter === p ? 'text-blue-600 font-semibold' : 'text-slate-700'}`}
+                    >
+                      {p ? (
+                        <>
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOTS[p] ?? 'bg-slate-400'}`} />
+                          {p}
+                        </>
+                      ) : (
+                        <span className="text-slate-500">Todas as prioridades</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <button
+            onClick={toggleCompact}
+            title={compactMode ? 'Desativar modo compacto' : 'Ativar modo compacto'}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium rounded-lg transition-colors border ${
+              compactMode
+                ? 'bg-blue-100 border-blue-300 text-blue-700'
+                : 'border-slate-200 text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Rows3 size={15} />
+            Compacto
+          </button>
+
           <button
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
@@ -586,6 +914,29 @@ export function KanbanBoard({ projectId, userName, onIssueClick }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Filtros salvos */}
+      <SavedFiltersBar
+        currentFilter={{ projectId, sortBy, priorityFilter, alertFilter: activeFilter }}
+        onApply={applyFilter}
+      />
+
+      {/* Banner de sprint (só quando versão está selecionada) */}
+      {selectedVersionId && versions && (() => {
+        const version = versions.find(v => v.id === selectedVersionId);
+        if (!version) return null;
+        const total = versionIssues?.length ?? 0;
+        const closed = versionIssues?.filter(i => i.status.is_closed).length ?? 0;
+        const myTotal = filteredIssues.length;
+        return (
+          <SprintSummary
+            version={version}
+            total={total}
+            closed={closed}
+            myTotal={myTotal}
+          />
+        );
+      })()}
 
       {/* Stats / alertas clicáveis */}
       {issues && (
@@ -605,7 +956,10 @@ export function KanbanBoard({ projectId, userName, onIssueClick }: Props) {
 
       {/* Board */}
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="flex gap-4 overflow-x-auto pb-4 flex-1 items-start scrollbar-thin">
+        <div
+          ref={boardRef}
+          className="flex gap-4 overflow-x-auto pb-4 flex-1 items-start scrollbar-thin"
+        >
           {visibleStatuses.map(status => (
             <KanbanColumn
               key={status.id}
@@ -622,12 +976,20 @@ export function KanbanBoard({ projectId, userName, onIssueClick }: Props) {
               onToggleSelect={toggleSelect}
               pinned={pinnedStatuses.has(status.id)}
               onUnpin={() => setPinnedStatuses(prev => { const n = new Set(prev); n.delete(status.id); return n; })}
+              focusedIssueId={focusedIssueId}
+              compactMode={compactMode}
+              onSubtaskOpen={onIssueClick}
+              onSubtaskDone={handleSubtaskDone}
+              activeTimerIssueId={timer.activeIssueId}
+              timerFormatted={timer.formatted}
+              onTimerStart={timer.start}
+              onTimerStop={() => timer.stop()}
             />
           ))}
         </div>
 
         <DragOverlay dropAnimation={{ duration: 150, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
-          {activeIssue && <IssueCard issue={activeIssue} onClick={() => {}} isDragOverlay />}
+          {activeIssue && <IssueCard issue={activeIssue} onClick={() => {}} isDragOverlay navigable={false} />}
         </DragOverlay>
       </DndContext>
 

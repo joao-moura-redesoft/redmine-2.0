@@ -25,15 +25,17 @@ const PRIORITY_DOT: Record<string, string> = {
 };
 
 /* ── Single issue row ── */
-function IssueRow({ issue, onClick, showAssignee }: {
+function IssueRow({ issue, onClick, showAssignee, focused }: {
   issue: Issue;
   onClick: (id: number) => void;
   showAssignee?: boolean;
+  focused?: boolean;
 }) {
   return (
     <button
+      data-issue-id={issue.id}
       onClick={() => onClick(issue.id)}
-      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left group border-b border-slate-100 last:border-0"
+      className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left group border-b border-slate-100 last:border-0 ${focused ? 'bg-blue-50 ring-1 ring-inset ring-blue-400' : ''}`}
     >
       {/* Priority dot */}
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOT[issue.priority.name] ?? 'bg-slate-400'}`} />
@@ -75,11 +77,12 @@ function IssueRow({ issue, onClick, showAssignee }: {
 }
 
 /* ── Collapsible status group ── */
-function StatusGroup({ name, issues, onIssueClick, showAssignee }: {
+function StatusGroup({ name, issues, onIssueClick, showAssignee, focusedIssueId }: {
   name: string;
   issues: Issue[];
   onIssueClick: (id: number) => void;
   showAssignee?: boolean;
+  focusedIssueId?: number;
 }) {
   const [open, setOpen] = useState(true);
   return (
@@ -106,7 +109,13 @@ function StatusGroup({ name, issues, onIssueClick, showAssignee }: {
             <span className="text-xs text-slate-400 w-24 flex-shrink-0 text-right hidden lg:block">Atualizado</span>
           </div>
           {issues.map(issue => (
-            <IssueRow key={issue.id} issue={issue} onClick={onIssueClick} showAssignee={showAssignee} />
+            <IssueRow
+              key={issue.id}
+              issue={issue}
+              onClick={onIssueClick}
+              showAssignee={showAssignee}
+              focused={focusedIssueId === issue.id}
+            />
           ))}
         </div>
       )}
@@ -123,12 +132,14 @@ interface Props {
   onIssueClick: (id: number) => void;
   showAssignee?: boolean;
   emptyMessage?: string;
+  focusedIssueId?: number;
 }
 
 export function IssueListView({
   issues, isLoading, isFetching, onRefetch, onIssueClick,
   showAssignee = false,
   emptyMessage = 'Nenhuma tarefa encontrada.',
+  focusedIssueId,
 }: Props) {
   const [search, setSearch] = useState('');
 
@@ -211,6 +222,7 @@ export function IssueListView({
             issues={statusIssues}
             onIssueClick={onIssueClick}
             showAssignee={showAssignee}
+            focusedIssueId={focusedIssueId}
           />
         ))
       )}

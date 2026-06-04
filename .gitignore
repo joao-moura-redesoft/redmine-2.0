@@ -134,3 +134,15 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Executável empacotado
+*.exe
+
+# Web Push — NUNCA versionar (chave privada VAPID e API keys do Redmine das inscrições)
+vapid.json
+push-subscriptions.json
+server/vapid.json
+server/push-subscriptions.json
+
+# Config local de equipes
+server/teams.json

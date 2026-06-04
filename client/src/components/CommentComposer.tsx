@@ -1,16 +1,21 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  Bold, Italic, Heading2, List, Code, Link2, Paperclip, Send, X, Eye, Pencil, Image as ImageIcon, AtSign,
+  Bold, Italic, Heading2, List, Code, Link2, Paperclip, Send, X, Eye, Pencil, Image as ImageIcon, AtSign, Sparkles, Loader2,
 } from 'lucide-react';
 import { Markdown } from './Markdown';
+import { redmineApi } from '../api/redmine';
+import { getAIKey } from '../utils/aiConfig';
 
 interface Member { id: number; name: string; }
 
 interface Props {
   onSubmit: (text: string, files: File[]) => void;
   sending?: boolean;
-  draftKey?: string;          // ex: id da tarefa — persiste rascunho no localStorage
-  members?: Member[];         // para autocomplete de menções @
+  draftKey?: string;
+  members?: Member[];
+  injectText?: string;
+  /** Contexto da issue para o "Revisar com IA" */
+  aiContext?: { subject: string; statusName: string };
 }
 
 function fmtSize(bytes: number): string {
@@ -27,13 +32,15 @@ function detectMention(value: string, caret: number): { query: string; start: nu
   return { query: m[2], start: caret - m[2].length - 1 };
 }
 
-export function CommentComposer({ onSubmit, sending, draftKey, members = [] }: Props) {
+export function CommentComposer({ onSubmit, sending, draftKey, members = [], injectText, aiContext }: Props) {
   const [text, setText] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [preview, setPreview] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [mention, setMention] = useState<{ query: string; start: number } | null>(null);
   const [midx, setMidx] = useState(0);
+  const [aiReviewing, setAiReviewing] = useState(false);
+  const [aiFeedback, setAiFeedback] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -45,6 +52,14 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [] }: P
     try { const d = localStorage.getItem(storageKey); setText(d ?? ''); } catch { /* ignore */ }
     setFiles([]); setPreview(false); setMention(null);
   }, [storageKey]);
+
+  // Injeta texto externo (ex: rascunho gerado por IA) quando prop muda
+  useEffect(() => {
+    if (!injectText) return;
+    setText(injectText);
+    setPreview(false);
+    setTimeout(() => taRef.current?.focus(), 50);
+  }, [injectText]);
 
   // Salva rascunho a cada mudança (limpa quando vazio)
   useEffect(() => {
@@ -233,19 +248,55 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [] }: P
         </div>
       )}
 
+      {/* Feedback de revisão por IA */}
+      {aiFeedback && (
+        <div className="mx-3 mb-2 flex items-start gap-2 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg px-3 py-2 text-xs text-purple-700 dark:text-purple-300">
+          <Sparkles size={12} className="mt-0.5 flex-shrink-0 text-purple-500" />
+          <span className="flex-1 whitespace-pre-wrap">{aiFeedback}</span>
+          <button onClick={() => setAiFeedback(null)} className="text-purple-400 hover:text-purple-600 flex-shrink-0">
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
       {/* Rodapé */}
-      <div className="flex items-center justify-between px-3 py-2 border-t border-slate-100">
-        <span className="text-[11px] text-slate-400">
+      <div className="flex items-center justify-between px-3 py-2 border-t border-slate-100 dark:border-slate-700 gap-2">
+        <span className="text-[11px] text-slate-400 hidden sm:block">
           {dragOver ? 'Solte para anexar' : 'Markdown · Ctrl+Enter envia · cole ou arraste imagens'}
         </span>
-        <button
-          onClick={submit}
-          disabled={(!text.trim() && files.length === 0) || sending}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
-        >
-          <Send size={14} />
-          {sending ? 'Enviando…' : 'Enviar'}
-        </button>
+        <div className="flex items-center gap-2 ml-auto">
+          {/* Revisar com IA — só aparece quando há texto e AI configurada */}
+          {aiContext && getAIKey() && text.trim().length > 20 && (
+            <button
+              type="button"
+              onClick={async () => {
+                setAiReviewing(true);
+                setAiFeedback(null);
+                try {
+                  const fb = await redmineApi.reviewNote(text, aiContext.subject, aiContext.statusName);
+                  setAiFeedback(fb);
+                } catch {
+                  setAiFeedback('Não foi possível revisar a nota agora.');
+                } finally {
+                  setAiReviewing(false);
+                }
+              }}
+              disabled={aiReviewing}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-700 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/30 disabled:opacity-40 transition-colors"
+            >
+              {aiReviewing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+              {aiReviewing ? 'Revisando…' : 'Revisar com IA'}
+            </button>
+          )}
+          <button
+            onClick={submit}
+            disabled={(!text.trim() && files.length === 0) || sending}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <Send size={14} />
+            {sending ? 'Enviando…' : 'Enviar'}
+          </button>
+        </div>
       </div>
 
       <input

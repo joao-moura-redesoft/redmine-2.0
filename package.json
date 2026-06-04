@@ -1,17 +1,27 @@
 {
   "name": "redmine-kanban",
   "version": "1.0.0",
+  "main": "server/index.js",
+  "bin": "server/index.js",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "node server/index.js",
     "client": "npm run dev --prefix client"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.1",
     "axios": "^1.7.2",
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "openai": "^6.42.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
+  },
+  "pkg": {
+    "assets": [
+      "server/dist/**/*"
+    ]
   }
 }

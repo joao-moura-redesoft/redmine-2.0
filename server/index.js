@@ -1,6 +1,12 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const path = require('path'); // <-- ADICIONADO: Importação explícita do path
+const fs = require('fs');
+const webpush = require('web-push');
+const { spawnSync } = require('child_process');
+const Anthropic = require('@anthropic-ai/sdk');
+const OpenAI = require('openai');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -10,7 +16,8 @@ const PORT = process.env.PORT || 3001;
 const DEFAULT_URL = '';
 const DEFAULT_KEY = '';
 
-app.use(cors({ origin: ['http://localhost:5173', 'http://127.0.0.1:5173'] }));
+// AJUSTADO: Adicionado suporte para a porta 3001 onde o front+back rodarão juntos
+app.use(cors({ origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3001', 'http://127.0.0.1:3001'] }));
 app.use(express.json());
 
 // Guarda as últimas credenciais autenticadas vistas (para requests sem headers,
@@ -50,6 +57,20 @@ const handle = (fn) => async (req, res) => {
   }
 };
 
+// Busca TODAS as páginas de um recurso paginado (genérico).
+async function fetchAllPages(redmine, path, key, params, max = 2000) {
+  const limit = 100;
+  let offset = 0, all = [], total = Infinity;
+  while (offset < total && all.length < max) {
+    const { data } = await redmine.get(path, { params: { ...params, limit, offset } });
+    if (data.total_count != null) total = data.total_count;
+    all = all.concat(data[key] || []);
+    if ((data[key] || []).length === 0) break;
+    offset += limit;
+  }
+  return all;
+}
+
 // Busca TODAS as páginas de issues para um conjunto de filtros (remove o teto de 100).
 // Trava de segurança em 2000 para não varrer bases enormes sem querer.
 async function fetchAllIssues(redmine, params) {
@@ -58,7 +79,7 @@ async function fetchAllIssues(redmine, params) {
   let offset = 0, all = [], total = Infinity;
   while (offset < total && all.length < MAX) {
     const { data } = await redmine.get('/issues.json', { params: { ...params, limit, offset } });
-    total = data.total_count ?? 0;
+    if (data.total_count != null) total = data.total_count;
     all = all.concat(data.issues || []);
     if ((data.issues || []).length === 0) break;
     offset += limit;
@@ -69,7 +90,7 @@ async function fetchAllIssues(redmine, params) {
 // Minhas issues
 app.get('/api/issues', handle(async (req, res) => {
   const { limit, offset, ...rest } = req.query; // ignora limit/offset do cliente; paginamos tudo
-  const params = { assigned_to_id: 'me', status_id: '*', ...rest };
+  const params = { assigned_to_id: 'me', status_id: '*', include: 'children', ...rest };
   const issues = await fetchAllIssues(makeRedmine(req), params);
   res.json({ issues, total_count: issues.length });
 }));
@@ -218,6 +239,46 @@ app.get('/api/issue_statuses', handle(async (req, res) => {
   res.json(data);
 }));
 
+// Time entries (minhas horas apontadas)
+app.get('/api/time_entries', handle(async (req, res) => {
+  const { from, to, issue_id, limit = 100 } = req.query;
+  const params = { user_id: 'me', limit };
+  if (from) params.from = from;
+  if (to) params.to = to;
+  if (issue_id) params.issue_id = issue_id;
+  const entries = await fetchAllPages(makeRedmine(req), '/time_entries.json', 'time_entries', params, 500);
+  res.json({ time_entries: entries, total_count: entries.length });
+}));
+
+app.post('/api/time_entries', handle(async (req, res) => {
+  const { data } = await makeRedmine(req).post('/time_entries.json', req.body);
+  res.json(data);
+}));
+
+// Atividades de time entries
+app.get('/api/enumerations/time_entry_activities', handle(async (req, res) => {
+  const { data } = await makeRedmine(req).get('/enumerations/time_entry_activities.json');
+  res.json(data);
+}));
+
+// Versões de um projeto
+app.get('/api/projects/:id/versions', handle(async (req, res) => {
+  const { data } = await makeRedmine(req).get(`/projects/${req.params.id}/versions.json`);
+  res.json(data);
+}));
+
+// Todas as issues de uma versão (open + closed) — para estatísticas de sprint
+app.get('/api/issues/by-version', handle(async (req, res) => {
+  const { project_id, version_id } = req.query;
+  if (!project_id || !version_id) return res.json({ issues: [], total_count: 0 });
+  const issues = await fetchAllIssues(makeRedmine(req), {
+    project_id,
+    fixed_version_id: version_id,
+    status_id: '*',
+  });
+  res.json({ issues, total_count: issues.length });
+}));
+
 // Lista de projetos (paginada). Se o /projects.json do Redmine falhar (ex: 500),
 // cai num fallback que monta a lista a partir dos projetos das tarefas visíveis.
 async function getProjectList(redmine) {
@@ -226,7 +287,7 @@ async function getProjectList(redmine) {
     let offset = 0, all = [], total = Infinity;
     while (offset < total) {
       const { data } = await redmine.get('/projects.json', { params: { limit, offset } });
-      total = data.total_count ?? 0;
+      if (data.total_count != null) total = data.total_count;
       all = all.concat(data.projects || []);
       offset += limit;
       if ((data.projects || []).length === 0) break;
@@ -314,10 +375,10 @@ function roleToTeam(roleName) {
   return TEAM_LABELS[prefix] || null;
 }
 
-// Lê o teams.json (overrides manuais + projeto de referência), recarregado a cada request
+// AJUSTADO: Agora ele usa process.cwd() para buscar o teams.json na mesma pasta que o .exe rodar no Windows.
 function loadTeamsConfig() {
   try {
-    const raw = require('fs').readFileSync(require('path').join(__dirname, 'teams.json'), 'utf8');
+    const raw = require('fs').readFileSync(path.join(__dirname, 'teams.json'), 'utf8');
     return JSON.parse(raw);
   } catch { return {}; }
 }
@@ -329,7 +390,7 @@ async function fetchAllMemberships(redmine, projectId) {
   let offset = 0, all = [], total = Infinity;
   while (offset < total) {
     const { data } = await redmine.get(`/projects/${projectId}/memberships.json`, { params: { limit, offset } });
-    total = data.total_count ?? 0;
+    if (data.total_count != null) total = data.total_count;
     all = all.concat(data.memberships || []);
     offset += limit;
     if ((data.memberships || []).length === 0) break;
@@ -444,6 +505,1082 @@ app.get('/api/attachments/:id/:filename', handle(async (req, res) => {
   res.send(Buffer.from(upstream.data));
 }));
 
+// =========================================================================
+// IA — geração de prompt via Claude API (key por usuário, via header)
+// =========================================================================
+// A Claude API key é configurada individualmente por cada usuário no próprio
+// cliente (localStorage) e enviada ao servidor via header x-anthropic-key.
+// O servidor age como proxy — nunca armazena a chave.
+
+// Resolve um ID de usuário do Redmine para o nome completo.
+// Retorna o próprio valor se não for um ID numérico ou se a chamada falhar.
+async function resolveUserName(redmine, value) {
+  if (!value || !/^\d+$/.test(String(value).trim())) return value;
+  try {
+    const { data } = await redmine.get(`/users/${value}.json`);
+    const u = data.user;
+    return u ? `${u.firstname} ${u.lastname}`.trim() : value;
+  } catch { return value; }
+}
+
+// inlineImageNames: set de filenames já enviados inline — excluídos da lista de texto
+// para não confundir o modelo (ele já vê as imagens, não precisa do metadado duplicado).
+// revisorName: nome já resolvido (passado pelo endpoint para evitar async aqui).
+function buildIssueContext(issue, inlineImageNames = new Set(), revisorName = '') {
+  const cf = (id) => (issue.custom_fields || []).find(f => f.id === id)?.value || '';
+  const branch    = cf(140);
+  const revisor   = revisorName || cf(210);
+  const notaVersao = cf(213);
+  const impacto   = cf(229);
+  const previsao  = cf(228);
+
+  const journalLines = (issue.journals || [])
+    .filter(j => j.notes?.trim() || j.details?.some(d => d.property === 'attr' && d.name === 'status_id'))
+    .slice(-8)
+    .map(j => {
+      const st = j.details?.find(d => d.property === 'attr' && d.name === 'status_id');
+      const parts = [];
+      if (st) parts.push(`mudou status → ${st.new_value}`);
+      if (j.notes?.trim()) parts.push(j.notes.trim().slice(0, 400));
+      return `[${j.created_on?.slice(0, 10)}] ${j.user?.name || '?'}: ${parts.join(' | ')}`;
+    }).join('\n');
+
+  // Separa anexos: os que vão inline (imagens já enviadas) vs os demais (listados em texto).
+  const otherAttachments = (issue.attachments || [])
+    .filter(a => !inlineImageNames.has(a.filename))
+    .map(a => `- ${a.filename} (${a.content_type}, ${Math.round((a.filesize || 0) / 1024)}KB)`)
+    .join('\n');
+
+  const inlineNote = inlineImageNames.size > 0
+    ? `\nImagens enviadas inline (${inlineImageNames.size}): ${[...inlineImageNames].join(', ')}`
+    : '';
+
+  return [
+    `Tarefa: #${issue.id} — ${issue.subject}`,
+    `Status: ${issue.status?.name} | Prioridade: ${issue.priority?.name} | Projeto: ${issue.project?.name}`,
+    branch     && `Branch: ${branch}`,
+    revisor    && `Revisor: ${revisor}`,
+    impacto    && `Impacto: ${impacto}`,
+    notaVersao && `Nota de versão: ${notaVersao}`,
+    previsao   && `Previsão revisão: ${previsao}`,
+    '',
+    'Descrição:',
+    (issue.description || '(sem descrição)').slice(0, 2000),
+    journalLines && `\nHistórico:\n${journalLines}`,
+    inlineNote,
+    otherAttachments && `\nOutros anexos (não disponíveis inline):\n${otherAttachments}`,
+  ].filter(Boolean).join('\n');
+}
+
+// Extrai provider + key dos headers. Suporta:
+//   x-ai-provider (anthropic|openai) + x-ai-key  ← novo padrão
+//   x-anthropic-key                               ← legado
+function getAICredentials(req) {
+  const provider = req.headers['x-ai-provider'] || 'anthropic';
+  const key = req.headers['x-ai-key'] || req.headers['x-anthropic-key'] || '';
+  return { provider, key };
+}
+
+// Busca um anexo do Redmine e devolve { base64, mediaType } ou null se falhar/muito grande.
+const MAX_ATTACH_BYTES = 5 * 1024 * 1024; // 5 MB
+async function fetchAttachmentBase64(redmineUrl, redmineKey, attachId, filename) {
+  try {
+    const resp = await axios.get(
+      `${redmineUrl}/attachments/download/${attachId}/${encodeURIComponent(filename)}`,
+      { headers: { 'X-Redmine-API-Key': redmineKey }, responseType: 'arraybuffer', maxContentLength: MAX_ATTACH_BYTES }
+    );
+    return {
+      base64: Buffer.from(resp.data).toString('base64'),
+      mediaType: resp.headers['content-type']?.split(';')[0].trim() || 'image/jpeg',
+    };
+  } catch (e) {
+    console.warn(`[ai] falha ao buscar anexo ${filename}:`, e.message);
+    return null;
+  }
+}
+
+// Bloco de imagem no formato do provider.
+function imageBlock(provider, base64, mediaType) {
+  if (provider === 'anthropic') {
+    return { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } };
+  }
+  // OpenAI
+  return { type: 'image_url', image_url: { url: `data:${mediaType};base64,${base64}` } };
+}
+
+// Chama o modelo correto e retorna o texto gerado.
+// `userContent` aceita array multimodal (texto + imagens); `user` aceita string simples.
+async function aiComplete(provider, key, { system, user, userContent, maxTokens = 2048, fast = false }) {
+  const content = userContent ?? user;
+
+  if (provider === 'anthropic') {
+    const client = new Anthropic({ apiKey: key });
+    const model = fast ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6';
+    const msg = await client.messages.create({
+      model,
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content }],
+    });
+    return msg.content[0]?.text?.trim() || '';
+  }
+
+  if (provider === 'openai') {
+    const client = new OpenAI({ apiKey: key });
+    // Sobe para gpt-4o quando há imagens inline — o mini tende a ignorar a instrução de descrever.
+    const hasImages = Array.isArray(content) && content.some(c => c.type === 'image_url');
+    const model = (hasImages && !fast) ? 'gpt-4o' : 'gpt-4o-mini';
+    const msg = await client.chat.completions.create({
+      model,
+      max_tokens: maxTokens,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content },
+      ],
+    });
+    return msg.choices[0]?.message?.content?.trim() || '';
+  }
+
+  throw new Error(`provider desconhecido: ${provider}`);
+}
+
+const PROMPT_SYSTEM = `Você é um assistente especializado no ERP B2click (frontend Delphi, backend Java 21 com sintaxe legada).
+Gere prompts autocontidos em Markdown para serem colados em outra sessão de Claude Code.
+Responda APENAS com o conteúdo Markdown, sem explicações extras.`;
+
+const PROMPT_TEMPLATE = (context) => `Com base nos dados abaixo, gere um prompt Markdown autocontido seguindo EXATAMENTE esta estrutura:
+
+# Prompt — Tarefa #<ID> (<PRIORIDADE> — <STATUS>)
+
+> Cole o bloco abaixo no Claude Code de destino. O Claude não tem acesso ao Redmine — todo o contexto está aqui.
+
+---
+
+## Contexto do Sistema
+<descrição técnica do projeto — usar "ERP cliente-servidor da B2click. Frontend em Delphi, backend em Java 21 com sintaxe legada." e ajustar se o Impacto indicar tecnologia específica>
+
+## Branch
+<se há branch preenchida: "Branch existente (não criar nova): \`<branch>\`"; se não há: "Branch a criar: \`#<ID padded 6>-MAS-joao-<slug do assunto>\`">
+<se há Revisor preenchido, adicionar: "Revisor: <nome>">
+<se há Nota de Versão, citar>
+<se há Impacto, citar>
+
+## O Problema
+<descrição da issue — preservar informações técnicas, não resumir demais>
+
+## Comentários da revisão *(apenas se status = Pendente Correção — omitir seção caso contrário)*
+> <citar literalmente a nota do revisor que voltou a tarefa>
+
+## Histórico relevante *(apenas se houver notas técnicas relevantes no journal — omitir se vazio)*
+<citar literalmente comentários técnicos do journal>
+
+## Anexos *(apenas se houver anexos — omitir se vazio)*
+<Para cada imagem recebida inline: crie uma subseção "### filename.png" com descrição factual completa — UI visível, textos na tela, mensagens de erro transcritas literalmente, campos e valores. O Claude de destino não terá acesso às imagens originais.>
+<Para outros arquivos (PDFs, ZIPs, vídeos): mencione nome + tamanho e instrua o Claude de destino a solicitar o arquivo ao usuário.>
+
+## Hipóteses Técnicas
+<3-5 hipóteses inferidas do problema, marcadas como hipótese>
+
+## Sua Tarefa
+1. <passo numerado começando por checkout/criação de branch>
+2. ...
+<incluir: apresentar levantamento ANTES de mudar código para tarefas complexas ou Pendente Correção>
+<última etapa: avisar usuário ao terminar para ele atualizar o Redmine>
+
+## Critérios de aceite
+- <bullets concretos e verificáveis>
+
+---
+
+DADOS DA TAREFA:
+${context}`;
+
+// Gera o prompt completo seguindo o template da skill gerar-prompt-tarefa.
+app.post('/api/ai/generate-prompt', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { issue } = req.body;
+  if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
+
+  // Busca imagens dos anexos para enviar inline ao modelo (multimodal).
+  // Limite: imagens ≤ 5 MB, no máximo 5 por issue (custo/latência).
+  const redmineUrl = req.headers['x-redmine-url'] || lastAuth.url;
+  const redmineKey = req.headers['x-redmine-key'] || lastAuth.key;
+  const imageTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+  const imageAttachments = (issue.attachments || [])
+    .filter(a => imageTypes.includes(a.content_type?.toLowerCase()) && (a.filesize || 0) <= MAX_ATTACH_BYTES)
+    .slice(0, 5);
+
+  const fetchedImages = [];
+  if (redmineUrl && redmineKey) {
+    for (const att of imageAttachments) {
+      const img = await fetchAttachmentBase64(redmineUrl, redmineKey, att.id, att.filename);
+      if (img) fetchedImages.push({ ...img, filename: att.filename });
+    }
+  }
+
+  // Resolve o ID do revisor (CF 210) para nome antes de montar o contexto.
+  const redmineClient = makeRedmine(req);
+  const rawRevisorId = (issue.custom_fields || []).find(f => f.id === 210)?.value || '';
+  const revisorName = await resolveUserName(redmineClient, rawRevisorId);
+
+  const inlineNames = new Set(fetchedImages.map(i => i.filename));
+  const textContent = PROMPT_TEMPLATE(buildIssueContext(issue, inlineNames, revisorName));
+
+  // Monta conteúdo: texto do template + imagens inline com instrução explícita antes de cada uma.
+  // Monta conteúdo multimodal: instrução de descrição fica IMEDIATAMENTE antes de cada imagem
+  // para o modelo associar claramente qual imagem descrever.
+  const userContent = fetchedImages.length === 0
+    ? textContent
+    : [
+        { type: 'text', text: textContent },
+        { type: 'text', text: `\n\n---\nOs ${fetchedImages.length} anexo(s) de imagem desta tarefa seguem abaixo. Para cada um, você DEVE incluir uma subseção "### <nome>" dentro de "## Anexos" do prompt gerado com descrição visual completa e factual.` },
+        ...fetchedImages.flatMap(img => [
+          {
+            type: 'text',
+            text: `\n### ${img.filename}\nOLHE com atenção para a imagem abaixo e descreva factualmente: (1) que tela/módulo do sistema está sendo exibida, (2) todos os textos visíveis na tela, especialmente mensagens de erro — transcrever LITERALMENTE, (3) campos preenchidos e seus valores, (4) o que está destacado, selecionado ou anotado. Esta descrição vai para "## Anexos" do prompt:`,
+          },
+          imageBlock(provider, img.base64, img.mediaType),
+        ]),
+      ];
+
+  if (fetchedImages.length > 0) {
+    console.log(`[ai] ${fetchedImages.length} imagem(ns) enviada(s) inline para ${provider}`);
+  }
+
+  const prompt = await aiComplete(provider, key, {
+    system: PROMPT_SYSTEM,
+    userContent,
+    maxTokens: 2048,
+  });
+
+  res.json({ prompt });
+}));
+
+// Resumo dos journals — destila o histórico em bullets.
+app.post('/api/ai/summarize-history', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { issue } = req.body;
+  if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
+
+  const notes = (issue.journals || [])
+    .filter(j => j.notes?.trim())
+    .map(j => `[${j.created_on?.slice(0, 10)}] ${j.user?.name || '?'}: ${j.notes.trim()}`)
+    .join('\n\n');
+
+  if (!notes) return res.json({ summary: 'Sem comentários no histórico desta tarefa.' });
+
+  const summary = await aiComplete(provider, key, {
+    system: 'Você é um assistente de desenvolvimento de software. Responda em português do Brasil.',
+    user: `Resuma o histórico de comentários abaixo em bullets (•), destacando: o que foi feito, problemas encontrados, decisões tomadas e pendências. Seja direto. Máximo 8 bullets.
+
+Tarefa: #${issue.id} — ${issue.subject}
+Status atual: ${issue.status?.name}
+
+Histórico:
+${notes}`,
+    maxTokens: 500,
+    fast: true,
+  });
+
+  res.json({ summary });
+}));
+
+// Rascunho de nota para postar no journal.
+app.post('/api/ai/draft-note', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { issue } = req.body;
+  if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
+
+  const cf = (id) => (issue.custom_fields || []).find(f => f.id === id)?.value || '';
+  const branch = cf(140);
+  const lastNote = (issue.journals || []).filter(j => j.notes?.trim()).slice(-1)[0];
+
+  const draft = await aiComplete(provider, key, {
+    system: 'Você é um desenvolvedor do ERP B2click (frontend Delphi, backend Java 21). Escreva em português do Brasil, tom técnico e direto. Gere APENAS o texto da nota, sem título nem formatação extra.',
+    user: `Gere um rascunho de nota de atualização para o journal desta tarefa. O desenvolvedor quer registrar progresso. Deve ser objetivo (2-4 parágrafos curtos), mencionar o que foi feito e próximos passos. Não invente detalhes técnicos — baseie-se no contexto.
+
+Tarefa: #${issue.id} — ${issue.subject}
+Status: ${issue.status?.name}
+${branch ? `Branch: ${branch}` : ''}
+${lastNote ? `Último comentário (${lastNote.created_on?.slice(0, 10)}): ${lastNote.notes?.trim().slice(0, 300)}` : ''}`,
+    maxTokens: 350,
+    fast: true,
+  });
+
+  res.json({ draft });
+}));
+
+// Daily standup — gera texto de standup a partir das tarefas abertas.
+app.post('/api/ai/standup', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { issues } = req.body;
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return res.json({ standup: 'Nenhuma tarefa aberta encontrada.' });
+  }
+
+  const list = issues.slice(0, 25).map(i =>
+    `- #${i.id} [${i.status?.name}] ${i.subject}`
+  ).join('\n');
+
+  const standup = await aiComplete(provider, key, {
+    system: 'Você é um assistente de daily standup para um time de desenvolvimento. Responda em português do Brasil.',
+    user: `Com base nas tarefas abaixo, gere um texto de daily standup no formato:
+
+**Ontem:** [o que provavelmente foi trabalhado com base nos status]
+**Hoje:** [o que planejo fazer — foque nas tarefas em andamento e pendências imediatas]
+**Impedimentos:** [bloqueios evidentes, ou "Nenhum"]
+
+Use primeira pessoa. Seja conciso. Cite IDs das tarefas relevantes.
+
+Minhas tarefas:
+${list}`,
+    maxTokens: 400,
+    fast: true,
+  });
+
+  res.json({ standup });
+}));
+
+// Avaliação de complexidade — o modelo avalia o quão complexa é a tarefa com base
+// nos requisitos descritos. Não inventa horas: dá um nível qualitativo + raciocínio
+// + fatores de risco. Muito mais honesto e útil do que um número fabricado.
+app.post('/api/ai/assess-complexity', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { issue } = req.body;
+  if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
+
+  const cf = (id) => (issue.custom_fields || []).find(f => f.id === id)?.value || '';
+  const impacto   = cf(229);
+  const numReqs   = (issue.children || []).length; // subtarefas como proxy de escopo
+  const rejections = (issue.journals || [])
+    .filter(j => j.details?.some(d => d.property === 'attr' && d.name === 'status_id' && d.new_value === '34'))
+    .length;
+
+  const result = await aiComplete(provider, key, {
+    system: 'Você é um tech lead experiente no ERP B2click (frontend Delphi, backend Java 21 legado). Responda APENAS com JSON válido, sem markdown.',
+    user: `Avalie a complexidade desta tarefa de desenvolvimento. Retorne um JSON com:
+- "level": um de "Baixa" | "Média" | "Alta" | "Muito Alta"
+- "reasoning": string (2-3 frases) explicando por que este nível, citando os aspectos mais relevantes da descrição
+- "risks": array de strings (2-5 itens) listando os principais fatores de risco ou pontos de atenção
+- "roughHours": string com faixa aproximada de esforço (ex: "4-8h", "2-5 dias") — deixe claro que é uma estimativa bruta baseada apenas na descrição
+
+Considere: número de requisitos listados, módulos afetados, integrações (PDV/retaguarda), novidade da funcionalidade, clareza dos requisitos.
+
+Tarefa: #${issue.id} — ${issue.subject}
+Tracker: ${issue.tracker?.name || ''}
+${impacto      ? `Impacto (módulos): ${impacto}` : ''}
+${numReqs > 0  ? `Subtarefas: ${numReqs}` : ''}
+${rejections > 0 ? `Voltou da revisão ${rejections}x (histórico de correções)` : ''}
+
+Descrição:
+${(issue.description || '(sem descrição)').slice(0, 1500)}`,
+    maxTokens: 400,
+    fast: false,
+  });
+
+  try {
+    res.json(JSON.parse(result));
+  } catch {
+    res.json({ level: '?', reasoning: result, risks: [], roughHours: '?' });
+  }
+}));
+
+// Checklist de revisão para o revisor (status Pendente Revisão).
+app.post('/api/ai/review-checklist', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { issue } = req.body;
+  if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
+
+  const cf = (id) => (issue.custom_fields || []).find(f => f.id === id)?.value || '';
+  const impacto = cf(229);
+  const branch  = cf(140);
+
+  const lastDevNotes = (issue.journals || [])
+    .filter(j => j.notes?.trim())
+    .slice(-3)
+    .map(j => `- ${j.notes.trim().slice(0, 300)}`)
+    .join('\n');
+
+  const checklist = await aiComplete(provider, key, {
+    system: 'Você é um revisor de software experiente no ERP B2click (frontend Delphi, backend Java 21). Responda em português do Brasil.',
+    user: `Gere um checklist de revisão de código para a tarefa abaixo. Cada item deve ser uma pergunta ou verificação concreta que o revisor deve checar. Use formato markdown com checkboxes: "- [ ] Verificar que...". Entre 6 e 12 itens. Baseie nos requisitos descritos e no impacto informado.
+
+Tarefa: #${issue.id} — ${issue.subject}
+${branch  ? `Branch: ${branch}` : ''}
+${impacto ? `Impacto (módulos afetados): ${impacto}` : ''}
+
+Descrição:
+${(issue.description || '').slice(0, 1500)}
+
+${lastDevNotes ? `Notas do desenvolvedor:\n${lastDevNotes}` : ''}`,
+    maxTokens: 600,
+    fast: false,
+  });
+
+  res.json({ checklist });
+}));
+
+// Sugestão de campos para nova issue com base no título e descrição.
+app.post('/api/ai/suggest-fields', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { subject, description, trackers, priorities } = req.body;
+  if (!subject) return res.status(400).json({ error: 'subject obrigatório' });
+
+  const trackerList  = (trackers  || []).map(t => `${t.id}: ${t.name}`).join(', ');
+  const priorityList = (priorities || []).map(p => `${p.id}: ${p.name}`).join(', ');
+
+  const IMPACTO_OPTS = 'JAVA, B2CLICK, B2CLICKPAF, ROTEADORPDV, AUTOMACAO, B2CLICKPOS, B2CLICKPAY (pode combinar com +)';
+
+  const result = await aiComplete(provider, key, {
+    system: 'Você é um assistente de triagem de tarefas do ERP B2click. Responda APENAS com JSON válido, sem markdown.',
+    user: `Com base no título e descrição da tarefa abaixo, sugira os campos mais adequados. Retorne um JSON com:
+- "tracker_id": número do tracker mais adequado (ou null se incerto)
+- "priority_id": número da prioridade mais adequada (ou null se incerto)
+- "impacto": string com o valor de impacto (ou null se incerto)
+- "reasoning": string curta (1 frase) explicando as escolhas
+
+Trackers disponíveis: ${trackerList || '(não informados)'}
+Prioridades disponíveis: ${priorityList || '(não informadas)'}
+Opções de impacto: ${IMPACTO_OPTS}
+
+Título: ${subject}
+Descrição: ${(description || '').slice(0, 500)}`,
+    maxTokens: 200,
+    fast: true,
+  });
+
+  try {
+    res.json(JSON.parse(result));
+  } catch {
+    res.json({ tracker_id: null, priority_id: null, impacto: null, reasoning: result });
+  }
+}));
+
+// Revisão de nota antes de postar no journal.
+app.post('/api/ai/review-note', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { noteText, issueSubject, issueStatus } = req.body;
+  if (!noteText) return res.status(400).json({ error: 'noteText obrigatório' });
+
+  const feedback = await aiComplete(provider, key, {
+    system: 'Você é um revisor técnico de notas de progresso de software. Responda em português do Brasil. Seja direto e conciso.',
+    user: `Revise a nota de journal abaixo e aponte em 2-4 bullets (•) o que poderia ser melhorado: informações faltando, pontos ambíguos, ou aspectos importantes não mencionados. Se a nota estiver boa, diga "✓ Nota clara e completa." sem bullets.
+
+Contexto da tarefa: ${issueSubject || '(não informado)'} [${issueStatus || ''}]
+
+Nota a revisar:
+${noteText.slice(0, 1000)}`,
+    maxTokens: 250,
+    fast: true,
+  });
+
+  res.json({ feedback });
+}));
+
+// Detector de requisitos ambíguos — aponta o que está incompleto ou contraditório
+// antes do dev começar, evitando retrabalho e ping-pong de revisão.
+app.post('/api/ai/detect-ambiguities', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { issue } = req.body;
+  if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
+
+  const redmineUrl = req.headers['x-redmine-url'] || lastAuth.url;
+  const redmineKey = req.headers['x-redmine-key'] || lastAuth.key;
+
+  // Separa anexos por tipo
+  const imageTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+  const textTypes  = ['text/plain', 'text/csv', 'application/sql', 'application/json', 'text/html', 'text/xml', 'application/xml'];
+  const attachments = issue.attachments || [];
+
+  const imageAtts = attachments.filter(a => imageTypes.includes(a.content_type?.toLowerCase()) && (a.filesize || 0) <= MAX_ATTACH_BYTES).slice(0, 3);
+  const isTextFile = (a) => {
+    const ct = a.content_type?.toLowerCase() || '';
+    return textTypes.some(t => ct.includes(t)) || ct.startsWith('text/') || /\.(txt|log|sql|csv|json|xml|md)$/i.test(a.filename || '');
+  };
+  const textAtts      = attachments.filter(a => isTextFile(a) && (a.filesize || 0) <= 80 * 1024).slice(0, 4);
+  const largeTextAtts = attachments.filter(a => isTextFile(a) && (a.filesize || 0) > 80 * 1024);
+  const otherAtts = attachments.filter(a =>
+    !imageAtts.find(x => x.id === a.id) && !textAtts.find(x => x.id === a.id)
+  );
+
+  // Busca imagens base64
+  const fetchedImages = [];
+  if (redmineUrl && redmineKey) {
+    for (const att of imageAtts) {
+      const img = await fetchAttachmentBase64(redmineUrl, redmineKey, att.id, att.filename);
+      if (img) fetchedImages.push({ ...img, filename: att.filename });
+    }
+  }
+
+  // Busca conteúdo de arquivos de texto
+  const textContents = [];
+  if (redmineUrl && redmineKey) {
+    for (const att of textAtts) {
+      try {
+        const resp = await axios.get(
+          `${redmineUrl}/attachments/download/${att.id}/${encodeURIComponent(att.filename)}`,
+          { headers: { 'X-Redmine-API-Key': redmineKey }, responseType: 'text', maxContentLength: 80 * 1024 }
+        );
+        textContents.push({ filename: att.filename, content: resp.data.slice(0, 4000) });
+      } catch (e) {
+        console.warn(`[ambiguities] falha ao buscar texto ${att.filename}:`, e.message);
+      }
+    }
+  }
+
+  // Monta texto base do prompt
+  let userText = `Analise os requisitos abaixo e identifique pontos ambíguos, incompletos ou contraditórios que podem causar retrabalho. Retorne um JSON com:
+- "hasIssues": boolean — true se encontrou problemas
+- "ambiguities": array de objetos com:
+  - "trecho": string — o trecho exato da descrição ou do anexo que está ambíguo (copiar literal)
+  - "problema": string — por que isso é ambíguo ou incompleto
+  - "pergunta": string — a pergunta que o dev deveria fazer antes de codar
+
+Se os requisitos estiverem claros e completos, retorne hasIssues: false e ambiguities: [].
+
+Tarefa: #${issue.id} — ${issue.subject}
+Tracker: ${issue.tracker?.name || ''}
+
+Descrição:
+${(issue.description || '(sem descrição)').slice(0, 2000)}`;
+
+  if (textContents.length > 0) {
+    userText += '\n\n--- ANEXOS DE TEXTO ---';
+    for (const tc of textContents) {
+      userText += `\n\n### ${tc.filename}\n${tc.content}`;
+    }
+  }
+  if (largeTextAtts.length > 0) {
+    userText += `\n\n⚠ Arquivos de texto grandes (não lidos automaticamente por exceder 80 KB):\n`;
+    userText += largeTextAtts.map(a => `- ${a.filename} (${Math.round((a.filesize || 0) / 1024)} KB) — considere mencionar o conteúdo relevante na descrição da tarefa`).join('\n');
+  }
+  if (otherAtts.length > 0) {
+    userText += `\n\nOutros anexos presentes (não lidos): ${otherAtts.map(a => `${a.filename} (${a.content_type})`).join(', ')}`;
+  }
+  if (fetchedImages.length > 0) {
+    userText += `\n\nImagens em anexo (${fetchedImages.length}): ${fetchedImages.map(i => i.filename).join(', ')} — analise-as como parte dos requisitos visuais.`;
+  }
+
+  // Monta conteúdo: texto + imagens inline
+  const userContent = fetchedImages.length === 0
+    ? userText
+    : [
+        { type: 'text', text: userText },
+        ...fetchedImages.flatMap(img => [
+          { type: 'text', text: `\n### Imagem: ${img.filename}` },
+          imageBlock(provider, img.base64, img.mediaType),
+        ]),
+      ];
+
+  if (fetchedImages.length > 0 || textContents.length > 0) {
+    console.log(`[ambiguities] ${fetchedImages.length} imagem(ns), ${textContents.length} texto(s) incluído(s)`);
+  }
+
+  const result = await aiComplete(provider, key, {
+    system: 'Você é um analista de requisitos sênior no ERP B2click (frontend Delphi, backend Java 21). Responda APENAS com JSON válido, sem markdown.',
+    userContent,
+    maxTokens: 800,
+    fast: false,
+  });
+
+  try {
+    res.json(JSON.parse(result));
+  } catch {
+    res.json({ hasIssues: false, ambiguities: [], raw: result });
+  }
+}));
+
+// Sugestão de nota de versão seguindo o padrão B2click:
+// (MÓDULO OPERACIONAL\ SUBMÓDULO\ TELA) O que foi feito
+// O caminho do menu vem da própria descrição (sempre citada nas issues do ERP).
+app.post('/api/ai/suggest-version-note', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { issue } = req.body;
+  if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
+
+  const cf = (id) => (issue.custom_fields || []).find(f => f.id === id)?.value || '';
+  const currentNote = cf(213); // Nota de versão atual (CF 213)
+
+  const lastNotes = (issue.journals || [])
+    .filter(j => j.notes?.trim())
+    .slice(-3)
+    .map(j => `[${j.created_on?.slice(0, 10)}] ${j.notes.trim().slice(0, 300)}`)
+    .join('\n');
+
+  const result = await aiComplete(provider, key, {
+    system: 'Você é um desenvolvedor do ERP B2click. Responda APENAS com JSON válido, sem markdown.',
+    user: `Gere uma sugestão de Nota de Versão para esta tarefa seguindo EXATAMENTE o padrão B2click:
+
+PADRÃO: (CAMINHO DO MENU NO ERP) Descrição concisa do que foi alterado/adicionado/corrigido
+
+Exemplos reais do padrão:
+- (MODULO OPERACIONAL\\ PRODUTOS\\ A. PRODUTOS aba DADOS NAS FILIAIS) Foi adicionado o parâmetro NAO_USAR_ALIQUOTAS_IBPT para Lei 12.741
+- (MODULO PADRÃO\\ CONFIGURAÇÃO\\ G. CONFIGURAÇÃO DE PDV) Adicionado novo parâmetro NÃO USAR ALÍQUOTAS DO IBPT
+- (MODULO VENDAS\\ VENDAS\\ C. CONSULTA DE PEDIDO DE VENDA) Corrigido erro no envio de e-mail pelo [F6]
+
+Regras:
+- O caminho do menu DEVE vir da descrição da tarefa (ela sempre cita onde é a mudança, como "Em MODULO X\\ Y\\ Z...")
+- Use \\ como separador no caminho
+- A descrição deve ser curta (1 frase), no passado ("Foi adicionado", "Adicionado", "Corrigido", "Implementado")
+- Se há múltiplas telas afetadas, gere uma nota por tela (retorne array)
+
+Retorne JSON com:
+- "notes": array de strings — uma nota por tela/mudança
+- "reasoning": string — como você extraiu o caminho do menu e o que foi feito
+
+${currentNote && currentNote !== '*' ? `Nota atual (para referência de estilo): ${currentNote}` : ''}
+
+Tarefa: #${issue.id} — ${issue.subject}
+
+Descrição:
+${(issue.description || '').slice(0, 2000)}
+
+${lastNotes ? `Histórico recente:\n${lastNotes}` : ''}`,
+    maxTokens: 500,
+    fast: false,
+  });
+
+  try {
+    res.json(JSON.parse(result));
+  } catch {
+    res.json({ notes: [], reasoning: result });
+  }
+}));
+
+// Resumo rápido de 1 linha — para o card do Kanban.
+app.post('/api/ai/quick', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { issue } = req.body;
+  if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
+
+  const oneLiner = await aiComplete(provider, key, {
+    system: 'Você é um assistente de software. Responda em português do Brasil.',
+    user: `Em no máximo 12 palavras, descreva o estado atual desta tarefa:
+Tarefa: ${issue.subject}
+Status: ${issue.status?.name}
+Descrição: ${(issue.description || '').slice(0, 300)}
+
+Retorne APENAS a frase, sem aspas, sem ponto final.`,
+    maxTokens: 80,
+    fast: true,
+  });
+
+  res.json({ oneLiner });
+}));
+
+// =========================================================================
+// WEB PUSH — notificações mesmo com a aba do navegador fechada
+// =========================================================================
+// O servidor (que continua de pé enquanto o .exe roda) faz polling do Redmine
+// por inscrição e empurra notificações. O service worker só EXIBE a notificação
+// quando não há nenhuma janela do app aberta — se houver (aberta ou minimizada),
+// o próprio app já cuida via o polling em segundo plano (refetchIntervalInBackground),
+// evitando notificações duplicadas.
+
+// Pasta gravável: ao lado do .exe quando empacotado (pkg), senão a pasta do server.
+const DATA_DIR = process.pkg ? path.dirname(process.execPath) : __dirname;
+const dataFile = (name) => path.join(DATA_DIR, name);
+
+// Escrita atômica: grava num .tmp e renomeia, pra nunca deixar o arquivo pela metade.
+function writeFileAtomic(file, content) {
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, content);
+  fs.renameSync(tmp, file);
+}
+
+// ── Criptografia em repouso via Windows DPAPI (escopo CurrentUser) ─────────
+// Liga a criptografia à conta Windows logada: só aquele usuário, naquela
+// máquina, descriptografa — sem gerenciar senha. Mesmo nível do localStorage
+// do navegador (que é o teto realista aqui). Fora do Windows ou se o DPAPI
+// falhar, cai pra texto puro com aviso, pra nunca quebrar o boot.
+const IS_WINDOWS = process.platform === 'win32';
+
+function runPowerShell(script, input) {
+  const r = spawnSync('powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    { input, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, windowsHide: true });
+  if (r.error) throw r.error;
+  if (r.status !== 0) throw new Error(r.stderr || `powershell saiu com código ${r.status}`);
+  return (r.stdout || '').trim();
+}
+
+function dpapiProtect(plaintext) {
+  const script = [
+    'Add-Type -AssemblyName System.Security',
+    '$inB64 = [Console]::In.ReadToEnd()',
+    '$bytes = [Convert]::FromBase64String($inB64)',
+    '$prot = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)',
+    '[Convert]::ToBase64String($prot)',
+  ].join('; ');
+  return runPowerShell(script, Buffer.from(plaintext, 'utf8').toString('base64'));
+}
+
+function dpapiUnprotect(b64blob) {
+  const script = [
+    'Add-Type -AssemblyName System.Security',
+    '$inB64 = [Console]::In.ReadToEnd()',
+    '$bytes = [Convert]::FromBase64String($inB64)',
+    '$plain = [System.Security.Cryptography.ProtectedData]::Unprotect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)',
+    '[Convert]::ToBase64String($plain)',
+  ].join('; ');
+  return Buffer.from(runPowerShell(script, b64blob), 'base64').toString('utf8');
+}
+
+// Lê JSON, descriptografando se estiver no formato { __dpapi }. Aceita texto
+// puro também (compat com arquivos antigos / fallback).
+function readJsonSecure(file, fallback) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (parsed && typeof parsed.__dpapi === 'string') {
+      if (!IS_WINDOWS) { console.warn('[push] arquivo cifrado com DPAPI fora do Windows — ignorando'); return fallback; }
+      return JSON.parse(dpapiUnprotect(parsed.__dpapi));
+    }
+    return parsed;
+  } catch { return fallback; }
+}
+
+// Grava JSON cifrado com DPAPI; cai pra texto puro se o DPAPI não estiver disponível.
+function writeJsonSecure(file, data) {
+  const plaintext = JSON.stringify(data);
+  if (IS_WINDOWS) {
+    try {
+      writeFileAtomic(file, JSON.stringify({ __dpapi: dpapiProtect(plaintext) }, null, 2));
+      return;
+    } catch (e) {
+      console.warn('[push] DPAPI indisponível, gravando em texto puro:', e.message);
+    }
+  }
+  try { writeFileAtomic(file, JSON.stringify(data, null, 2)); }
+  catch (e) { console.error('[push] falha ao gravar', file, e.message); }
+}
+
+// VAPID: carrega ou gera o par de chaves uma única vez (persistido em vapid.json).
+const VAPID_FILE = dataFile('vapid.json');
+let vapid = readJsonSecure(VAPID_FILE, null);
+if (!vapid || !vapid.publicKey || !vapid.privateKey) {
+  vapid = webpush.generateVAPIDKeys();
+  writeJsonSecure(VAPID_FILE, vapid);
+  console.log('[push] novas chaves VAPID geradas');
+}
+webpush.setVapidDetails('mailto:admin@b2click.com', vapid.publicKey, vapid.privateKey);
+
+// Inscrições persistidas: [{ endpoint, subscription, url, key, updatedAt, seen:{...} }]
+const SUBS_FILE = dataFile('push-subscriptions.json');
+let subscriptions = readJsonSecure(SUBS_FILE, []);
+subscriptions.forEach(s => { if (!s.updatedAt) s.updatedAt = Date.now(); }); // backfill p/ TTL
+const saveSubs = () => writeJsonSecure(SUBS_FILE, subscriptions);
+
+// Expira inscrições inativas (sem re-inscrição) há mais de 30 dias.
+const SUB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+// Coleta os IDs atuais relevantes para um par url/key (inicializa/atualiza "seen").
+async function collectPushState(url, key) {
+  const client = axios.create({
+    baseURL: url,
+    headers: { 'X-Redmine-API-Key': key, 'Content-Type': 'application/json' },
+  });
+  const me = (await client.get('/users/current.json')).data.user.id;
+
+  const assigned = await fetchAllIssues(client, { assigned_to_id: 'me', status_id: 'open' });
+  const review = await fetchAllIssues(client, { cf_210: me, status_id: 71 });
+  const monitoredAll = await fetchAllIssues(client, { cf_141: me, status_id: 'open' });
+  const monitored = monitoredAll.filter(
+    i => !i.assigned_to || String(i.assigned_to.id) !== String(me)
+  );
+
+  const byId = new Map();
+  [...assigned, ...review, ...monitored].forEach(i => byId.set(i.id, i));
+  return {
+    issues: byId,
+    seen: {
+      assigned: assigned.map(i => i.id),
+      review: review.map(i => i.id),
+      monitored: monitored.map(i => i.id),
+    },
+  };
+}
+
+app.get('/api/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: vapid.publicKey });
+});
+
+app.post('/api/push/subscribe', handle(async (req, res) => {
+  const url = req.headers['x-redmine-url'];
+  const key = req.headers['x-redmine-key'];
+  const subscription = req.body?.subscription;
+  if (!url || !key || !subscription?.endpoint) {
+    console.warn('[push] subscribe rejeitado — faltando:', { url: !!url, key: !!key, endpoint: !!subscription?.endpoint });
+    return res.status(400).json({ error: 'subscription e credenciais são obrigatórios' });
+  }
+
+  // Estado inicial para não disparar como "novo" tudo o que já existe hoje.
+  let seen = { assigned: [], review: [], monitored: [] };
+  try { seen = (await collectPushState(url, key)).seen; }
+  catch (e) { console.warn('[push] não consegui inicializar o estado:', e.response?.status || e.message); }
+
+  const rec = { endpoint: subscription.endpoint, subscription, url, key, seen, updatedAt: Date.now() };
+  const idx = subscriptions.findIndex(s => s.endpoint === subscription.endpoint);
+  if (idx >= 0) subscriptions[idx] = rec; else subscriptions.push(rec);
+  saveSubs();
+  console.log(`[push] inscrição registrada (${subscriptions.length} no total)`);
+  res.json({ success: true });
+}));
+
+app.post('/api/push/unsubscribe', handle(async (req, res) => {
+  const endpoint = req.body?.endpoint;
+  subscriptions = subscriptions.filter(s => s.endpoint !== endpoint);
+  saveSubs();
+  res.json({ success: true });
+}));
+
+// Envia uma notificação; remove a inscrição se o navegador disser que expirou (404/410).
+async function sendPush(rec, payload) {
+  try {
+    await webpush.sendNotification(rec.subscription, JSON.stringify(payload));
+  } catch (err) {
+    if (err.statusCode === 404 || err.statusCode === 410) {
+      subscriptions = subscriptions.filter(s => s.endpoint !== rec.endpoint);
+      saveSubs();
+      console.log('[push] inscrição expirada removida');
+    } else {
+      console.error('[push] erro ao enviar:', err.statusCode || err.message);
+    }
+  }
+}
+
+const PUSH_TAG = { assigned: 'a', review: 'r', monitored: 'm' };
+const PUSH_TITLE = {
+  assigned: '📋 Nova tarefa atribuída a você',
+  review: '🔍 Pedido de revisão',
+  monitored: '👁️ Nova tarefa em monitoramento',
+};
+
+const PUSH_POLL_MS = 60 * 1000;
+let pushPolling = false;
+async function pollPush() {
+  if (pushPolling) return;
+  // Poda inscrições inativas há mais de 30 dias (TTL).
+  const now = Date.now();
+  const before = subscriptions.length;
+  subscriptions = subscriptions.filter(s => now - (s.updatedAt || now) < SUB_TTL_MS);
+  if (subscriptions.length !== before) {
+    console.log(`[push] ${before - subscriptions.length} inscrição(ões) expiradas por inatividade`);
+    saveSubs();
+  }
+  if (subscriptions.length === 0) return;
+  pushPolling = true;
+  try {
+    for (const rec of [...subscriptions]) {
+      try {
+        const { issues, seen } = await collectPushState(rec.url, rec.key);
+        const prev = rec.seen || { assigned: [], review: [], monitored: [] };
+        const toNotify = [];
+
+        for (const type of ['assigned', 'review', 'monitored']) {
+          const oldSet = new Set(prev[type] || []);
+          for (const id of seen[type]) {
+            if (!oldSet.has(id) && issues.has(id)) toNotify.push({ type, issue: issues.get(id) });
+          }
+        }
+        rec.seen = seen;
+
+        for (const { type, issue } of toNotify) {
+          await sendPush(rec, {
+            title: PUSH_TITLE[type],
+            body: `#${issue.id} — ${issue.subject}\n${issue.project?.name ?? ''}`,
+            tag: `rk-${PUSH_TAG[type]}-${issue.id}`,
+            url: `/?issue=${issue.id}`,
+            issueId: issue.id,
+          });
+        }
+      } catch (err) {
+        console.warn('[push] poll falhou para uma inscrição:', err.response?.status || err.message);
+      }
+    }
+    saveSubs(); // persiste os "seen" atualizados
+  } finally {
+    pushPolling = false;
+  }
+}
+setInterval(pollPush, PUSH_POLL_MS);
+
+// =========================================================================
+// NEXTCLOUD TALK PROXY
+// =========================================================================
+
+function makeTalk(req) {
+  const url   = req.headers['x-nextcloud-url']   || '';
+  const user  = req.headers['x-nextcloud-user']  || '';
+  const token = req.headers['x-nextcloud-token'] || '';
+  return axios.create({
+    baseURL: url,
+    auth: { username: user, password: token },
+    headers: { 'OCS-APIRequest': 'true', 'Accept': 'application/json' },
+  });
+}
+
+app.get('/api/talk/me', handle(async (req, res) => {
+  const { data } = await makeTalk(req).get('/ocs/v2.php/cloud/user?format=json');
+  res.json({ id: data.ocs.data.id, displayName: data.ocs.data.display_name });
+}));
+
+app.get('/api/talk/rooms', handle(async (req, res) => {
+  const { data } = await makeTalk(req).get('/ocs/v2.php/apps/spreed/api/v4/room?format=json');
+  res.json(data.ocs.data);
+}));
+
+app.get('/api/talk/rooms/:token/messages', handle(async (req, res) => {
+  const params = { limit: 50, lookIntoFuture: 0 };
+  if (req.query.lastKnownMessageId) params.lastKnownMessageId = req.query.lastKnownMessageId;
+  const { data } = await makeTalk(req).get(
+    `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}?format=json`,
+    { params }
+  );
+  res.json(data.ocs.data);
+}));
+
+app.post('/api/talk/rooms/:token/messages', handle(async (req, res) => {
+  const { data } = await makeTalk(req).post(
+    `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}?format=json`,
+    req.body
+  );
+  res.json(data.ocs.data);
+}));
+
+app.post('/api/talk/rooms/:token/upload',
+  express.raw({ type: '*/*', limit: '100mb' }),
+  handle(async (req, res) => {
+    const user     = req.headers['x-nextcloud-user'];
+    const filename = decodeURIComponent(req.headers['x-filename'] || `upload_${Date.now()}`);
+    const ct       = req.headers['x-content-type'] || 'application/octet-stream';
+    const { token } = req.params;
+    const talk = makeTalk(req);
+
+    // Garante que a pasta Talk existe
+    try {
+      await talk.request({ method: 'MKCOL', url: `/remote.php/dav/files/${encodeURIComponent(user)}/Talk` });
+    } catch {}
+
+    // 1. Upload do arquivo para /Talk/{filename} via WebDAV
+    await talk.put(
+      `/remote.php/dav/files/${encodeURIComponent(user)}/Talk/${encodeURIComponent(filename)}`,
+      req.body,
+      { headers: { 'Content-Type': ct } }
+    );
+
+    // 2. Compartilha o arquivo na conversa (shareType 10 = Talk room)
+    await talk.post(
+      '/ocs/v2.php/apps/files_sharing/api/v1/shares?format=json',
+      { shareType: 10, shareWith: token, path: `/Talk/${filename}` }
+    );
+
+    res.json({ success: true });
+  })
+);
+
+app.post('/api/talk/rooms/:token/read', handle(async (req, res) => {
+  const { data } = await makeTalk(req).post(
+    `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/read?format=json`,
+    req.body
+  );
+  res.json(data.ocs.meta);
+}));
+
+app.get('/api/talk/rooms/:token/participants', handle(async (req, res) => {
+  const { data } = await makeTalk(req).get(
+    `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/participants?format=json`
+  );
+  res.json(data.ocs.data);
+}));
+
+app.get('/api/talk/file-preview', handle(async (req, res) => {
+  const { fileId, path: filePath, actorId } = req.query;
+  const user = req.headers['x-nextcloud-user'];
+  const talk = makeTalk(req);
+  const ext = (filePath || '').split('.').pop()?.toLowerCase() || 'jpg';
+  const fallbackCt = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+
+  const tryDownload = async (url, useAuth = true) => {
+    try {
+      const client = useAuth ? talk : axios;
+      const r = await client.get(url, { responseType: 'arraybuffer', maxRedirects: 5 });
+      const ct = String(r.headers['content-type'] || '');
+      if (r.data?.byteLength > 100 && !ct.includes('text/html') && !ct.includes('application/json')) {
+        return { data: r.data, ct: ct || fallbackCt };
+      }
+    } catch {}
+    return null;
+  };
+
+  // 1. OCS Direct Download — URL temporária sem auth, funciona para qualquer
+  //    arquivo acessível ao usuário (inclusive compartilhamentos do Talk)
+  try {
+    const { data: ocsData } = await talk.post(
+      `/ocs/v2.php/apps/dav/api/v1/direct?format=json`,
+      { fileId: parseInt(fileId) }
+    );
+    const directUrl = ocsData?.ocs?.data?.url;
+    if (directUrl) {
+      const result = await tryDownload(directUrl, false);
+      if (result) {
+        res.set('Content-Type', result.ct);
+        res.set('Cache-Control', 'private, max-age=300');
+        return res.send(result.data);
+      }
+    }
+  } catch {}
+
+  const result =
+    // 2. WebDAV do usuário logado (se o arquivo for dele)
+    (filePath && await tryDownload(`/remote.php/dav/files/${encodeURIComponent(user)}/${filePath}`)) ||
+    // 3. WebDAV do remetente (se houver permissão de share)
+    (actorId && actorId !== user && filePath && await tryDownload(`/remote.php/dav/files/${encodeURIComponent(actorId)}/${filePath}`)) ||
+    // 4. Preview thumbnail como último recurso
+    (fileId && await tryDownload(`/index.php/core/preview?fileId=${fileId}&x=800&y=800&a=true`));
+
+  if (!result) return res.status(404).json({ error: 'not accessible' });
+  res.set('Content-Type', result.ct);
+  res.set('Cache-Control', 'private, max-age=3600');
+  res.send(result.data);
+}));
+
+// =========================================================================
+// NOVO: CONFIGURAÇÃO PARA INJETAR O FRONTEND DENTRO DO EXECUTÁVEL DO BACKEND
+// =========================================================================
+
+// 1. Serve os arquivos estáticos compilados do frontend (HTML, CSS, JS)
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// 2. Rotas de navegação do SPA caem no index.html; rotas /api/ não registradas retornam 404
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) return next();
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
+// =========================================================================
+
 app.listen(PORT, () => {
-  console.log(`\n🚀 Redmine Kanban API rodando em http://localhost:${PORT}\n`);
+  console.log(`\n🔷 Bluemine rodando em http://localhost:${PORT}\n`);
 });

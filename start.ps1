@@ -1,18 +1,22 @@
-# Redmine Kanban - Start script
+# Bluemine - Start script
 Write-Host ""
-Write-Host "  Redmine Kanban" -ForegroundColor Cyan
+Write-Host "  Bluemine" -ForegroundColor Cyan
 Write-Host "  Iniciando servidor e frontend..." -ForegroundColor Gray
 Write-Host ""
 
-$serverJob = Start-Job -ScriptBlock {
-    Set-Location "$PSScriptRoot\server"
-    node server/index.js
+$root = $PSScriptRoot
+
+$serverJob = Start-Job -ArgumentList $root -ScriptBlock {
+    param($rootPath)
+    Set-Location "$rootPath\server"
+    node index.js
 }
 
 Start-Sleep -Seconds 2
 
-$clientJob = Start-Job -ScriptBlock {
-    Set-Location "$PSScriptRoot\client"
+$clientJob = Start-Job -ArgumentList $root -ScriptBlock {
+    param($rootPath)
+    Set-Location "$rootPath\client"
     npm run dev
 }
 

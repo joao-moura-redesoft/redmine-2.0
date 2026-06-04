@@ -7,10 +7,14 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      // Use our custom sw.ts so the notificationclick handler runs
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png'],
       manifest: {
-        name: 'Redmine Kanban',
-        short_name: 'Kanban',
+        name: 'Bluemine',
+        short_name: 'Bluemine',
         description: 'Kanban e gestão de tarefas do Redmine',
         theme_color: '#2563eb',
         background_color: '#f1f5f9',
@@ -30,17 +34,20 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
-        // Não cacheia chamadas de API — sempre rede
-        navigateFallbackDenylist: [/^\/api/],
-        runtimeCaching: [],
+      // Exclusão de /api/ do SW está em sw.ts via NavigationRoute denylist
+
+      // Habilita o service worker também em `npm run dev` para testar push/notificações
+      // (por padrão o vite-plugin-pwa só ativa o SW no build de produção).
+      devOptions: {
+        enabled: true,
+        type: 'module',
       },
     }),
   ],
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3001'
-    }
-  }
+      '/api': 'http://localhost:3001',
+    },
+  },
 });

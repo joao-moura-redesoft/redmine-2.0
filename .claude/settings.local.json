@@ -3,7 +3,10 @@
     "allow": [
       "Bash(node --check server/index.js)",
       "Bash(npx tsc *)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(npm run *)",
+      "Bash(pkg --version)",
+      "PowerShell(Stop-Process -Name \"kanban\" -Force -ErrorAction SilentlyContinue)"
     ]
   }
 }

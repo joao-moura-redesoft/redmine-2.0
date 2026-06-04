@@ -26,7 +26,10 @@ export function useIssues(projectId?: number) {
   return useQuery({
     queryKey: ['issues', projectId],
     queryFn: () => redmineApi.getIssues(projectId),
-    refetchInterval: 60 * 1000
+    refetchInterval: 60 * 1000,
+    // Mantém o polling rodando mesmo com a aba minimizada/em segundo plano,
+    // para que as notificações de novas atribuições continuem disparando.
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -72,6 +75,7 @@ export function useMonitoredIssues() {
     queryKey: ['issues-monitored'],
     queryFn: redmineApi.getMonitoredIssues,
     refetchInterval: 90 * 1000,
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -92,6 +96,7 @@ export function useWatchedIssues() {
     queryKey: ['issues-watched-local', ids],
     queryFn: () => redmineApi.getIssuesByIds(ids),
     refetchInterval: 90 * 1000,
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -108,6 +113,7 @@ export function useToReviewIssues() {
     queryKey: ['issues-to-review'],
     queryFn: redmineApi.getToReviewIssues,
     refetchInterval: 90 * 1000,
+    refetchIntervalInBackground: true,
   });
 }
 
@@ -157,5 +163,60 @@ export function useUpdateIssue() {
       qc.invalidateQueries({ queryKey: ['issue', id] });
       qc.invalidateQueries({ queryKey: ['issues'] });
     }
+  });
+}
+
+export function useTimeEntries(params: { from?: string; to?: string; issue_id?: number } = {}) {
+  return useQuery({
+    queryKey: ['time-entries', params],
+    queryFn: () => redmineApi.getTimeEntries(params),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useIssueTimeEntries(issueId?: number) {
+  return useQuery({
+    queryKey: ['time-entries-issue', issueId],
+    queryFn: () => redmineApi.getTimeEntries({ issue_id: issueId! }),
+    enabled: !!issueId,
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useTimeEntryActivities() {
+  return useQuery({
+    queryKey: ['time-entry-activities'],
+    queryFn: redmineApi.getTimeEntryActivities,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useCreateTimeEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: redmineApi.createTimeEntry,
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ['time-entries'] });
+      qc.invalidateQueries({ queryKey: ['time-entries-issue', vars.issue_id] });
+      qc.invalidateQueries({ queryKey: ['issue', vars.issue_id] });
+    },
+  });
+}
+
+export function useProjectVersions(projectId?: number) {
+  return useQuery({
+    queryKey: ['versions', projectId],
+    queryFn: () => redmineApi.getProjectVersions(projectId!),
+    enabled: !!projectId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useVersionIssues(projectId?: number, versionId?: number) {
+  return useQuery({
+    queryKey: ['version-issues', projectId, versionId],
+    queryFn: () => redmineApi.getVersionIssues(projectId!, versionId!),
+    enabled: !!projectId && !!versionId,
+    staleTime: 60 * 1000,
   });
 }

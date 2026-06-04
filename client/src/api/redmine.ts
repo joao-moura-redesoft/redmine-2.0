@@ -1,5 +1,6 @@
 import axios from 'axios';
-import type { Issue, IssueStatus, Project, Tracker, Priority, CurrentUser } from '../types/redmine';
+import type { Issue, IssueStatus, Project, Tracker, Priority, CurrentUser, Version, TimeEntry, TimeEntryActivity } from '../types/redmine';
+import { getActiveAI } from '../utils/aiConfig';
 
 export const AUTH_KEY = 'redmine_auth';
 
@@ -171,5 +172,167 @@ export const redmineApi = {
   getAllMembers: async (): Promise<{ id: number; name: string; team: string }[]> => {
     const { data } = await api.get('/members');
     return data.users;
-  }
+  },
+
+  getTimeEntries: async (params: {
+    from?: string; to?: string; issue_id?: number;
+  } = {}): Promise<TimeEntry[]> => {
+    const { data } = await api.get('/time_entries', { params });
+    return data.time_entries ?? [];
+  },
+
+  createTimeEntry: async (entry: {
+    issue_id: number;
+    hours: number;
+    activity_id: number;
+    comments?: string;
+    spent_on?: string;
+  }): Promise<TimeEntry> => {
+    const { data } = await api.post('/time_entries', { time_entry: entry });
+    return data.time_entry;
+  },
+
+  getTimeEntryActivities: async (): Promise<TimeEntryActivity[]> => {
+    const { data } = await api.get('/enumerations/time_entry_activities');
+    return data.time_entry_activities ?? [];
+  },
+
+  getProjectVersions: async (projectId: number): Promise<Version[]> => {
+    const { data } = await api.get(`/projects/${projectId}/versions`);
+    return (data.versions ?? []).sort((a: Version, b: Version) =>
+      a.name.localeCompare(b.name, 'pt-BR')
+    );
+  },
+
+  getVersionIssues: async (projectId: number, versionId: number): Promise<Issue[]> => {
+    const { data } = await api.get('/issues/by-version', {
+      params: { project_id: projectId, version_id: versionId },
+    });
+    return data.issues ?? [];
+  },
+
+  // ── IA ────────────────────────────────────────────────────────────────
+  getAIStatus: async (): Promise<{ configured: boolean }> => {
+    const { data } = await api.get('/ai/status');
+    return data;
+  },
+
+  // ── IA ────────────────────────────────────────────────────────────────
+  generatePrompt: async (issue: Issue): Promise<string> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/generate-prompt', { issue }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data.prompt as string;
+  },
+
+  quickSummary: async (issue: Issue): Promise<string> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/quick', { issue }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data.oneLiner as string;
+  },
+
+  summarizeHistory: async (issue: Issue): Promise<string> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/summarize-history', { issue }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data.summary as string;
+  },
+
+  draftNote: async (issue: Issue): Promise<string> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/draft-note', { issue }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data.draft as string;
+  },
+
+  detectAmbiguities: async (issue: Issue): Promise<{ hasIssues: boolean; ambiguities: { trecho: string; problema: string; pergunta: string }[] }> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/detect-ambiguities', { issue }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data;
+  },
+
+  suggestVersionNote: async (issue: Issue): Promise<{ notes: string[]; reasoning: string }> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/suggest-version-note', { issue }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data;
+  },
+
+  assessComplexity: async (issue: Issue): Promise<{ level: string; reasoning: string; risks: string[]; roughHours: string }> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/assess-complexity', { issue }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data;
+  },
+
+  reviewChecklist: async (issue: Issue): Promise<string> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/review-checklist', { issue }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data.checklist as string;
+  },
+
+  suggestFields: async (
+    subject: string,
+    description: string,
+    trackers: { id: number; name: string }[],
+    priorities: { id: number; name: string }[],
+  ): Promise<{ tracker_id: number | null; priority_id: number | null; impacto: string | null; reasoning: string }> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/suggest-fields', { subject, description, trackers, priorities }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data;
+  },
+
+  reviewNote: async (noteText: string, issueSubject: string, issueStatus: string): Promise<string> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/review-note', { noteText, issueSubject, issueStatus }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data.feedback as string;
+  },
+
+  standup: async (issues: Issue[]): Promise<string> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/standup', { issues }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data.standup as string;
+  },
+
+  // ── Web Push ──────────────────────────────────────────────────────────
+  getVapidPublicKey: async (): Promise<string> => {
+    const { data } = await api.get('/push/vapid-public-key');
+    return data.publicKey;
+  },
+
+  subscribePush: async (subscription: PushSubscriptionJSON): Promise<void> => {
+    await api.post('/push/subscribe', { subscription });
+  },
+
+  unsubscribePush: async (endpoint: string): Promise<void> => {
+    await api.post('/push/unsubscribe', { endpoint });
+  },
 };
