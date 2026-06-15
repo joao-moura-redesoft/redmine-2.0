@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import type { Attachment } from '../types/redmine';
+import { textileToMarkdown } from '../utils/textileToMarkdown';
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -9,6 +10,8 @@ interface Props {
   text: string;
   attachments?: Attachment[];
   className?: string;
+  /** Converte o texto de Textile (formato do Redmine) para Markdown antes de renderizar */
+  textile?: boolean;
 }
 
 // Sintaxe de imagem do Redmine (Textile): !arquivo.png!, !>img.png!, !{width:300px}img.png!, !http://.../x.png!
@@ -32,12 +35,13 @@ function preprocess(text: string, attachments?: Attachment[]): string {
   });
 }
 
-export function Markdown({ text, attachments, className = '' }: Props) {
+export function Markdown({ text, attachments, className = '', textile = false }: Props) {
   const html = useMemo(() => {
-    const pre = preprocess(text, attachments);
+    const src = textile ? textileToMarkdown(text) : text;
+    const pre = preprocess(src, attachments);
     const raw = marked.parse(pre, { async: false }) as string;
     return DOMPurify.sanitize(raw, { ADD_ATTR: ['target'] });
-  }, [text, attachments]);
+  }, [text, attachments, textile]);
 
   return (
     <div

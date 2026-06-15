@@ -21,6 +21,9 @@ html.dark body { background-color: #0f172a; color: #f1f5f9; }
 html.dark .bg-white { background-color: #1e293b !important; }      /* slate-800 */
 html.dark .bg-slate-50 { background-color: #0f172a !important; }   /* slate-900 */
 html.dark .bg-slate-100 { background-color: #1e293b !important; }
+/* Bolha de mensagem recebida no Talk: mais clara que o fundo da janela (#1e293b) */
+html.dark .talk-bubble-in { background-color: #334155 !important; }
+html.dark .talk-bubble-in.text-slate-800 { color: #e2e8f0 !important; }
 html.dark .bg-slate-50\/70,
 html.dark .bg-slate-50\/60,
 html.dark .bg-slate-50\/50,
@@ -59,6 +62,8 @@ html.dark input, html.dark textarea, html.dark select {
   color: #e2e8f0 !important;
 }
 html.dark input::placeholder, html.dark textarea::placeholder { color: #64748b !important; }
+/* Inputs intencionalmente transparentes (ex: editor de notas estilo documento) */
+html.dark input.bg-transparent, html.dark textarea.bg-transparent { background-color: transparent !important; }
 
 /* Hover coloridos (dropdowns, linhas de lista) */
 html.dark .hover\:bg-blue-50:hover { background-color: rgba(59,130,246,0.16) !important; }
@@ -132,6 +137,8 @@ html.dark .prose-redmine h1, html.dark .prose-redmine h2, html.dark .prose-redmi
 /* Markdown renderizado em comentários/descrição */
 .prose-redmine {
   @apply text-sm text-slate-700 leading-relaxed;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .prose-redmine p { @apply mb-2; }
 .prose-redmine p:last-child { @apply mb-0; }
@@ -150,3 +157,56 @@ html.dark .prose-redmine h1, html.dark .prose-redmine h2, html.dark .prose-redmi
 .prose-redmine table { @apply border-collapse mb-2; }
 .prose-redmine th, .prose-redmine td { @apply border border-slate-200 px-2 py-1 text-xs; }
 .prose-redmine img { @apply max-w-full rounded; }
+
+/* ── Editor de notas (TipTap, estilo documento Notion) ───────────────────────── */
+/* Cores em hex (não @apply) para não colidir com os overrides globais .text-slate-* */
+.note-doc { font-size: 15px; line-height: 1.7; color: #334155; min-height: 320px; outline: none; }
+.note-doc:focus { outline: none; }
+.note-doc h1 { font-size: 1.5rem; font-weight: 700; color: #1e293b; margin: 1.25rem 0 0.25rem; }
+.note-doc h2 { font-size: 1.25rem; font-weight: 700; color: #1e293b; margin: 1rem 0 0.25rem; }
+.note-doc h3 { font-size: 1.125rem; font-weight: 600; color: #1e293b; margin: 0.75rem 0 0.125rem; }
+.note-doc p { margin: 0.375rem 0; }
+.note-doc ul { list-style: disc; padding-left: 1.25rem; margin: 0.375rem 0; }
+.note-doc ol { list-style: decimal; padding-left: 1.25rem; margin: 0.375rem 0; }
+.note-doc li { margin: 0.125rem 0; }
+.note-doc li > p { margin: 0; }
+.note-doc a { color: #2563eb; text-decoration: underline; }
+.note-doc code { background: #f1f5f9; color: #1e293b; padding: 0.0625rem 0.25rem; border-radius: 0.25rem; font-size: 13px; font-family: ui-monospace, monospace; }
+.note-doc pre { background: #1e293b; color: #f1f5f9; padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin: 0.5rem 0; font-size: 13px; }
+.note-doc pre code { background: transparent; padding: 0; color: inherit; }
+.note-doc blockquote { border-left: 2px solid #cbd5e1; padding-left: 0.75rem; color: #64748b; font-style: italic; margin: 0.5rem 0; }
+.note-doc strong { font-weight: 600; color: #1e293b; }
+.note-doc .note-issue-link { color: #2563eb; font-weight: 500; cursor: pointer; }
+.note-doc .note-issue-link:hover { text-decoration: underline; }
+html.dark .note-doc .note-issue-link { color: #93c5fd; }
+.note-doc hr { border: none; border-top: 1px solid #e2e8f0; margin: 0.75rem 0; }
+/* Checkboxes (TaskList) */
+.note-doc ul[data-type="taskList"] { list-style: none; padding-left: 0.125rem; margin: 0.375rem 0; }
+.note-doc ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0.125rem 0; }
+.note-doc ul[data-type="taskList"] li > label { margin-top: 0.2rem; flex-shrink: 0; user-select: none; }
+.note-doc ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
+.note-doc ul[data-type="taskList"] li > div > p { margin: 0; }
+.note-doc ul[data-type="taskList"] input[type="checkbox"] { cursor: pointer; accent-color: #2563eb; width: 0.95rem; height: 0.95rem; }
+.note-doc ul[data-type="taskList"] li[data-checked="true"] > div { color: #94a3b8; text-decoration: line-through; }
+/* Placeholder (aparece só quando o doc está vazio) */
+.note-doc p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #cbd5e1;
+  float: left; height: 0; pointer-events: none;
+}
+/* Dark mode */
+html.dark .note-doc { color: #e2e8f0; }
+html.dark .note-doc h1, html.dark .note-doc h2, html.dark .note-doc h3, html.dark .note-doc strong { color: #f1f5f9; }
+html.dark .note-doc code { background: #334155; color: #f1f5f9; }
+html.dark .note-doc blockquote { color: #94a3b8; border-color: #475569; }
+html.dark .note-doc p.is-editor-empty:first-child::before { color: #475569; }
+
+/* Menu de slash commands (/) do editor de notas */
+.slash-menu { position: fixed; z-index: 200; width: 210px; max-height: 290px; overflow-y: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 0.6rem; box-shadow: 0 12px 32px rgba(0,0,0,0.14); padding: 0.25rem; }
+html.dark .slash-menu { background: #1e293b; border-color: #334155; }
+.slash-item { display: flex; align-items: center; gap: 0.5rem; width: 100%; text-align: left; padding: 0.375rem 0.5rem; border-radius: 0.4rem; font-size: 0.8rem; color: #334155; cursor: pointer; }
+html.dark .slash-item { color: #e2e8f0; }
+.slash-item:hover, .slash-item.is-selected { background: #eff6ff; color: #2563eb; }
+html.dark .slash-item:hover, html.dark .slash-item.is-selected { background: rgba(59,130,246,0.18); color: #93c5fd; }
+.slash-ico { display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; border-radius: 0.3rem; background: #f1f5f9; font-size: 0.65rem; font-weight: 700; flex-shrink: 0; }
+html.dark .slash-ico { background: #334155; }

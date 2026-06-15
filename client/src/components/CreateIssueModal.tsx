@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
-import { X, Plus, Paperclip, Image as ImageIcon, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import { X, Plus, Paperclip, Image as ImageIcon, Loader2, AlertCircle, Sparkles, BookTemplate, Trash2, Save } from 'lucide-react';
+import { getTemplates, saveTemplate, deleteTemplate, type IssueTemplate } from '../utils/issueTemplates';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCreateIssue, useProjects, useTrackers, usePriorities, useProjectMembers } from '../hooks/useRedmine';
 import { redmineApi } from '../api/redmine';
@@ -38,6 +39,10 @@ export function CreateIssueModal({ onClose }: Props) {
   const [aiReasoning, setAiReasoning] = useState<string | null>(null);
   const [forceCreate, setForceCreate] = useState(false);
   const [intermediateProjectId, setIntermediateProjectId] = useState<number | ''>('');
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templates, setTemplates] = useState<IssueTemplate[]>(() => getTemplates());
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: members } = useProjectMembers(projectId || undefined);
@@ -150,20 +155,116 @@ export function CreateIssueModal({ onClose }: Props) {
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-xs font-medium text-slate-700">Título *</label>
-              {getAIKey() && (
-                <button
-                  type="button"
-                  onClick={handleAISuggest}
-                  disabled={!subject.trim() || aiSuggesting}
-                  title="Sugerir tracker e prioridade com IA"
-                  className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 disabled:opacity-40 transition-colors"
-                >
-                  {aiSuggesting
-                    ? <Loader2 size={11} className="animate-spin" />
-                    : <Sparkles size={11} />}
-                  {aiSuggesting ? 'Sugerindo…' : 'Sugerir com IA'}
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {/* Templates */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowTemplates(v => !v)}
+                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 transition-colors"
+                    title="Templates"
+                  >
+                    <BookTemplate size={11} /> Templates
+                  </button>
+                  {showTemplates && (
+                    <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
+                      <div className="px-3 py-2 border-b border-slate-100 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        Templates salvos
+                      </div>
+                      {templates.length === 0 && (
+                        <p className="px-3 py-2 text-xs text-slate-400">Nenhum template ainda.</p>
+                      )}
+                      {templates.map(t => (
+                        <div key={t.id} className="flex items-center gap-1 px-2 py-1.5 hover:bg-slate-50 group">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (t.subject) setSubject(t.subject);
+                              if (t.description) setDescription(t.description);
+                              if (t.tracker_id) setTrackerId(t.tracker_id);
+                              if (t.priority_id) setPriorityId(t.priority_id);
+                              setShowTemplates(false);
+                            }}
+                            className="flex-1 text-left text-xs text-slate-700 truncate"
+                          >
+                            {t.name}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { deleteTemplate(t.id); setTemplates(getTemplates()); }}
+                            className="p-0.5 rounded text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      ))}
+                      <div className="border-t border-slate-100 px-2 py-2">
+                        {savingTemplate ? (
+                          <div className="flex gap-1">
+                            <input
+                              autoFocus
+                              value={newTemplateName}
+                              onChange={e => setNewTemplateName(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && newTemplateName.trim()) {
+                                  const t: IssueTemplate = {
+                                    id: Date.now().toString(),
+                                    name: newTemplateName.trim(),
+                                    subject,
+                                    description,
+                                    ...(trackerId ? { tracker_id: trackerId as number } : {}),
+                                    ...(priorityId ? { priority_id: priorityId as number } : {}),
+                                  };
+                                  saveTemplate(t);
+                                  setTemplates(getTemplates());
+                                  setSavingTemplate(false);
+                                  setNewTemplateName('');
+                                }
+                                if (e.key === 'Escape') setSavingTemplate(false);
+                              }}
+                              placeholder="Nome do template…"
+                              className="flex-1 text-xs border border-slate-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!newTemplateName.trim()) return;
+                                saveTemplate({ id: Date.now().toString(), name: newTemplateName.trim(), subject, description,
+                                  ...(trackerId ? { tracker_id: trackerId as number } : {}),
+                                  ...(priorityId ? { priority_id: priorityId as number } : {}) });
+                                setTemplates(getTemplates()); setSavingTemplate(false); setNewTemplateName('');
+                              }}
+                              className="px-2 py-1 bg-blue-600 text-white text-[10px] rounded"
+                            >OK</button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setSavingTemplate(true)}
+                            className="w-full flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 py-0.5"
+                          >
+                            <Save size={11} /> Salvar campos atuais como template
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {getAIKey() && (
+                  <button
+                    type="button"
+                    onClick={handleAISuggest}
+                    disabled={!subject.trim() || aiSuggesting}
+                    title="Sugerir tracker e prioridade com IA"
+                    className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 disabled:opacity-40 transition-colors"
+                  >
+                    {aiSuggesting
+                      ? <Loader2 size={11} className="animate-spin" />
+                      : <Sparkles size={11} />}
+                    {aiSuggesting ? 'Sugerindo…' : 'Sugerir com IA'}
+                  </button>
+                )}
+              </div>
             </div>
             <input
               type="text"

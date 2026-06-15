@@ -1,15 +1,18 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, ExternalLink, ChevronDown, ChevronRight, ChevronLeft, Check, Pencil, Play, GitBranch, ArrowRight, Loader2, AlertCircle, RotateCcw, FileText, File, Star, Link2, GitMerge, Copy, Plus, CheckSquare, User, Clock, Tag, Calendar, Search, CircleDot, Image as ImageIcon, Paperclip, Download } from 'lucide-react';
+import { X, ExternalLink, ChevronDown, ChevronRight, ChevronLeft, Check, Pencil, Play, GitBranch, ArrowRight, Loader2, AlertCircle, RotateCcw, FileText, File, Star, Link2, GitMerge, Copy, Plus, CheckSquare, User, Clock, Tag, Calendar, Search, CircleDot, Image as ImageIcon, Paperclip, Download, NotebookPen } from 'lucide-react';
 import type { Attachment } from '../types/redmine';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
 import { TimeTracker } from './TimeTracker';
 import { IssueAIPanel } from './IssueAIPanel';
 import { CommentComposer } from './CommentComposer';
+import { MarkdownEditor } from './MarkdownEditor';
 import { markdownToTextile } from '../utils/markdownToTextile';
+import { textileToMarkdown } from '../utils/textileToMarkdown';
 import { redmineApi } from '../api/redmine';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useIssueDetail, useAddNote, useStatuses, useUpdateIssue, useProjectMembers, useCurrentUser } from '../hooks/useRedmine';
+import { useIssueDetail, useAddNote, useStatuses, useUpdateIssue, useProjectMembers, useCurrentUser, useUpdateJournal } from '../hooks/useRedmine';
+import { talkBridge } from '../utils/talkBridge';
 import { localWatches, useLocalWatches } from '../utils/localWatches';
 import { Markdown } from './Markdown';
 import { getMissingFields } from '../utils/alerts';
@@ -78,6 +81,8 @@ interface Props {
   issueId: number;
   onClose: () => void;
   onNavigate?: (id: number) => void;
+  /** Cria uma nova nota pré-vinculada a esta tarefa e abre o módulo de Notas */
+  onNewNote?: (patch: { title?: string; linkedIssueId?: number; linkedProjectId?: number }) => void;
 }
 
 /* Tamanho de arquivo legível */
@@ -161,14 +166,15 @@ function Lightbox({ images, index, onClose }: { images: string[]; index: number;
 }
 
 /* Descrição colapsável + anexos da tarefa (topo do painel de chat) */
-function DescriptionPanel({ description, attachments, open, onToggle }: {
+function DescriptionPanel({ description, attachments, open, onToggle, onEdit }: {
   description?: string; attachments: Attachment[]; open: boolean; onToggle: () => void;
+  onEdit?: () => void;
 }) {
   if (!description && attachments.length === 0) return null;
   const imgCount = attachments.filter(a => a.content_type?.startsWith('image/')).length;
   const fileCount = attachments.length - imgCount;
   return (
-    <div className="border-b border-slate-100 bg-slate-50/40">
+    <div className="border-b border-slate-100 bg-slate-50/40 group">
       <button onClick={onToggle} className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-medium text-slate-500 hover:bg-slate-100 transition-colors">
         <ChevronRight size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`} />
         <FileText size={13} /> Descrição
@@ -178,12 +184,21 @@ function DescriptionPanel({ description, attachments, open, onToggle }: {
             {fileCount > 0 && <span className="flex items-center gap-1"><Paperclip size={12} />{fileCount}</span>}
           </span>
         )}
+        {onEdit && (
+          <span
+            onClick={e => { e.stopPropagation(); onEdit(); }}
+            className="ml-2 p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Editar descrição"
+          >
+            <Pencil size={11} />
+          </span>
+        )}
       </button>
       {open && (
         <div className="px-4 pb-3">
           {description && (
-            <div className="bg-white rounded-lg p-3 border border-slate-100">
-              <Markdown text={description} attachments={attachments} />
+            <div className="bg-white rounded-lg p-3 border border-slate-100 group">
+              <Markdown text={description} attachments={attachments} textile />
             </div>
           )}
           <TaskAttachments attachments={attachments} />
@@ -1015,12 +1030,15 @@ function RelatedIssues({ issue, onNavigate }: {
 
 /* ── Modal principal ── */
 
-export function IssueModal({ issueId, onClose, onNavigate }: Props) {
+export function IssueModal({ issueId, onClose, onNavigate, onNewNote }: Props) {
   const { data: issue, isLoading } = useIssueDetail(issueId);
   const { data: statuses } = useStatuses();
   const { data: members } = useProjectMembers(issue?.project.id);
   const { data: currentUser } = useCurrentUser();
   const addNote = useAddNote();
+  const updateJournal = useUpdateJournal(issueId);
+  const [editingJournal, setEditingJournal] = useState<{ id: number; text: string } | null>(null);
+  const [editingDescription, setEditingDescription] = useState<string | null>(null);
   const updateIssue = useUpdateIssue();
   const watchedIds = useLocalWatches();
   const [pendingNotes, setPendingNotes] = useState<PendingNote[]>([]);
@@ -1060,6 +1078,10 @@ export function IssueModal({ issueId, onClose, onNavigate }: Props) {
       const notes = markdownToTextile(text);
       await addNote.mutateAsync({ id: issueId, notes, uploads });
       setPendingNotes(prev => prev.filter(n => n.id !== id));
+      // Compartilha arquivos na sala Talk ativa (se houver)
+      if (files.length > 0 && talkBridge.hasReceiver()) {
+        for (const f of files) talkBridge.shareFile(f).catch(() => {});
+      }
     } catch {
       setPendingNotes(prev => prev.map(n => n.id === id ? { ...n, status: 'error' } : n));
     }
@@ -1171,6 +1193,17 @@ export function IssueModal({ issueId, onClose, onNavigate }: Props) {
             )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Nova nota sobre esta tarefa (módulo de Notas) */}
+            {issue && onNewNote && (
+              <button
+                onClick={() => onNewNote({ title: `#${issue.id} ${issue.subject}`, linkedIssueId: issue.id, linkedProjectId: issue.project.id })}
+                title="Criar nota sobre esta tarefa"
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
+              >
+                <NotebookPen size={13} /> Nota
+              </button>
+            )}
+
             {/* Observar (lista local, independente da API do Redmine) */}
             {issue && (() => {
               const isWatching = watchedIds.includes(issue.id);
@@ -1464,7 +1497,41 @@ export function IssueModal({ issueId, onClose, onNavigate }: Props) {
                   attachments={issue.attachments ?? []}
                   open={showDescription}
                   onToggle={() => setShowDescription(v => !v)}
+                  onEdit={() => { setEditingDescription(textileToMarkdown(issue.description ?? '')); setShowDescription(true); }}
                 />
+                {editingDescription !== null && (
+                  <div className="px-4 py-3 border-b border-slate-100 bg-blue-50/30 space-y-2">
+                    <MarkdownEditor
+                      value={editingDescription}
+                      onChange={setEditingDescription}
+                      attachments={issue.attachments ?? []}
+                      autoFocus
+                      placeholder="Escreva em Markdown… (convertido para o Redmine ao salvar)"
+                      onSubmit={() => {
+                        trackField('description', 'Descrição', { description: markdownToTextile(editingDescription) });
+                        setEditingDescription(null);
+                      }}
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          trackField('description', 'Descrição', { description: markdownToTextile(editingDescription) });
+                          setEditingDescription(null);
+                        }}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg"
+                      >
+                        <Check size={12} /> Salvar
+                      </button>
+                      <button
+                        onClick={() => setEditingDescription(null)}
+                        className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg"
+                      >
+                        Cancelar
+                      </button>
+                      <span className="text-[10px] text-slate-400">Markdown · Ctrl+Enter salva</span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Painel de IA — gera prompt, resumo de histórico e rascunho de nota */}
                 <div className="px-4 pt-3">
@@ -1517,24 +1584,68 @@ export function IssueModal({ issueId, onClose, onNavigate }: Props) {
                           </div>
                         )}
                         <div className="p-3 space-y-3">
-                          {phase.journals.map(journal => (
-                            <div key={journal.id} className="flex gap-3">
-                              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5">
-                                {journal.user.name.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-xs font-semibold text-slate-700">{journal.user.name}</span>
-                                  <span className="text-xs text-slate-400">
-                                    {formatDistanceToNow(new Date(journal.created_on), { addSuffix: true, locale: ptBR })}
-                                  </span>
+                          {phase.journals.map(journal => {
+                            const isEditing = editingJournal?.id === journal.id;
+                            const isMine = journal.user.id === currentUser?.id;
+                            return (
+                              <div key={journal.id} className="flex gap-3 group">
+                                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5">
+                                  {journal.user.name.charAt(0).toUpperCase()}
                                 </div>
-                                <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl rounded-tl-sm px-3 py-2">
-                                  <Markdown text={journal.notes} attachments={issue.attachments} />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-xs font-semibold text-slate-700">{journal.user.name}</span>
+                                    <span className="text-xs text-slate-400">
+                                      {formatDistanceToNow(new Date(journal.created_on), { addSuffix: true, locale: ptBR })}
+                                    </span>
+                                    {isMine && !isEditing && (
+                                      <button
+                                        onClick={() => setEditingJournal({ id: journal.id, text: journal.notes })}
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                                        title="Editar comentário"
+                                      >
+                                        <Pencil size={12} />
+                                      </button>
+                                    )}
+                                  </div>
+                                  {isEditing ? (
+                                    <div className="space-y-1.5">
+                                      <textarea
+                                        autoFocus
+                                        value={editingJournal.text}
+                                        onChange={e => setEditingJournal(prev => prev ? { ...prev, text: e.target.value } : null)}
+                                        rows={4}
+                                        className="w-full text-sm px-3 py-2 border border-blue-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 resize-y bg-white"
+                                      />
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => {
+                                            updateJournal.mutate({ id: journal.id, notes: editingJournal.text });
+                                            setEditingJournal(null);
+                                          }}
+                                          disabled={updateJournal.isPending}
+                                          className="flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg"
+                                        >
+                                          <Check size={12} /> Salvar
+                                        </button>
+                                        <button
+                                          onClick={() => setEditingJournal(null)}
+                                          className="px-3 py-1 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg"
+                                        >
+                                          Cancelar
+                                        </button>
+                                        <span className="text-[10px] text-slate-400">Textile/Markdown</span>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl rounded-tl-sm px-3 py-2">
+                                      <Markdown text={journal.notes} attachments={issue.attachments} textile />
+                                    </div>
+                                  )}
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -1546,24 +1657,68 @@ export function IssueModal({ issueId, onClose, onNavigate }: Props) {
                       <p className="text-sm text-slate-400">Nenhum comentário ainda.</p>
                     </div>
                   )}
-                  {!phaseView && notesOnly.map(journal => (
-                    <div key={journal.id} className="flex gap-3">
-                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5">
-                        {journal.user.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-semibold text-slate-700">{journal.user.name}</span>
-                          <span className="text-xs text-slate-400">
-                            {formatDistanceToNow(new Date(journal.created_on), { addSuffix: true, locale: ptBR })}
-                          </span>
+                  {!phaseView && notesOnly.map(journal => {
+                    const isEditing = editingJournal?.id === journal.id;
+                    const isMine = journal.user.id === currentUser?.id;
+                    return (
+                      <div key={journal.id} className="flex gap-3 group">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 mt-0.5">
+                          {journal.user.name.charAt(0).toUpperCase()}
                         </div>
-                        <div className="bg-slate-50 border border-slate-100 rounded-xl rounded-tl-sm px-3 py-2">
-                          <Markdown text={journal.notes} attachments={issue.attachments} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-semibold text-slate-700">{journal.user.name}</span>
+                            <span className="text-xs text-slate-400">
+                              {formatDistanceToNow(new Date(journal.created_on), { addSuffix: true, locale: ptBR })}
+                            </span>
+                            {isMine && !isEditing && (
+                              <button
+                                onClick={() => setEditingJournal({ id: journal.id, text: journal.notes })}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                                title="Editar comentário"
+                              >
+                                <Pencil size={12} />
+                              </button>
+                            )}
+                          </div>
+                          {isEditing ? (
+                            <div className="space-y-1.5">
+                              <textarea
+                                autoFocus
+                                value={editingJournal.text}
+                                onChange={e => setEditingJournal(prev => prev ? { ...prev, text: e.target.value } : null)}
+                                rows={4}
+                                className="w-full text-sm px-3 py-2 border border-blue-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 resize-y bg-white"
+                              />
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => {
+                                    updateJournal.mutate({ id: journal.id, notes: editingJournal.text });
+                                    setEditingJournal(null);
+                                  }}
+                                  disabled={updateJournal.isPending}
+                                  className="flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg"
+                                >
+                                  <Check size={12} /> Salvar
+                                </button>
+                                <button
+                                  onClick={() => setEditingJournal(null)}
+                                  className="px-3 py-1 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg"
+                                >
+                                  Cancelar
+                                </button>
+                                <span className="text-[10px] text-slate-400">Textile/Markdown</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="bg-slate-50 border border-slate-100 rounded-xl rounded-tl-sm px-3 py-2">
+                              <Markdown text={journal.notes} attachments={issue.attachments} textile />
+                            </div>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
 
                   {/* Notas pendentes (optimistic) */}
                   {pendingNotes.map(pending => (

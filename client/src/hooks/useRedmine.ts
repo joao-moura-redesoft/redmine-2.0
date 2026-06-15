@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { redmineApi, type Upload } from '../api/redmine';
 import { useLocalWatches } from '../utils/localWatches';
+import { recordMutation } from '../utils/recentMutations';
 
 export function useCurrentUser() {
   return useQuery({ queryKey: ['currentUser'], queryFn: redmineApi.getCurrentUser });
@@ -46,7 +47,10 @@ export function useUpdateIssueStatus() {
   return useMutation({
     mutationFn: ({ id, statusId }: { id: number; statusId: number }) =>
       redmineApi.updateIssueStatus(id, statusId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['issues'] })
+    onSuccess: (_, { id }) => {
+      recordMutation(id);
+      qc.invalidateQueries({ queryKey: ['issues'] });
+    },
   });
 }
 
@@ -56,9 +60,19 @@ export function useAddNote() {
     mutationFn: ({ id, notes, uploads }: { id: number; notes: string; uploads?: Upload[] }) =>
       redmineApi.addNote(id, notes, uploads),
     onSuccess: (_, { id }) => {
+      recordMutation(id);
       qc.invalidateQueries({ queryKey: ['issue', id] });
       qc.invalidateQueries({ queryKey: ['issues'] });
-    }
+    },
+  });
+}
+
+export function useUpdateJournal(issueId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, notes }: { id: number; notes: string }) =>
+      redmineApi.updateJournal(id, notes),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['issue', issueId] }),
   });
 }
 
@@ -119,9 +133,8 @@ export function useToReviewIssues() {
 
 export function useProjectIssues(projectId?: number) {
   return useQuery({
-    queryKey: ['issues-by-project', projectId],
-    queryFn: () => redmineApi.getProjectIssues(projectId!),
-    enabled: !!projectId,
+    queryKey: ['issues-by-project', projectId ?? 'all'],
+    queryFn: () => redmineApi.getProjectIssues(projectId),
     staleTime: 60 * 1000,
   });
 }
@@ -160,9 +173,10 @@ export function useUpdateIssue() {
     mutationFn: ({ id, fields }: { id: number; fields: Record<string, unknown> }) =>
       redmineApi.updateIssue(id, fields),
     onSuccess: (_, { id }) => {
+      recordMutation(id);
       qc.invalidateQueries({ queryKey: ['issue', id] });
       qc.invalidateQueries({ queryKey: ['issues'] });
-    }
+    },
   });
 }
 

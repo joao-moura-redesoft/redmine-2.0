@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useProjects, useProjectIssues } from '../hooks/useRedmine';
 import { RefreshCw, Rocket, Copy, Check } from 'lucide-react';
 import type { Issue } from '../types/redmine';
@@ -22,9 +22,6 @@ interface Props {
 export function ReleaseView({ onIssueClick }: Props) {
   const { data: projects } = useProjects();
   const [projectId, setProjectId] = useState<number | undefined>(undefined);
-  useEffect(() => {
-    if (!projectId && projects && projects.length > 0) setProjectId(projects[0].id);
-  }, [projects, projectId]);
 
   const { data: issues, isLoading, isFetching, refetch } = useProjectIssues(projectId);
   const [copied, setCopied] = useState(false);
@@ -66,9 +63,10 @@ export function ReleaseView({ onIssueClick }: Props) {
           )}
           <select
             value={projectId ?? ''}
-            onChange={e => setProjectId(Number(e.target.value))}
+            onChange={e => setProjectId(e.target.value ? Number(e.target.value) : undefined)}
             className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 max-w-64"
           >
+            <option value="">Todos os projetos</option>
             {(projects ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
           <button onClick={() => refetch()} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100" title="Atualizar">
@@ -82,7 +80,7 @@ export function ReleaseView({ onIssueClick }: Props) {
       ) : total === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-slate-400">
           <Rocket size={30} className="mb-3 opacity-30" />
-          <p className="text-sm">Nada em atualização/fechamento neste projeto.</p>
+          <p className="text-sm">Nada em atualização/fechamento {projectId ? 'neste projeto' : 'em nenhum projeto'}.</p>
         </div>
       ) : (
         <div className="space-y-4">

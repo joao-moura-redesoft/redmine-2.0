@@ -27,13 +27,15 @@ import { useShortcuts } from './hooks/useShortcuts';
 import { SettingsModal } from './components/SettingsModal';
 import { StandupModal } from './components/StandupModal';
 import { TalkChat } from './components/TalkChat';
-import { LayoutGrid, Gem, ChevronDown, Eye, PenLine, LogOut, Bell, BellOff, X, BarChart3, Star, Sun, Moon, Users, CalendarDays, ClipboardCheck, Inbox, Plus, FlaskConical, GitMerge, Rocket, Settings, Sparkles } from 'lucide-react';
+import { NotesView } from './components/NotesView';
+import type { NotePatch } from './api/notes';
+import { LayoutGrid, Gem, ChevronDown, Eye, PenLine, LogOut, Bell, BellOff, X, BarChart3, Star, Sun, Moon, Users, CalendarDays, ClipboardCheck, Inbox, Plus, FlaskConical, GitMerge, Rocket, Settings, Sparkles, NotebookPen } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Issue } from './types/redmine';
 
-type Tab = 'inbox' | 'dashboard' | 'kanban' | 'calendar' | 'review' | 'test' | 'integrate' | 'monitoring' | 'authored' | 'watched' | 'people' | 'team' | 'release';
+type Tab = 'inbox' | 'dashboard' | 'kanban' | 'calendar' | 'review' | 'test' | 'integrate' | 'monitoring' | 'authored' | 'watched' | 'people' | 'team' | 'release' | 'notes';
 
 export function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!getStoredAuth());
@@ -96,7 +98,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     return [...map.values()];
   }, [monitored.data, watched.data]);
 
-  const { notifications, dismiss, dismissAll } = useActivityNotifications(allIssues, activityIssues, toReview.data);
+  const { notifications, dismiss, dismissAll } = useActivityNotifications(allIssues, activityIssues, toReview.data, user?.id);
 
   // Permissão de notificação — exposta para o botão "Ativar" no navbar.
   const { permission: notifPermission, requestPermission } = useBrowserNotifications();
@@ -104,27 +106,31 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showStandup, setShowStandup] = useState(false);
 
+  // Captura rápida de nota / nova nota a partir de uma tarefa
+  const [noteSeed, setNoteSeed] = useState<{ nonce: number; patch: NotePatch } | null>(null);
+  const openNewNote = (patch: NotePatch = {}) => {
+    setNoteSeed({ nonce: Date.now(), patch });
+    setActiveTab('notes');
+  };
+
   // Inscreve para Web Push (notificações com a aba fechada).
   usePushNotifications();
 
-  // Abre a tarefa ao clicar numa notificação push:
-  // - Aba já aberta → SW manda postMessage com { type: 'open-issue', issueId }
-  // - Aba fechada   → app abre com ?issue=ID na URL
-  useEffect(() => {
-    // Lê ?issue= da URL (quando a aba estava fechada e o SW abriu uma nova).
-    const params = new URLSearchParams(window.location.search);
-    const issueParam = params.get('issue');
-    if (issueParam) {
-      setSelectedIssueId(Number(issueParam));
-      window.history.replaceState({}, '', '/');
-    }
+  const [pendingTalkToken, setPendingTalkToken] = useState<string | null>(null);
 
-    // Escuta mensagens do SW (quando a aba já estava aberta).
+  // Abre tarefa ou sala do Talk ao clicar numa notificação push.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const issueParam   = params.get('issue');
+    const talkParam    = params.get('talkRoom');
+    if (issueParam)  setSelectedIssueId(Number(issueParam));
+    if (talkParam)   setPendingTalkToken(talkParam);
+    if (issueParam || talkParam) window.history.replaceState({}, '', '/');
+
     if (!('serviceWorker' in navigator)) return;
     const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'open-issue' && e.data.issueId) {
-        setSelectedIssueId(Number(e.data.issueId));
-      }
+      if (e.data?.type === 'open-issue' && e.data.issueId)   setSelectedIssueId(Number(e.data.issueId));
+      if (e.data?.type === 'open-talk'  && e.data.talkToken) setPendingTalkToken(e.data.talkToken);
     };
     navigator.serviceWorker.addEventListener('message', handler);
     return () => navigator.serviceWorker.removeEventListener('message', handler);
@@ -156,6 +162,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     { id: 'people',     label: 'Pessoas',         icon: <Users size={14} /> },
     { id: 'team',       label: 'Time',            icon: <Users size={14} /> },
     { id: 'release',    label: 'Release',         icon: <Rocket size={14} /> },
+    { id: 'notes',      label: 'Notas',           icon: <NotebookPen size={14} /> },
   ];
 
   return (
@@ -389,6 +396,8 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
 
         {activeTab === 'release' && <ReleaseView onIssueClick={setSelectedIssueId} />}
 
+        {activeTab === 'notes' && <NotesView onIssueClick={setSelectedIssueId} seed={noteSeed} />}
+
         {activeTab === 'kanban' && (
           <KanbanBoard
             projectId={selectedProject}
@@ -530,6 +539,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
           issueId={selectedIssueId}
           onClose={() => setSelectedIssueId(null)}
           onNavigate={setSelectedIssueId}
+          onNewNote={(patch) => { setSelectedIssueId(null); openNewNote(patch); }}
         />
       )}
 
@@ -540,6 +550,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         tabs={tabs.map(t => ({ id: t.id, label: t.label, icon: t.icon }))}
         actions={[
           { id: 'create', label: 'Criar tarefa', icon: <Plus size={14} />, run: () => setShowCreate(true) },
+          { id: 'new-note', label: 'Nova nota rápida', icon: <NotebookPen size={14} />, run: () => openNewNote({}) },
           { id: 'theme', label: theme === 'dark' ? 'Tema claro' : 'Tema escuro', icon: theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />, run: toggleTheme },
           ...(selectedIssueId ? [{
             id: 'watch',
@@ -567,7 +578,11 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
       )}
 
       {/* Nextcloud Talk — mini chat estilo LinkedIn */}
-      <TalkChat onIssueClick={setSelectedIssueId} />
+      <TalkChat
+        onIssueClick={setSelectedIssueId}
+        openRoomToken={pendingTalkToken}
+        onRoomOpened={() => setPendingTalkToken(null)}
+      />
     </div>
   );
 }

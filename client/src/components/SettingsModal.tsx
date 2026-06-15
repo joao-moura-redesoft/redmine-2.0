@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { X, KeyRound, Eye, EyeOff, Check, Trash2, Sparkles, ChevronDown, MessageSquare } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { X, KeyRound, Eye, EyeOff, Check, Loader2, Trash2, Sparkles, ChevronDown, MessageSquare, LogIn } from 'lucide-react';
 import { getAIKeys, saveAIKey, clearAIKey, getActiveAI, type AIProvider } from '../utils/aiConfig';
-import { getTalkAuth, saveTalkAuth, clearTalkAuth } from '../api/talk';
+import { getTalkAuth, saveTalkAuth, clearTalkAuth, initLoginFlow, pollLoginFlow } from '../api/talk';
 
 interface Props {
   onClose: () => void;
@@ -42,13 +42,12 @@ const PROVIDERS: ProviderConfig[] = [
 ];
 
 function ProviderSection({ config, active }: { config: ProviderConfig; active: boolean }) {
-  const keys = getAIKeys();
-  const existing = keys[config.id];
+  const [currentKey, setCurrentKey] = useState(() => getAIKeys()[config.id] ?? '');
   const [input, setInput] = useState('');
   const [show, setShow] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
-  const [open, setOpen] = useState(!!existing || active);
+  const [open, setOpen] = useState(!!currentKey || active);
 
   const save = () => {
     if (!input.trim().startsWith(config.prefix)) {
@@ -56,6 +55,7 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
       return;
     }
     saveAIKey(config.id, input.trim());
+    setCurrentKey(input.trim());
     setInput('');
     setSaved(true);
     setError('');
@@ -64,6 +64,7 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
 
   const remove = () => {
     clearAIKey(config.id);
+    setCurrentKey('');
     setSaved(false);
     setError('');
   };
@@ -86,7 +87,7 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
               Em uso
             </span>
           )}
-          {existing && !active && (
+          {currentKey && !active && (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400">
               Configurado
             </span>
@@ -97,12 +98,11 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
 
       {open && (
         <div className="px-4 py-3 space-y-3 bg-white dark:bg-slate-900">
-          {/* Key atual */}
-          {existing && !input && (
+          {currentKey ? (
             <div className="flex items-center justify-between bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2">
               <div className="flex items-center gap-2 text-xs text-green-700 dark:text-green-400">
                 <Check size={12} />
-                <span className="font-mono">{existing.slice(0, 20)}…</span>
+                <span className="font-mono">{currentKey.slice(0, 20)}…</span>
               </div>
               <button
                 onClick={remove}
@@ -112,66 +112,105 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
                 Remover
               </button>
             </div>
+          ) : (
+            <>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={show ? 'text' : 'password'}
+                    value={input}
+                    onChange={e => { setInput(e.target.value); setError(''); setSaved(false); }}
+                    onKeyDown={e => e.key === 'Enter' && save()}
+                    placeholder={config.placeholder}
+                    autoComplete="new-password"
+                    className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 pr-8 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShow(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                  >
+                    {show ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                </div>
+                <button
+                  onClick={save}
+                  disabled={!input.trim()}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
+                >
+                  {saved ? <><Check size={11} /> Salvo!</> : <><KeyRound size={11} /> Salvar</>}
+                </button>
+              </div>
+              {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                Obtenha sua chave em <span className="font-mono">{config.docsUrl}</span>
+              </p>
+            </>
           )}
-
-          {/* Input */}
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <input
-                type={show ? 'text' : 'password'}
-                value={input}
-                onChange={e => { setInput(e.target.value); setError(''); setSaved(false); }}
-                onKeyDown={e => e.key === 'Enter' && save()}
-                placeholder={config.placeholder}
-                autoComplete="new-password"
-                className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 pr-8 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-400"
-              />
-              <button
-                type="button"
-                onClick={() => setShow(v => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-              >
-                {show ? <EyeOff size={13} /> : <Eye size={13} />}
-              </button>
-            </div>
-            <button
-              onClick={save}
-              disabled={!input.trim()}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
-            >
-              {saved ? <><Check size={11} /> Salvo!</> : <><KeyRound size={11} /> Salvar</>}
-            </button>
-          </div>
-          {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
-          <p className="text-[11px] text-slate-400 dark:text-slate-500">
-            Obtenha sua chave em <span className="font-mono">{config.docsUrl}</span>
-          </p>
         </div>
       )}
     </div>
   );
 }
 
-function NextcloudSection() {
-  const existing = getTalkAuth();
-  const [open, setOpen] = useState(!!existing);
-  const [url, setUrl] = useState('');
-  const [user, setUser] = useState('');
-  const [token, setToken] = useState('');
-  const [showToken, setShowToken] = useState(false);
-  const [saved, setSaved] = useState(false);
+type FlowState = 'idle' | 'waiting' | 'error';
 
-  const save = () => {
-    if (!url.trim() || !user.trim() || !token.trim()) return;
-    saveTalkAuth({ url: url.trim().replace(/\/$/, ''), user: user.trim(), token: token.trim() });
-    setUrl(''); setUser(''); setToken('');
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+function NextcloudSection() {
+  const [currentAuth, setCurrentAuth] = useState(() => getTalkAuth());
+  const [open, setOpen] = useState(!!currentAuth);
+  const [url, setUrl] = useState('');
+  const [flowState, setFlowState] = useState<FlowState>('idle');
+  const [error, setError] = useState('');
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollParamsRef = useRef<{ pollEndpoint: string; pollToken: string } | null>(null);
+
+  const stopPolling = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    pollParamsRef.current = null;
+  };
+
+  useEffect(() => () => stopPolling(), []);
+
+  const startFlow = async () => {
+    const base = url.trim().replace(/\/$/, '');
+    if (!base) return;
+    setError('');
+    setFlowState('waiting');
+    try {
+      const { loginUrl, pollEndpoint, pollToken } = await initLoginFlow(base);
+      window.open(loginUrl, '_blank', 'noopener');
+      pollParamsRef.current = { pollEndpoint, pollToken };
+      pollRef.current = setInterval(async () => {
+        if (!pollParamsRef.current) return;
+        try {
+          const result = await pollLoginFlow(pollParamsRef.current.pollEndpoint, pollParamsRef.current.pollToken);
+          if (result.done) {
+            stopPolling();
+            const auth = { url: result.server.replace(/\/$/, ''), user: result.user, token: result.token };
+            saveTalkAuth(auth);
+            setCurrentAuth(auth);
+            setUrl('');
+            setFlowState('idle');
+          }
+        } catch {
+          // poll pode falhar por rede; ignora e tenta no próximo tick
+        }
+      }, 2000);
+    } catch {
+      setFlowState('error');
+      setError('Não foi possível conectar ao Nextcloud. Verifique a URL.');
+    }
+  };
+
+  const cancelFlow = () => {
+    stopPolling();
+    setFlowState('idle');
+    setError('');
   };
 
   const remove = () => {
     clearTalkAuth();
-    setSaved(false);
+    setCurrentAuth(null);
   };
 
   return (
@@ -182,7 +221,7 @@ function NextcloudSection() {
       >
         <div className="flex items-center gap-2.5">
           <span className="text-sm font-medium text-blue-600 dark:text-blue-400">Nextcloud Talk</span>
-          {existing && (
+          {currentAuth && (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300">
               Configurado
             </span>
@@ -193,59 +232,56 @@ function NextcloudSection() {
 
       {open && (
         <div className="px-4 py-3 space-y-3 bg-white dark:bg-slate-900">
-          {existing && (
+          {currentAuth ? (
             <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
               <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400">
                 <Check size={12} />
-                <span className="font-mono">{existing.user}@{existing.url.replace(/^https?:\/\//, '')}</span>
+                <span className="font-mono">{currentAuth.user}@{currentAuth.url.replace(/^https?:\/\//, '')}</span>
               </div>
               <button onClick={remove} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors">
                 <Trash2 size={11} /> Remover
               </button>
             </div>
-          )}
-
-          <input
-            type="url"
-            value={url}
-            onChange={e => setUrl(e.target.value)}
-            placeholder="https://drive.suaempresa.com"
-            className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-          <input
-            type="text"
-            value={user}
-            onChange={e => setUser(e.target.value)}
-            placeholder="usuário"
-            className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <input
-                type={showToken ? 'text' : 'password'}
-                value={token}
-                onChange={e => setToken(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && save()}
-                placeholder="xxxx-xxxx-xxxx-xxxx-xxxx"
-                autoComplete="new-password"
-                className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 pr-8 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
-              <button type="button" onClick={() => setShowToken(v => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                {showToken ? <EyeOff size={13} /> : <Eye size={13} />}
+          ) : flowState === 'waiting' ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2.5">
+                <Loader2 size={13} className="animate-spin text-blue-500 flex-shrink-0" />
+                <p className="text-xs text-blue-700 dark:text-blue-300">
+                  Faça login na janela que abriu e volte aqui — detectaremos automaticamente.
+                </p>
+              </div>
+              <button
+                onClick={cancelFlow}
+                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+              >
+                Cancelar
               </button>
             </div>
-            <button
-              onClick={save}
-              disabled={!url.trim() || !user.trim() || !token.trim()}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
-            >
-              {saved ? <><Check size={11} /> Salvo!</> : <><KeyRound size={11} /> Salvar</>}
-            </button>
-          </div>
-          <p className="text-[11px] text-slate-400 dark:text-slate-500">
-            Gere o App Token em: Configurações → Segurança → Dispositivos e sessões
-          </p>
+          ) : (
+            <>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={url}
+                  onChange={e => { setUrl(e.target.value); setError(''); }}
+                  onKeyDown={e => e.key === 'Enter' && startFlow()}
+                  placeholder="https://drive.suaempresa.com"
+                  className="flex-1 text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                <button
+                  onClick={startFlow}
+                  disabled={!url.trim()}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
+                >
+                  <LogIn size={11} /> Entrar
+                </button>
+              </div>
+              {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                Você será redirecionado para a página de login do Nextcloud — inclusive com 2FA.
+              </p>
+            </>
+          )}
         </div>
       )}
     </div>

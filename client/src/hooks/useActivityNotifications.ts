@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Issue } from '../types/redmine';
 import { useBrowserNotifications } from './useBrowserNotifications';
+import { wasRecentlyMutated } from '../utils/recentMutations';
 
 export type NotifType = 'assigned' | 'activity' | 'review';
 
@@ -25,6 +26,7 @@ export function useActivityNotifications(
   assignedIssues: Issue[] | undefined,
   activityIssues: Issue[] | undefined,
   reviewIssues?: Issue[] | undefined,
+  currentUserId?: number,
 ) {
   const { notify } = useBrowserNotifications();
 
@@ -39,7 +41,11 @@ export function useActivityNotifications(
     const ids = new Set(assignedIssues.map(i => i.id));
     if (seenAssigned.current === null) { seenAssigned.current = ids; return; }
 
-    const novos = assignedIssues.filter(i => !seenAssigned.current!.has(i.id));
+    const novos = assignedIssues.filter(i =>
+      !seenAssigned.current!.has(i.id) &&
+      !wasRecentlyMutated(i.id) &&
+      i.author.id !== currentUserId,
+    );
     seenAssigned.current = ids;
     if (novos.length === 0) return;
 
@@ -67,7 +73,9 @@ export function useActivityNotifications(
     const ids = new Set(reviewIssues.map(i => i.id));
     if (seenReview.current === null) { seenReview.current = ids; return; }
 
-    const novos = reviewIssues.filter(i => !seenReview.current!.has(i.id));
+    const novos = reviewIssues.filter(i =>
+      !seenReview.current!.has(i.id) && !wasRecentlyMutated(i.id),
+    );
     seenReview.current = ids;
     if (novos.length === 0) return;
 
@@ -97,7 +105,7 @@ export function useActivityNotifications(
 
     const changed = activityIssues.filter(i => {
       const prev = lastUpdated.current!.get(i.id);
-      return prev !== undefined && prev !== i.updated_on;
+      return prev !== undefined && prev !== i.updated_on && !wasRecentlyMutated(i.id);
     });
     lastUpdated.current = map;
     if (changed.length === 0) return;

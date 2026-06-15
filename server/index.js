@@ -127,10 +127,12 @@ app.get('/api/issues/to-review', handle(async (req, res) => {
 }));
 
 // Tarefas abertas de um projeto (qualquer responsável) — para o Quadro do time
+// Sem project_id = todos os projetos visíveis ao usuário
 app.get('/api/issues/by-project', handle(async (req, res) => {
   const projectId = req.query.project_id;
-  if (!projectId) return res.json({ issues: [], total_count: 0 });
-  const issues = await fetchAllIssues(makeRedmine(req), { project_id: projectId, status_id: 'open' });
+  const params = { status_id: 'open' };
+  if (projectId) params.project_id = projectId;
+  const issues = await fetchAllIssues(makeRedmine(req), params);
   res.json({ issues, total_count: issues.length });
 }));
 
@@ -208,6 +210,40 @@ app.put('/api/issues/:id', handle(async (req, res) => {
     }
   }
 
+  res.json({ success: true });
+}));
+
+// OpenGraph metadata para preview de links no chat
+app.get('/api/og', handle(async (req, res) => {
+  const url = String(req.query.url || '').trim();
+  if (!url || !/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'URL inválida' });
+  try {
+    const { data: html } = await axios.get(url, {
+      timeout: 6000,
+      maxContentLength: 400 * 1024,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BlumineFetch/1.0)' },
+      responseType: 'text',
+    });
+    const get = (prop) => {
+      const re1 = new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`, 'i');
+      const re2 = new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${prop}["']`, 'i');
+      return (html.match(re1) || html.match(re2))?.[1]?.trim() ?? '';
+    };
+    const title       = get('og:title') || get('twitter:title') || html.match(/<title[^>]*>([^<]+)/i)?.[1]?.trim() || '';
+    const description = get('og:description') || get('twitter:description') || '';
+    const image       = get('og:image') || get('twitter:image') || '';
+    const siteName    = get('og:site_name') || new URL(url).hostname;
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json({ url, title: title.slice(0, 200), description: description.slice(0, 300), image, siteName });
+  } catch {
+    try { res.json({ url, title: '', description: '', image: '', siteName: new URL(url).hostname }); }
+    catch { res.json({ url, title: '', description: '', image: '', siteName: '' }); }
+  }
+}));
+
+// Editar nota de journal (PUT /journals/:id.json)
+app.put('/api/journals/:id', handle(async (req, res) => {
+  await makeRedmine(req).put(`/journals/${req.params.id}.json`, req.body);
   res.json({ success: true });
 }));
 
@@ -1330,6 +1366,7 @@ app.post('/api/push/subscribe', handle(async (req, res) => {
   const url = req.headers['x-redmine-url'];
   const key = req.headers['x-redmine-key'];
   const subscription = req.body?.subscription;
+  const talkAuth = req.body?.talkAuth || null; // { url, user, token } — opcional
   if (!url || !key || !subscription?.endpoint) {
     console.warn('[push] subscribe rejeitado — faltando:', { url: !!url, key: !!key, endpoint: !!subscription?.endpoint });
     return res.status(400).json({ error: 'subscription e credenciais são obrigatórios' });
@@ -1340,11 +1377,27 @@ app.post('/api/push/subscribe', handle(async (req, res) => {
   try { seen = (await collectPushState(url, key)).seen; }
   catch (e) { console.warn('[push] não consegui inicializar o estado:', e.response?.status || e.message); }
 
-  const rec = { endpoint: subscription.endpoint, subscription, url, key, seen, updatedAt: Date.now() };
+  // Estado inicial do Talk: pega o lastMessage.id de cada sala para não notificar retroativamente.
+  let talkSeen = {};
+  if (talkAuth?.url && talkAuth?.user && talkAuth?.token) {
+    try {
+      const talkClient = axios.create({
+        baseURL: talkAuth.url,
+        auth: { username: talkAuth.user, password: talkAuth.token },
+        headers: { 'OCS-APIRequest': 'true', 'Accept': 'application/json' },
+      });
+      const { data } = await talkClient.get('/ocs/v2.php/apps/spreed/api/v4/room?format=json');
+      for (const room of (data.ocs.data || [])) {
+        if (room.lastMessage?.id) talkSeen[room.token] = room.lastMessage.id;
+      }
+    } catch (e) { console.warn('[push] não inicializei estado Talk:', e.response?.status || e.message); }
+  }
+
+  const rec = { endpoint: subscription.endpoint, subscription, url, key, seen, talkAuth, talkSeen, updatedAt: Date.now() };
   const idx = subscriptions.findIndex(s => s.endpoint === subscription.endpoint);
   if (idx >= 0) subscriptions[idx] = rec; else subscriptions.push(rec);
   saveSubs();
-  console.log(`[push] inscrição registrada (${subscriptions.length} no total)`);
+  console.log(`[push] inscrição registrada (${subscriptions.length} no total)${talkAuth ? ' com Talk' : ''}`);
   res.json({ success: true });
 }));
 
@@ -1368,6 +1421,19 @@ async function sendPush(rec, payload) {
       console.error('[push] erro ao enviar:', err.statusCode || err.message);
     }
   }
+}
+
+// Resolve o texto de uma mensagem Talk no servidor (espelho de resolveMessageText do cliente).
+function resolveMessageTextServer(msg) {
+  if (!msg) return '';
+  if (msg.message === '{file}') {
+    const file = msg.messageParameters?.file;
+    return file?.name ? `📎 ${file.name}` : '📎 Arquivo';
+  }
+  return msg.message.replace(/\{([\w-]+)\}/g, (_, key) => {
+    const param = msg.messageParameters?.[key];
+    return param?.name ? `@${param.name}` : key;
+  });
 }
 
 const PUSH_TAG = { assigned: 'a', review: 'r', monitored: 'm' };
@@ -1415,6 +1481,38 @@ async function pollPush() {
             issueId: issue.id,
           });
         }
+
+        // Notificações Talk
+        if (rec.talkAuth?.url && rec.talkAuth?.user && rec.talkAuth?.token) {
+          try {
+            const talkClient = axios.create({
+              baseURL: rec.talkAuth.url,
+              auth: { username: rec.talkAuth.user, password: rec.talkAuth.token },
+              headers: { 'OCS-APIRequest': 'true', 'Accept': 'application/json' },
+            });
+            const { data: tData } = await talkClient.get('/ocs/v2.php/apps/spreed/api/v4/room?format=json');
+            if (!rec.talkSeen) rec.talkSeen = {};
+            for (const room of (tData.ocs.data || [])) {
+              if (room.type === 6) continue; // changelog
+              const lastMsgId = room.lastMessage?.id || 0;
+              const seenId = rec.talkSeen[room.token] || 0;
+              if (lastMsgId > seenId && seenId > 0 && room.unreadMessages > 0) {
+                const body = resolveMessageTextServer(room.lastMessage);
+                const sender = room.lastMessage?.actorDisplayName?.split(' ')[0] || '';
+                await sendPush(rec, {
+                  title: `💬 ${room.displayName}`,
+                  body: sender ? `${sender}: ${body}` : body,
+                  tag: `talk-${room.token}-${lastMsgId}`,
+                  url: `/?talkRoom=${room.token}`,
+                  talkToken: room.token,
+                });
+              }
+              if (lastMsgId) rec.talkSeen[room.token] = lastMsgId;
+            }
+          } catch (err) {
+            console.warn('[push] poll Talk falhou:', err.response?.status || err.message);
+          }
+        }
       } catch (err) {
         console.warn('[push] poll falhou para uma inscrição:', err.response?.status || err.message);
       }
@@ -1425,6 +1523,35 @@ async function pollPush() {
   }
 }
 setInterval(pollPush, PUSH_POLL_MS);
+
+// =========================================================================
+// NEXTCLOUD LOGIN FLOW v2
+// =========================================================================
+
+app.post('/api/talk/login-flow/init', handle(async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'url required' });
+  const base = url.replace(/\/$/, '');
+  const { data } = await axios.post(`${base}/index.php/login/v2`);
+  res.json({ loginUrl: data.login, pollEndpoint: data.poll.endpoint, pollToken: data.poll.token });
+}));
+
+app.post('/api/talk/login-flow/poll', handle(async (req, res) => {
+  const { pollEndpoint, pollToken } = req.body;
+  if (!pollEndpoint || !pollToken) return res.status(400).json({ error: 'missing params' });
+  try {
+    const { data } = await axios.post(
+      pollEndpoint,
+      `token=${encodeURIComponent(pollToken)}`,
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+    res.json({ done: true, server: data.server, user: data.loginName, token: data.appPassword });
+  } catch (e) {
+    // 404 = ainda aguardando o usuário fazer login
+    if (e.response?.status === 404) return res.json({ done: false });
+    throw e;
+  }
+}));
 
 // =========================================================================
 // NEXTCLOUD TALK PROXY
@@ -1441,6 +1568,17 @@ function makeTalk(req) {
   });
 }
 
+app.get('/api/talk/avatar/:userId', handle(async (req, res) => {
+  const size = parseInt(req.query.size) || 40;
+  const response = await makeTalk(req).get(
+    `/index.php/avatar/${encodeURIComponent(req.params.userId)}/${size}`,
+    { responseType: 'arraybuffer' }
+  );
+  res.set('Content-Type', response.headers['content-type'] || 'image/png');
+  res.set('Cache-Control', 'public, max-age=1800');
+  res.send(response.data);
+}));
+
 app.get('/api/talk/me', handle(async (req, res) => {
   const { data } = await makeTalk(req).get('/ocs/v2.php/cloud/user?format=json');
   res.json({ id: data.ocs.data.id, displayName: data.ocs.data.display_name });
@@ -1453,7 +1591,9 @@ app.get('/api/talk/rooms', handle(async (req, res) => {
 
 app.get('/api/talk/rooms/:token/messages', handle(async (req, res) => {
   const params = { limit: 50, lookIntoFuture: 0 };
-  if (req.query.lastKnownMessageId) params.lastKnownMessageId = req.query.lastKnownMessageId;
+  // Sem cursor = busca as 50 mais recentes usando um ID alto como âncora.
+  // Sem isso, algumas versões do Talk retornam as mensagens mais ANTIGAS primeiro.
+  params.lastKnownMessageId = req.query.lastKnownMessageId || 2147483647;
   const { data } = await makeTalk(req).get(
     `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}?format=json`,
     { params }
@@ -1475,28 +1615,86 @@ app.post('/api/talk/rooms/:token/upload',
     const user     = req.headers['x-nextcloud-user'];
     const filename = decodeURIComponent(req.headers['x-filename'] || `upload_${Date.now()}`);
     const ct       = req.headers['x-content-type'] || 'application/octet-stream';
+    const caption  = req.headers['x-caption'] ? decodeURIComponent(req.headers['x-caption']) : '';
     const { token } = req.params;
     const talk = makeTalk(req);
 
-    // Garante que a pasta Talk existe
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
+    if (!body.length) {
+      return res.status(400).json({ error: 'Arquivo vazio — tente novamente.' });
+    }
+
+    const OCS_TIMEOUT = 8000;
+    const ncUrl = req.headers['x-nextcloud-url'];
+    const putOpts = {
+      headers: { 'Content-Type': ct, 'Content-Length': body.length },
+      maxBodyLength: 100 * 1024 * 1024,
+      maxContentLength: 100 * 1024 * 1024,
+    };
+
+    // Subpasta única dentro de /Talk: evita conflito de nome (clipboard manda sempre
+    // "image.png") e mantém o filename limpo na exibição do chat.
+    const subdir = `Talk/talk_${Date.now()}`;
+    try { await talk.request({ method: 'MKCOL', url: `/remote.php/webdav/Talk` }); } catch {}
+    try { await talk.request({ method: 'MKCOL', url: `/remote.php/webdav/${subdir}` }); } catch {}
+    await talk.put(`/remote.php/webdav/${subdir}/${encodeURIComponent(filename)}`, body, putOpts);
+
+    // shareType 10 = Talk room (inline) — sempre a opção preferida.
+    // caption vai como talkMetaData (legenda da imagem/arquivo).
+    const shareToRoom = async (filePath) => {
+      try {
+        const shareBody = { shareType: 10, shareWith: token, path: filePath };
+        if (caption) shareBody.talkMetaData = JSON.stringify({ caption });
+        await talk.post(
+          '/ocs/v2.php/apps/files_sharing/api/v1/shares?format=json',
+          shareBody,
+          { timeout: OCS_TIMEOUT }
+        );
+        return { method: 'share' };
+      } catch { return null; }
+    };
+
+    // shareType 3 = link público — só usado se o inline estiver indisponível.
+    const sharePublic = async (filePath) => {
+      try {
+        const { data: pd } = await talk.post(
+          '/ocs/v2.php/apps/files_sharing/api/v1/shares?format=json',
+          { shareType: 3, path: filePath },
+          { timeout: OCS_TIMEOUT }
+        );
+        const url = pd?.ocs?.data?.url;
+        if (url) {
+          const msg = caption ? `${caption}\n📎 ${filename}\n${url}` : `📎 ${filename}\n${url}`;
+          await talk.post(`/ocs/v2.php/apps/spreed/api/v1/chat/${token}?format=json`,
+            { message: msg }, { timeout: OCS_TIMEOUT });
+          return { method: 'public-link' };
+        }
+      } catch {}
+      return null;
+    };
+
+    // 1. Inline a partir da subpasta /Talk
+    const r1 = await shareToRoom(`/${subdir}/${filename}`);
+    if (r1) return res.json({ success: true, ...r1 });
+
+    // 2. Inline a partir da raiz (contorna restrições de share na pasta Talk)
+    const rootName = `talk_${Date.now()}_${filename}`;
     try {
-      await talk.request({ method: 'MKCOL', url: `/remote.php/dav/files/${encodeURIComponent(user)}/Talk` });
+      await talk.put(`/remote.php/webdav/${encodeURIComponent(rootName)}`, body, putOpts);
+      const r2 = await shareToRoom(`/${rootName}`);
+      if (r2) return res.json({ success: true, ...r2 });
+      // 3. Link público como último recurso (shareType 10 indisponível)
+      const r3 = await sharePublic(`/${rootName}`);
+      if (r3) return res.json({ success: true, ...r3 });
     } catch {}
 
-    // 1. Upload do arquivo para /Talk/{filename} via WebDAV
-    await talk.put(
-      `/remote.php/dav/files/${encodeURIComponent(user)}/Talk/${encodeURIComponent(filename)}`,
-      req.body,
-      { headers: { 'Content-Type': ct } }
-    );
-
-    // 2. Compartilha o arquivo na conversa (shareType 10 = Talk room)
-    await talk.post(
-      '/ocs/v2.php/apps/files_sharing/api/v1/shares?format=json',
-      { shareType: 10, shareWith: token, path: `/Talk/${filename}` }
-    );
-
-    res.json({ success: true });
+    // 4. Compartilhamento não disponível — informa com clareza
+    res.status(200).json({
+      success: false,
+      method: 'none',
+      error: `Arquivo enviado (${subdir}/${filename}), mas o compartilhamento está desativado para este usuário. Peça ao admin do Nextcloud para habilitar. Acesse: ${ncUrl}/apps/files`,
+      uploadedPath: `${subdir}/${filename}`,
+    });
   })
 );
 
@@ -1553,17 +1751,217 @@ app.get('/api/talk/file-preview', handle(async (req, res) => {
   } catch {}
 
   const result =
-    // 2. WebDAV do usuário logado (se o arquivo for dele)
+    // 2. webdav relativo (sem precisar do principal name) — funciona para o usuário logado
+    (filePath && await tryDownload(`/remote.php/webdav/${filePath}`)) ||
+    // 3. WebDAV explícito do usuário logado
     (filePath && await tryDownload(`/remote.php/dav/files/${encodeURIComponent(user)}/${filePath}`)) ||
-    // 3. WebDAV do remetente (se houver permissão de share)
+    // 4. WebDAV do remetente (se houver permissão de share)
     (actorId && actorId !== user && filePath && await tryDownload(`/remote.php/dav/files/${encodeURIComponent(actorId)}/${filePath}`)) ||
-    // 4. Preview thumbnail como último recurso
+    // 5. Preview thumbnail como último recurso
     (fileId && await tryDownload(`/index.php/core/preview?fileId=${fileId}&x=800&y=800&a=true`));
 
   if (!result) return res.status(404).json({ error: 'not accessible' });
   res.set('Content-Type', result.ct);
   res.set('Cache-Control', 'private, max-age=3600');
   res.send(result.data);
+}));
+
+// ─── Endpoints Talk extras ────────────────────────────────────────────────────
+
+// Indicador de digitação
+app.post('/api/talk/rooms/:token/typing', handle(async (req, res) => {
+  try {
+    const { data } = await makeTalk(req).post(
+      `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/typing?format=json`,
+      req.body
+    );
+    res.json(data?.ocs?.meta ?? { status: 'ok' });
+  } catch { res.json({ status: 'ok' }); }
+}));
+
+// Reações — GET, POST, DELETE
+app.get('/api/talk/rooms/:token/messages/:messageId/reactions', handle(async (req, res) => {
+  const { data } = await makeTalk(req).get(
+    `/ocs/v2.php/apps/spreed/api/v1/reaction/${req.params.token}/${req.params.messageId}?format=json`
+  );
+  res.json(data.ocs.data ?? {});
+}));
+
+app.post('/api/talk/rooms/:token/messages/:messageId/reactions', handle(async (req, res) => {
+  const { data } = await makeTalk(req).post(
+    `/ocs/v2.php/apps/spreed/api/v1/reaction/${req.params.token}/${req.params.messageId}?format=json`,
+    req.body
+  );
+  res.json(data.ocs.data ?? {});
+}));
+
+app.delete('/api/talk/rooms/:token/messages/:messageId/reactions', handle(async (req, res) => {
+  const { data } = await makeTalk(req).delete(
+    `/ocs/v2.php/apps/spreed/api/v1/reaction/${req.params.token}/${req.params.messageId}?format=json`,
+    { params: { reaction: req.query.reaction } }
+  );
+  res.json(data.ocs.data ?? {});
+}));
+
+// Editar mensagem
+app.put('/api/talk/rooms/:token/messages/:messageId', handle(async (req, res) => {
+  const { data } = await makeTalk(req).put(
+    `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/${req.params.messageId}?format=json`,
+    req.body
+  );
+  res.json(data.ocs.data ?? {});
+}));
+
+// Excluir mensagem
+app.delete('/api/talk/rooms/:token/messages/:messageId', handle(async (req, res) => {
+  await makeTalk(req).delete(
+    `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/${req.params.messageId}?format=json`
+  );
+  res.json({ success: true });
+}));
+
+// Avatar de sala (grupos)
+app.get('/api/talk/rooms/:token/avatar', handle(async (req, res) => {
+  try {
+    const isDark = req.query.dark === '1';
+    const response = await makeTalk(req).get(
+      `/ocs/v2.php/apps/spreed/api/v1/room/${req.params.token}/avatar${isDark ? '/dark' : ''}`,
+      { responseType: 'arraybuffer' }
+    );
+    res.set('Content-Type', response.headers['content-type'] || 'image/svg+xml');
+    res.set('Cache-Control', 'public, max-age=1800');
+    res.send(response.data);
+  } catch { res.status(404).end(); }
+}));
+
+// Criar sala (DM roomType=1 ou grupo roomType=2)
+app.post('/api/talk/rooms', handle(async (req, res) => {
+  const { data } = await makeTalk(req).post(
+    `/ocs/v2.php/apps/spreed/api/v4/room?format=json`,
+    req.body
+  );
+  res.json(data.ocs.data);
+}));
+
+// Buscar usuários Nextcloud para iniciar conversa
+app.get('/api/talk/search/users', handle(async (req, res) => {
+  const { data } = await makeTalk(req).get(
+    `/ocs/v2.php/core/autocomplete/get?format=json`,
+    { params: { search: req.query.search || '', itemType: 'call', itemId: 'new', 'shareTypes[]': '0', limit: 20 } }
+  );
+  res.json(data.ocs.data || []);
+}));
+
+// SSE — proxy do long-poll do Talk para updates em tempo real.
+// Auth via query string porque EventSource não suporta headers customizados.
+app.get('/api/talk/rooms/:token/sse', (req, res) => {
+  const ncUrl   = req.query.ncUrl   || '';
+  const ncUser  = req.query.ncUser  || '';
+  const ncToken = req.query.ncToken || '';
+  if (!ncUrl || !ncUser || !ncToken) return res.status(401).json({ error: 'credenciais obrigatórias' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const talk = axios.create({
+    baseURL: ncUrl,
+    auth: { username: ncUser, password: ncToken },
+    headers: { 'OCS-APIRequest': 'true', 'Accept': 'application/json' },
+  });
+
+  let lastId = parseInt(req.query.lastKnownMessageId) || 0;
+  let active = true;
+
+  (async () => {
+    while (active) {
+      try {
+        const { data } = await talk.get(
+          `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}`,
+          { params: { format: 'json', lookIntoFuture: 1, timeout: 30, lastKnownMessageId: lastId, limit: 50, includeLastKnown: 0 }, timeout: 35_000 }
+        );
+        const messages = data?.ocs?.data ?? [];
+        if (messages.length > 0) {
+          const newLastId = Math.max(...messages.map(m => m.id));
+          if (newLastId > lastId) lastId = newLastId;
+          const comments = messages.filter(m => m.messageType === 'comment');
+          const typing = messages
+            .filter(m => m.messageType === 'system' && m.systemMessage === 'typing')
+            .map(m => ({ actorId: m.actorId, actorDisplayName: m.actorDisplayName }));
+          if (comments.length > 0) res.write(`data: ${JSON.stringify({ type: 'messages', data: comments })}\n\n`);
+          if (typing.length > 0) res.write(`data: ${JSON.stringify({ type: 'typing', data: typing })}\n\n`);
+        } else {
+          res.write(': ping\n\n');
+        }
+      } catch (err) {
+        if (!active) break;
+        if (err.code === 'ECONNABORTED' || err.response?.status === 304) continue;
+        console.warn('[sse] erro no poll Talk:', err.response?.status || err.message);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
+  })();
+
+  req.on('close', () => { active = false; });
+});
+
+// =========================================================================
+// NOTAS — bloco de notas pessoal, persistido por usuário do Redmine
+// =========================================================================
+const NOTES_FILE = dataFile('notes.json');
+let notesStore = readJsonSecure(NOTES_FILE, {}); // { [userId]: Note[] }
+const saveNotes = () => writeJsonSecure(NOTES_FILE, notesStore);
+
+function userNotes(userId) {
+  if (!notesStore[userId]) notesStore[userId] = [];
+  return notesStore[userId];
+}
+
+const NOTE_FIELDS = ['title', 'body', 'tags', 'pinned', 'color', 'linkedIssueId', 'linkedProjectId'];
+
+app.get('/api/notes', handle(async (req, res) => {
+  const uid = await getMyUserId(req);
+  res.json(userNotes(uid));
+}));
+
+app.post('/api/notes', handle(async (req, res) => {
+  const uid = await getMyUserId(req);
+  const now = Date.now();
+  const b = req.body || {};
+  const note = {
+    id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+    title: typeof b.title === 'string' ? b.title : '',
+    body: typeof b.body === 'string' ? b.body : '',
+    tags: Array.isArray(b.tags) ? b.tags.filter(t => typeof t === 'string') : [],
+    pinned: !!b.pinned,
+    color: typeof b.color === 'string' ? b.color : null,
+    linkedIssueId: Number.isInteger(b.linkedIssueId) ? b.linkedIssueId : null,
+    linkedProjectId: Number.isInteger(b.linkedProjectId) ? b.linkedProjectId : null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  userNotes(uid).unshift(note);
+  saveNotes();
+  res.json(note);
+}));
+
+app.put('/api/notes/:id', handle(async (req, res) => {
+  const uid = await getMyUserId(req);
+  const note = userNotes(uid).find(n => n.id === req.params.id);
+  if (!note) return res.status(404).json({ error: 'nota não encontrada' });
+  const b = req.body || {};
+  for (const k of NOTE_FIELDS) if (k in b) note[k] = b[k];
+  note.updatedAt = Date.now();
+  saveNotes();
+  res.json(note);
+}));
+
+app.delete('/api/notes/:id', handle(async (req, res) => {
+  const uid = await getMyUserId(req);
+  notesStore[uid] = userNotes(uid).filter(n => n.id !== req.params.id);
+  saveNotes();
+  res.json({ ok: true });
 }));
 
 // =========================================================================

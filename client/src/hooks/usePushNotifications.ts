@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useBrowserNotifications } from './useBrowserNotifications';
 import { redmineApi } from '../api/redmine';
+import { getTalkAuth } from '../api/talk';
 
 /** Converte a chave pública VAPID (base64url) no formato exigido pelo PushManager. */
 function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
@@ -47,8 +48,9 @@ export function usePushNotifications() {
         }
         if (cancelled) return;
 
-        await redmineApi.subscribePush(sub.toJSON());
-        console.log('[push] inscrição enviada ao servidor com sucesso');
+        const talkAuth = getTalkAuth();
+        await redmineApi.subscribePush(sub.toJSON(), talkAuth);
+        console.log('[push] inscrição enviada ao servidor com sucesso', talkAuth ? '(com Talk)' : '');
       } catch (err) {
         console.error('[push] falha ao inscrever:', err);
       }

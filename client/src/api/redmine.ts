@@ -72,6 +72,15 @@ export const redmineApi = {
     await api.put(`/issues/${id}`, { issue });
   },
 
+  searchIssues: async (q: string): Promise<{ id: number; subject: string }[]> => {
+    const { data } = await api.get('/search', { params: { q } });
+    return (data.issues ?? []).map((i: { id: number; subject: string }) => ({ id: i.id, subject: i.subject }));
+  },
+
+  updateJournal: async (id: number, notes: string): Promise<void> => {
+    await api.put(`/journals/${id}`, { journal: { notes } });
+  },
+
   uploadFile: async (file: File): Promise<Upload> => {
     const buf = await file.arrayBuffer();
     const { data } = await api.post('/uploads', buf, {
@@ -139,8 +148,10 @@ export const redmineApi = {
     return data.issues;
   },
 
-  getProjectIssues: async (projectId: number): Promise<Issue[]> => {
-    const { data } = await api.get('/issues/by-project', { params: { project_id: projectId } });
+  getProjectIssues: async (projectId?: number): Promise<Issue[]> => {
+    const params: Record<string, unknown> = {};
+    if (projectId) params.project_id = projectId;
+    const { data } = await api.get('/issues/by-project', { params });
     return data.issues;
   },
 
@@ -328,8 +339,8 @@ export const redmineApi = {
     return data.publicKey;
   },
 
-  subscribePush: async (subscription: PushSubscriptionJSON): Promise<void> => {
-    await api.post('/push/subscribe', { subscription });
+  subscribePush: async (subscription: PushSubscriptionJSON, talkAuth?: { url: string; user: string; token: string } | null): Promise<void> => {
+    await api.post('/push/subscribe', { subscription, talkAuth: talkAuth ?? null });
   },
 
   unsubscribePush: async (endpoint: string): Promise<void> => {

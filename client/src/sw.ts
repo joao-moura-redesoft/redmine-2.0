@@ -30,6 +30,8 @@ interface PushPayload {
   body: string;
   tag?: string;
   url?: string;
+  issueId?: number;
+  talkToken?: string;
 }
 
 self.addEventListener('push', (event: PushEvent) => {
@@ -52,7 +54,7 @@ self.addEventListener('push', (event: PushEvent) => {
           icon: '/icon-192.png',
           badge: '/icon-192.png',
           tag: payload.tag,
-          data: { url: payload.url ?? '/' },
+          data: { url: payload.url ?? '/', issueId: payload.issueId, talkToken: payload.talkToken },
         });
       }),
   );
@@ -63,9 +65,10 @@ self.addEventListener('push', (event: PushEvent) => {
 // ServiceWorkerRegistration.showNotification() (used by useBrowserNotifications).
 self.addEventListener('notificationclick', (event: NotificationEvent) => {
   event.notification.close();
-  const data = event.notification.data as { url?: string; issueId?: number } | undefined;
+  const data = event.notification.data as { url?: string; issueId?: number; talkToken?: string } | undefined;
   const target = data?.url || '/';
   const issueId = data?.issueId;
+  const talkToken = data?.talkToken;
 
   event.waitUntil(
     self.clients
@@ -73,11 +76,10 @@ self.addEventListener('notificationclick', (event: NotificationEvent) => {
       .then((clientList) => {
         const live = clientList.find(c => 'focus' in c) as WindowClient | undefined;
         if (live) {
-          // App já aberto — manda mensagem para abrir o modal da tarefa direto.
-          if (issueId) live.postMessage({ type: 'open-issue', issueId });
+          if (issueId)    live.postMessage({ type: 'open-issue', issueId });
+          if (talkToken)  live.postMessage({ type: 'open-talk',  talkToken });
           return live.focus();
         }
-        // Nenhuma janela aberta — abre com ?issue=ID na URL.
         return self.clients.openWindow(target);
       }),
   );
