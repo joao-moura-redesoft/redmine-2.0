@@ -76,6 +76,14 @@ export interface Issue {
   attachments?: Attachment[];
 }
 
+export interface Mention {
+  journalId: number;
+  issue: { id: number; subject: string; project?: NamedRef };
+  author?: NamedRef;
+  snippet: string;
+  created_on: string;
+}
+
 export interface Version {
   id: number;
   name: string;

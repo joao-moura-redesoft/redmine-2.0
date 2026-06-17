@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, KeyRound, Eye, EyeOff, Check, Loader2, Trash2, Sparkles, ChevronDown, MessageSquare, LogIn } from 'lucide-react';
+import { X, KeyRound, Eye, EyeOff, Check, Loader2, Trash2, Sparkles, ChevronDown, MessageSquare, LogIn, Mail, BookOpen, Shield } from 'lucide-react';
 import { getAIKeys, saveAIKey, clearAIKey, getActiveAI, type AIProvider } from '../utils/aiConfig';
 import { getTalkAuth, saveTalkAuth, clearTalkAuth, initLoginFlow, pollLoginFlow } from '../api/talk';
+import { getMailConfig, saveMailConfig, clearMailConfig, DEFAULT_HOST, getMailHost } from '../utils/mailConfig';
+import { getStoredAuth } from '../api/redmine';
+import { mailApi } from '../api/mail';
+import { getADCreds, saveADCreds, clearADCreds, hasEffectiveCreds, needsADCreds } from '../utils/adConfig';
 
 interface Props {
   onClose: () => void;
@@ -288,6 +292,235 @@ function NextcloudSection() {
   );
 }
 
+// Seção genérica de credenciais corporativas (AD) — cobre E-mail e Wiki.
+// Se logado com usuário/senha no Redmine: automático. Se por API key: formulário.
+function ADCredsSection() {
+  const auth = getStoredAuth();
+  const isAuto = !!(auth?.username && auth?.password);
+  const [creds, setCreds] = useState(() => getADCreds());
+  const [user, setUser] = useState('');
+  const [password, setPassword] = useState('');
+  const [show, setShow] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [open, setOpen] = useState(!isAuto && !creds);
+
+  const save = () => {
+    if (!user.trim() || !password) return;
+    saveADCreds({ username: user.trim(), password });
+    setCreds(getADCreds());
+    setUser(''); setPassword('');
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  const remove = () => {
+    clearADCreds();
+    setCreds(null);
+    setSaved(false);
+  };
+
+  return (
+    <div className={`border rounded-xl overflow-hidden ${isAuto ? 'border-green-200 dark:border-green-800' : creds ? 'border-blue-200 dark:border-blue-800' : 'border-slate-200 dark:border-slate-700'}`}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+      >
+        <div className="flex items-center gap-2.5">
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Usuário e senha do AD</span>
+          {isAuto && (
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300">
+              Automático
+            </span>
+          )}
+          {!isAuto && creds && (
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300">
+              Configurado
+            </span>
+          )}
+          {!isAuto && !creds && (
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300">
+              Necessário
+            </span>
+          )}
+        </div>
+        <ChevronDown size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="px-4 py-3 space-y-3 bg-white dark:bg-slate-900">
+          {isAuto ? (
+            <div className="flex items-start gap-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2.5 text-xs text-green-700 dark:text-green-300">
+              <Check size={13} className="flex-shrink-0 mt-0.5" />
+              <span>
+                Logado como <strong>{auth?.username}</strong> com usuário e senha — E-mail e Wiki usam as mesmas credenciais automaticamente.
+              </span>
+            </div>
+          ) : creds ? (
+            <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400">
+                <Check size={12} />
+                <span className="font-mono">{creds.username}</span>
+              </div>
+              <button onClick={remove} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors">
+                <Trash2 size={11} /> Remover
+              </button>
+            </div>
+          ) : (
+            <>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                Informe seu usuário e senha do AD (Windows). Usados por <strong>E-mail</strong> e <strong>Wiki</strong>.
+                O usuário é sem @domínio (ex.: <span className="font-mono">joao.moura</span>).
+              </p>
+              <div className="space-y-2">
+                <input
+                  value={user} onChange={e => setUser(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && save()}
+                  placeholder="Usuário (ex.: joao.moura)"
+                  autoComplete="off"
+                  className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                <div className="relative">
+                  <input
+                    type={show ? 'text' : 'password'}
+                    value={password} onChange={e => setPassword(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && save()}
+                    placeholder="Senha do AD"
+                    autoComplete="new-password"
+                    className="w-full text-xs px-3 py-2 pr-8 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                  <button type="button" onClick={() => setShow(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {show ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={save}
+                disabled={!user.trim() || !password}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors"
+              >
+                {saved ? <><Check size={11} /> Salvo!</> : <><KeyRound size={11} /> Salvar</>}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Seção E-mail — mostra status e permite customizar host se necessário.
+function MailSection() {
+  const available = hasEffectiveCreds();
+  const [host, setHost] = useState(() => getMailConfig().host || DEFAULT_HOST);
+  const [saved, setSaved] = useState(false);
+  const [testState, setTestState] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
+  const [testError, setTestError] = useState('');
+  const [open, setOpen] = useState(false);
+
+  const saveHost = () => {
+    saveMailConfig({ host });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const test = async () => {
+    setTestState('testing'); setTestError('');
+    try { await mailApi.ping(); setTestState('ok'); }
+    catch (e: any) { setTestState('error'); setTestError(e?.response?.data?.error || 'Falha na conexão'); }
+  };
+
+  return (
+    <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+      >
+        <div className="flex items-center gap-2.5">
+          <span className="text-sm font-medium text-blue-600 dark:text-blue-400">E-mail (Zimbra)</span>
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${available ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300' : 'bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-400'}`}>
+            {available ? 'Disponível' : 'Sem credenciais'}
+          </span>
+        </div>
+        <ChevronDown size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="px-4 py-3 space-y-3 bg-white dark:bg-slate-900">
+          <p className="text-[11px] text-slate-400 dark:text-slate-500">
+            Servidor Zimbra. Deixe o padrão se não souber qual usar.
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={host} onChange={e => { setHost(e.target.value); setSaved(false); }}
+              onKeyDown={e => e.key === 'Enter' && saveHost()}
+              placeholder={DEFAULT_HOST}
+              className="flex-1 text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <button
+              onClick={saveHost}
+              className="flex items-center gap-1 px-3 py-2 text-xs bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-lg font-medium transition-colors"
+            >
+              {saved ? <Check size={11} /> : null} Salvar
+            </button>
+          </div>
+          {available && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={test}
+                disabled={testState === 'testing'}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors"
+              >
+                {testState === 'testing' ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                Testar conexão
+              </button>
+              {testState === 'ok' && <span className="text-xs text-green-600 dark:text-green-400">Conectado!</span>}
+              {testState === 'error' && <span className="text-xs text-red-500">{testError}</span>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Seção Wiki — só mostra status (credenciais vêm da seção AD acima).
+function WikiSection() {
+  const available = hasEffectiveCreds();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+      >
+        <div className="flex items-center gap-2.5">
+          <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Wiki (DokuWiki)</span>
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${available ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300' : 'bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-400'}`}>
+            {available ? 'Disponível' : 'Sem credenciais'}
+          </span>
+        </div>
+        <ChevronDown size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="px-4 py-3 bg-white dark:bg-slate-900">
+          {available ? (
+            <div className="flex items-center gap-2 text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2.5">
+              <Check size={13} />
+              <span>wiki.redesoft.com.br acessível com as credenciais configuradas.</span>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              Configure o <strong>Usuário e senha do AD</strong> acima para habilitar o acesso à Wiki.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SettingsModal({ onClose }: Props) {
   const active = getActiveAI();
 
@@ -310,6 +543,36 @@ export function SettingsModal({ onClose }: Props) {
 
         {/* Body */}
         <div className="p-5 space-y-4">
+
+          {/* Seção Credenciais corporativas (AD) */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Shield size={14} className="text-slate-500" />
+              <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                Credenciais corporativas
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              Usuário e senha do AD (Windows). Necessários para E-mail e Wiki quando o login no Redmine é feito por chave de API.
+            </p>
+            <ADCredsSection />
+          </div>
+
+          <div className="border-t border-slate-100 dark:border-slate-800" />
+
+          {/* Serviços corporativos: E-mail + Wiki */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Mail size={14} className="text-blue-500" />
+              <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                Serviços corporativos
+              </h3>
+            </div>
+            <MailSection />
+            <WikiSection />
+          </div>
+
+          <div className="border-t border-slate-100 dark:border-slate-800" />
 
           {/* Seção Nextcloud Talk */}
           <div className="space-y-3">

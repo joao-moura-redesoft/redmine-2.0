@@ -4,15 +4,15 @@ const axios = require('axios');
 const path = require('path'); // <-- ADICIONADO: Importação explícita do path
 const fs = require('fs');
 const webpush = require('web-push');
-const { spawnSync } = require('child_process');
+const { spawnSync, spawn } = require('child_process');
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
+const zimbra = require('./zimbra');
+const doku = require('./dokuwiki');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Credenciais vêm sempre dos headers do request (definidas no login).
-// Sem fallback: quem não autenticar não acessa nada.
 const DEFAULT_URL = '';
 const DEFAULT_KEY = '';
 
@@ -20,27 +20,63 @@ const DEFAULT_KEY = '';
 app.use(cors({ origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3001', 'http://127.0.0.1:3001'] }));
 app.use(express.json());
 
-// Guarda as últimas credenciais autenticadas vistas (para requests sem headers,
-// como <img> de anexos, que não passam pelos headers do axios do cliente).
-let lastAuth = { url: DEFAULT_URL, key: DEFAULT_KEY };
+// Guarda as últimas credenciais autenticadas (para requests sem headers, como <img> de anexos).
+let lastAuth = { url: DEFAULT_URL, key: DEFAULT_KEY, username: '', password: '' };
+
+// Retorna os headers de autenticação corretos dependendo do modo (token vs usuário/senha).
+function buildAuthHeaders(key, username, password) {
+  if (username && password) {
+    const token = Buffer.from(`${username}:${password}`).toString('base64');
+    return { 'Authorization': `Basic ${token}` };
+  }
+  return { 'X-Redmine-API-Key': key };
+}
 
 // Cria instância do axios para cada request com as credenciais certas
 function makeRedmine(req) {
   const url = req.headers['x-redmine-url'] || DEFAULT_URL;
   const key = req.headers['x-redmine-key'] || DEFAULT_KEY;
-  if (url && key) lastAuth = { url, key };
+  const username = req.headers['x-redmine-user'] || '';
+  const password = req.headers['x-redmine-pass'] || '';
+  if (url && (key || (username && password))) lastAuth = { url, key, username, password };
   return axios.create({
     baseURL: url,
-    headers: { 'X-Redmine-API-Key': key, 'Content-Type': 'application/json' },
+    headers: { ...buildAuthHeaders(key, username, password), 'Content-Type': 'application/json' },
   });
 }
 
-// Cache de userId por "url:key"
+// --- Sincronizacao com o Concierge (app Delphi local) ---
+// Quando uma issue vai para "Em andamento", aponta a tarefa no Concierge
+// automaticamente, rodando o agente PowerShell (fire-and-forget).
+const CONCIERGE_SCRIPT = path.join(__dirname, '..', 'automation', 'concierge-set-task.ps1');
+// nome do status considerado "em andamento" (regex, configuravel por env)
+const CONCIERGE_INPROGRESS_RE = new RegExp(process.env.CONCIERGE_INPROGRESS || 'andamento|progress', 'i');
+const CONCIERGE_ENABLED = process.env.CONCIERGE_AUTOMATION !== '0'; // ligado por padrao
+
+function syncConcierge(taskId, subject) {
+  if (!CONCIERGE_ENABLED) return;
+  if (process.platform !== 'win32') return;
+  if (!fs.existsSync(CONCIERGE_SCRIPT)) return;
+  try {
+    const args = ['-ExecutionPolicy', 'Bypass', '-File', CONCIERGE_SCRIPT, '-TaskId', String(taskId)];
+    if (subject) args.push('-ExpectTitle', subject);
+    const child = spawn('powershell', args, { detached: true, stdio: 'ignore', windowsHide: true });
+    child.on('error', (e) => console.error('[concierge] spawn falhou:', e.message));
+    child.unref();
+    console.log(`[concierge] sincronizando tarefa ${taskId}${subject ? ` (${subject})` : ''}`);
+  } catch (e) {
+    console.error('[concierge] erro ao sincronizar:', e.message);
+  }
+}
+
+// Cache de userId por "url:key" ou "url:user:pass"
 const userIdCache = new Map();
 async function getMyUserId(req) {
   const url = req.headers['x-redmine-url'] || DEFAULT_URL;
   const key = req.headers['x-redmine-key'] || DEFAULT_KEY;
-  const cacheKey = `${url}:${key}`;
+  const username = req.headers['x-redmine-user'] || '';
+  const password = req.headers['x-redmine-pass'] || '';
+  const cacheKey = `${url}:${key || `${username}:${password}`}`;
   if (userIdCache.has(cacheKey)) return userIdCache.get(cacheKey);
   const { data } = await makeRedmine(req).get('/users/current.json');
   userIdCache.set(cacheKey, data.user.id);
@@ -50,8 +86,8 @@ async function getMyUserId(req) {
 const handle = (fn) => async (req, res) => {
   try { await fn(req, res); }
   catch (err) {
-    const status = err.response?.status || 500;
-    const data   = err.response?.data;
+    const status = err.statusCode || err.response?.status || 500;
+    const data   = err.response?.data ?? (err.statusCode ? { error: err.message } : undefined);
     console.error(`[${req.method} ${req.path}] ${status}:`, JSON.stringify(data ?? err.message));
     res.status(status).json(data ?? { error: err.message });
   }
@@ -69,6 +105,23 @@ async function fetchAllPages(redmine, path, key, params, max = 2000) {
     offset += limit;
   }
   return all;
+}
+
+// Roda `fn` sobre os itens com no máximo `limit` chamadas simultâneas.
+// Usado para buscar detalhes (relations/journals) de várias issues sem
+// estourar o Redmine com N requests paralelos.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      try { out[idx] = await fn(items[idx], idx); }
+      catch { out[idx] = null; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 // Busca TODAS as páginas de issues para um conjunto de filtros (remove o teto de 100).
@@ -124,6 +177,65 @@ app.get('/api/issues/to-review', handle(async (req, res) => {
   const userId = await getMyUserId(req);
   const issues = await fetchAllIssues(makeRedmine(req), { cf_210: userId, status_id: 71 });
   res.json({ issues, total_count: issues.length });
+}));
+
+// Detecção de @menção: varre os journals recentes das tarefas em que estou
+// envolvido e devolve as notas que citam meu nome/login.
+app.get('/api/issues/mentions', handle(async (req, res) => {
+  const redmine = makeRedmine(req);
+  const { data: me } = await redmine.get('/users/current.json');
+  const user = me.user;
+  const userId = user.id;
+  const sinceMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+  // Conjunto de candidatas: atribuídas a mim, criadas por mim, onde sou dev (141) ou revisor (210).
+  const sets = await Promise.all([
+    fetchAllIssues(redmine, { assigned_to_id: 'me', status_id: '*', sort: 'updated_on:desc' }),
+    fetchAllIssues(redmine, { author_id: 'me', status_id: 'open', sort: 'updated_on:desc' }),
+    fetchAllIssues(redmine, { cf_141: userId, status_id: 'open', sort: 'updated_on:desc' }),
+    fetchAllIssues(redmine, { cf_210: userId, status_id: 'open', sort: 'updated_on:desc' }),
+  ]);
+  const byId = new Map();
+  sets.flat().forEach(i => { if (!byId.has(i.id)) byId.set(i.id, i); });
+  // Só vale a pena abrir as que mudaram na última semana.
+  const candidates = [...byId.values()]
+    .filter(i => new Date(i.updated_on).getTime() >= sinceMs)
+    .slice(0, 60);
+
+  // Padrões de menção: "@login", "@Nome", nome completo, ou login isolado.
+  const needles = [user.login, user.firstname, `${user.firstname} ${user.lastname}`]
+    .filter(Boolean).map(s => s.toLowerCase());
+  const matches = (text) => {
+    const t = text.toLowerCase();
+    if (t.includes(`@${user.login.toLowerCase()}`)) return true;
+    if (t.includes(`@${user.firstname.toLowerCase()}`)) return true;
+    return needles.some(n => n.includes(' ') && t.includes(n)); // nome completo
+  };
+
+  const detailed = await mapLimit(candidates, 6, async (i) => {
+    const { data } = await redmine.get(`/issues/${i.id}.json`, { params: { include: 'journals' } });
+    return data.issue;
+  });
+
+  const mentions = [];
+  for (const issue of detailed) {
+    if (!issue) continue;
+    for (const j of (issue.journals || [])) {
+      if (!j.notes?.trim()) continue;
+      if (j.user?.id === userId) continue;
+      if (new Date(j.created_on).getTime() < sinceMs) continue;
+      if (!matches(j.notes)) continue;
+      mentions.push({
+        journalId: j.id,
+        issue: { id: issue.id, subject: issue.subject, project: issue.project },
+        author: j.user,
+        snippet: j.notes.trim().replace(/\s+/g, ' ').slice(0, 160),
+        created_on: j.created_on,
+      });
+    }
+  }
+  mentions.sort((a, b) => new Date(b.created_on) - new Date(a.created_on));
+  res.json({ mentions: mentions.slice(0, 30) });
 }));
 
 // Tarefas abertas de um projeto (qualquer responsável) — para o Quadro do time
@@ -208,6 +320,10 @@ app.put('/api/issues/:id', handle(async (req, res) => {
         error: `Transição não permitida pelo workflow do Redmine. Status atual: "${actual.name}". Configure as transições em Administração → Workflow.`
       });
     }
+    // Status confirmado: se virou "Em andamento", aponta no Concierge.
+    if (CONCIERGE_INPROGRESS_RE.test(actual.name)) {
+      syncConcierge(req.params.id, data.issue.subject);
+    }
   }
 
   res.json({ success: true });
@@ -258,11 +374,13 @@ app.post('/api/issues', handle(async (req, res) => {
 app.post('/api/uploads', express.raw({ type: '*/*', limit: '50mb' }), handle(async (req, res) => {
   const url = req.headers['x-redmine-url'] || DEFAULT_URL;
   const key = req.headers['x-redmine-key'] || DEFAULT_KEY;
-  if (url && key) lastAuth = { url, key };
+  const username = req.headers['x-redmine-user'] || '';
+  const password = req.headers['x-redmine-pass'] || '';
+  if (url && (key || (username && password))) lastAuth = { url, key, username, password };
   const filename = String(req.query.filename || 'arquivo');
   const { data } = await axios.post(`${url}/uploads.json`, req.body, {
     params: { filename },
-    headers: { 'X-Redmine-API-Key': key, 'Content-Type': 'application/octet-stream' },
+    headers: { ...buildAuthHeaders(key, username, password), 'Content-Type': 'application/octet-stream' },
     maxBodyLength: Infinity,
     maxContentLength: Infinity,
   });
@@ -529,11 +647,11 @@ app.get('/api/projects/:id/memberships', handle(async (req, res) => {
 // Proxy de download de anexo (imagens inline). Requests de <img> não enviam
 // os headers de auth, então usamos as últimas credenciais autenticadas.
 app.get('/api/attachments/:id/:filename', handle(async (req, res) => {
-  const { url, key } = lastAuth;
-  if (!url || !key) return res.status(401).json({ error: 'Não autenticado' });
+  const { url, key, username, password } = lastAuth;
+  if (!url || (!key && !(username && password))) return res.status(401).json({ error: 'Não autenticado' });
   const path = `/attachments/download/${req.params.id}/${encodeURIComponent(req.params.filename)}`;
   const upstream = await axios.get(`${url}${path}`, {
-    headers: { 'X-Redmine-API-Key': key },
+    headers: buildAuthHeaders(key, username, password),
     responseType: 'arraybuffer',
   });
   res.set('Content-Type', upstream.headers['content-type'] || 'application/octet-stream');
@@ -619,11 +737,11 @@ function getAICredentials(req) {
 
 // Busca um anexo do Redmine e devolve { base64, mediaType } ou null se falhar/muito grande.
 const MAX_ATTACH_BYTES = 5 * 1024 * 1024; // 5 MB
-async function fetchAttachmentBase64(redmineUrl, redmineKey, attachId, filename) {
+async function fetchAttachmentBase64(redmineUrl, authHeaders, attachId, filename) {
   try {
     const resp = await axios.get(
       `${redmineUrl}/attachments/download/${attachId}/${encodeURIComponent(filename)}`,
-      { headers: { 'X-Redmine-API-Key': redmineKey }, responseType: 'arraybuffer', maxContentLength: MAX_ATTACH_BYTES }
+      { headers: authHeaders, responseType: 'arraybuffer', maxContentLength: MAX_ATTACH_BYTES }
     );
     return {
       base64: Buffer.from(resp.data).toString('base64'),
@@ -743,15 +861,19 @@ app.post('/api/ai/generate-prompt', handle(async (req, res) => {
   // Limite: imagens ≤ 5 MB, no máximo 5 por issue (custo/latência).
   const redmineUrl = req.headers['x-redmine-url'] || lastAuth.url;
   const redmineKey = req.headers['x-redmine-key'] || lastAuth.key;
+  const redmineUser = req.headers['x-redmine-user'] || lastAuth.username;
+  const redminePass = req.headers['x-redmine-pass'] || lastAuth.password;
+  const redmineAuthHeaders = buildAuthHeaders(redmineKey, redmineUser, redminePass);
+  const hasRedmineAuth = !!(redmineUrl && (redmineKey || (redmineUser && redminePass)));
   const imageTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
   const imageAttachments = (issue.attachments || [])
     .filter(a => imageTypes.includes(a.content_type?.toLowerCase()) && (a.filesize || 0) <= MAX_ATTACH_BYTES)
     .slice(0, 5);
 
   const fetchedImages = [];
-  if (redmineUrl && redmineKey) {
+  if (hasRedmineAuth) {
     for (const att of imageAttachments) {
-      const img = await fetchAttachmentBase64(redmineUrl, redmineKey, att.id, att.filename);
+      const img = await fetchAttachmentBase64(redmineUrl, redmineAuthHeaders, att.id, att.filename);
       if (img) fetchedImages.push({ ...img, filename: att.filename });
     }
   }
@@ -852,6 +974,306 @@ ${lastNote ? `Último comentário (${lastNote.created_on?.slice(0, 10)}): ${last
   res.json({ draft });
 }));
 
+// Rascunho de resposta ao cliente — tom de suporte, baseado no histórico do chamado.
+app.post('/api/ai/draft-reply', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { issue, instruction } = req.body;
+  if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
+
+  const history = (issue.journals || [])
+    .filter(j => j.notes?.trim())
+    .slice(-6)
+    .map(j => `[${j.created_on?.slice(0, 10)}] ${j.user?.name || '?'}: ${j.notes.trim().slice(0, 500)}`)
+    .join('\n\n');
+
+  const reply = await aiComplete(provider, key, {
+    system: 'Você é um analista de suporte da B2click respondendo a um cliente em um chamado. Escreva em português do Brasil, com tom cordial, profissional e claro. Trate o cliente com respeito. Seja conciso e objetivo, sem jargão técnico interno nem detalhes de implementação. Gere APENAS o texto da resposta, pronto para enviar.',
+    user: `Escreva uma resposta para o cliente neste chamado.${instruction ? ` Objetivo da resposta: ${instruction}.` : ''} Baseie-se no histórico; não invente prazos ou fatos que não estejam no contexto. Se faltar informação, peça educadamente o que for necessário.
+
+Chamado: #${issue.id} — ${issue.subject}
+Status: ${issue.status?.name}
+
+Histórico recente:
+${history || '(sem mensagens anteriores)'}`,
+    maxTokens: 500,
+    fast: true,
+  });
+
+  res.json({ reply });
+}));
+
+// ── Chat Redmine (assistente conversacional, somente leitura) ───────────────
+// Loop agêntico de tool-use: a IA escolhe ferramentas, o servidor executa no
+// Redmine (via makeRedmine) e devolve os resultados até a IA responder.
+// Remove tags HTML e normaliza espaços — usado para entregar conteúdo de wiki
+// como texto puro para a IA (mais barato e legível que HTML).
+function htmlToText(html) {
+  return String(html || '')
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&nbsp;/g, ' ')
+    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Resume uma mensagem do Zimbra (formato slimMessage) para a IA.
+function slimMail(m) {
+  const de = m.from?.name && m.from.name !== m.from.address ? `${m.from.name} <${m.from.address}>` : (m.from?.address || '?');
+  return { id: m.id, de, assunto: m.subject, data: m.date ? new Date(m.date).toISOString() : null, lido: !m.unread, anexo: !!m.hasAttachment, trecho: (m.snippet || '').slice(0, 200) };
+}
+
+const CHAT_TOOLS = [
+  // ── Redmine: tarefas, projetos, horas ─────────────────────────────────
+  {
+    name: 'buscar_tarefas',
+    description: 'Busca tarefas (issues) do Redmine por texto livre (assunto, número, palavra-chave). Use para localizar tarefas.',
+    input_schema: { type: 'object', properties: { query: { type: 'string', description: 'texto a buscar' } }, required: ['query'] },
+    run: async (a, { redmine }) => {
+      const { data } = await redmine.get('/search.json', { params: { q: a.query, issues: 1, limit: 15 } });
+      return (data.results || []).map(x => ({ id: x.id, titulo: x.title, atualizado: x.datetime }));
+    },
+  },
+  {
+    name: 'listar_minhas_tarefas',
+    description: 'Lista as tarefas atribuídas ao usuário atual. status opcional: open (padrão), closed ou *.',
+    input_schema: { type: 'object', properties: { status: { type: 'string', enum: ['open', 'closed', '*'] } } },
+    run: async (a, { redmine }) => {
+      const { data } = await redmine.get('/issues.json', { params: { assigned_to_id: 'me', status_id: a.status || 'open', limit: 50 } });
+      return (data.issues || []).map(i => ({ id: i.id, assunto: i.subject, status: i.status?.name, projeto: i.project?.name, prioridade: i.priority?.name, atualizado: i.updated_on }));
+    },
+  },
+  {
+    name: 'detalhes_tarefa',
+    description: 'Detalhes de uma tarefa pelo ID, incluindo descrição e os últimos comentários do histórico.',
+    input_schema: { type: 'object', properties: { id: { type: 'number' } }, required: ['id'] },
+    run: async (a, { redmine }) => {
+      const { data } = await redmine.get(`/issues/${a.id}.json`, { params: { include: 'journals,attachments' } });
+      const i = data.issue;
+      const comentarios = (i.journals || []).filter(j => j.notes?.trim()).slice(-5)
+        .map(j => ({ data: j.created_on?.slice(0, 10), autor: j.user?.name, nota: j.notes.slice(0, 800) }));
+      return {
+        id: i.id, assunto: i.subject, status: i.status?.name, responsavel: i.assigned_to?.name,
+        autor: i.author?.name, projeto: i.project?.name, prioridade: i.priority?.name,
+        descricao: (i.description || '').slice(0, 2000), criada: i.created_on, atualizada: i.updated_on, comentarios,
+      };
+    },
+  },
+  {
+    name: 'listar_projetos',
+    description: 'Lista os projetos disponíveis no Redmine.',
+    input_schema: { type: 'object', properties: {} },
+    run: async (_a, { redmine }) => {
+      const { data } = await redmine.get('/projects.json', { params: { limit: 100 } });
+      return (data.projects || []).map(p => ({ id: p.id, nome: p.name, identificador: p.identifier }));
+    },
+  },
+  {
+    name: 'listar_horas',
+    description: 'Lista lançamentos de horas (time entries). Filtros opcionais: issue_id, from e to (datas YYYY-MM-DD).',
+    input_schema: { type: 'object', properties: { issue_id: { type: 'number' }, from: { type: 'string' }, to: { type: 'string' } } },
+    run: async (a, { redmine }) => {
+      const params = { limit: 50 };
+      if (a.issue_id) params.issue_id = a.issue_id;
+      if (a.from) params.from = a.from;
+      if (a.to) params.to = a.to;
+      const { data } = await redmine.get('/time_entries.json', { params });
+      return (data.time_entries || []).map(t => ({ id: t.id, horas: t.hours, data: t.spent_on, usuario: t.user?.name, tarefa: t.issue?.id, atividade: t.activity?.name, comentario: t.comments }));
+    },
+  },
+  {
+    name: 'usuario_atual',
+    description: 'Retorna o usuário autenticado no Redmine (nome, login, email).',
+    input_schema: { type: 'object', properties: {} },
+    run: async (_a, { redmine }) => {
+      const { data } = await redmine.get('/users/current.json');
+      return { id: data.user.id, nome: `${data.user.firstname} ${data.user.lastname}`, login: data.user.login, email: data.user.mail };
+    },
+  },
+  // ── Wiki corporativa (DokuWiki) ───────────────────────────────────────
+  {
+    name: 'buscar_wiki',
+    description: 'Busca páginas na wiki corporativa (DokuWiki) por texto livre. Use para encontrar documentação, procedimentos e notas internas.',
+    input_schema: { type: 'object', properties: { query: { type: 'string', description: 'texto a buscar' } }, required: ['query'] },
+    run: async (a, { req }) => {
+      const results = await doku.searchPages(req, a.query);
+      return results.slice(0, 10).map(p => ({ id: p.id, titulo: p.title, namespace: p.namespace, trecho: p.snippet }));
+    },
+  },
+  {
+    name: 'ler_pagina_wiki',
+    description: 'Lê o conteúdo de uma página da wiki (DokuWiki) pelo seu id (ex.: "namespace:pagina"). Use após buscar_wiki para obter o texto completo.',
+    input_schema: { type: 'object', properties: { id: { type: 'string', description: 'id da página, ex.: "ti:backup"' } }, required: ['id'] },
+    run: async (a, { req }) => {
+      const html = await doku.getPageHTML(req, a.id);
+      return { id: a.id, conteudo: htmlToText(html).slice(0, 6000) };
+    },
+  },
+  // ── E-mail (Zimbra) — somente leitura ─────────────────────────────────
+  {
+    name: 'listar_emails',
+    description: 'Lista os e-mails de uma pasta do Zimbra. folder opcional (padrão "inbox"): inbox, sent, junk, trash. Não marca como lido.',
+    input_schema: { type: 'object', properties: { folder: { type: 'string' }, limit: { type: 'number' } } },
+    run: async (a, { req }) => {
+      const { messages = [] } = await zimbra.listMessages(req, { folder: a.folder || 'inbox', limit: Math.min(a.limit || 15, 30) });
+      return messages.map(slimMail);
+    },
+  },
+  {
+    name: 'buscar_emails',
+    description: 'Busca e-mails no Zimbra por texto livre (assunto, remetente, conteúdo). Não marca como lido.',
+    input_schema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] },
+    run: async (a, { req }) => {
+      const { messages = [] } = await zimbra.searchMessages(req, a.query, { limit: Math.min(a.limit || 15, 30) });
+      return messages.map(slimMail);
+    },
+  },
+  {
+    name: 'ler_email',
+    description: 'Lê o conteúdo completo de um e-mail do Zimbra pelo id. Não marca como lido.',
+    input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    run: async (a, { req }) => {
+      const m = await zimbra.getMessage(req, a.id, { markRead: false });
+      const fmtAddr = e => (e?.name && e.name !== e.address ? `${e.name} <${e.address}>` : e?.address || '');
+      return {
+        id: m.id, de: fmtAddr(m.from), para: (m.to || []).map(fmtAddr).join(', '),
+        assunto: m.subject, data: m.date ? new Date(m.date).toISOString() : null,
+        corpo: htmlToText(m.html || m.text || '').slice(0, 6000),
+        anexos: (m.attachments || []).map(x => x.filename),
+      };
+    },
+  },
+  // ── Notas pessoais (escrita segura) ───────────────────────────────────
+  {
+    name: 'listar_notas',
+    description: 'Lista as notas pessoais do usuário neste app.',
+    input_schema: { type: 'object', properties: {} },
+    run: async (_a, { req }) => {
+      const uid = await getMyUserId(req);
+      return userNotes(uid).map(n => ({ id: n.id, titulo: n.title, corpo: (n.body || '').slice(0, 500), tags: n.tags, fixada: n.pinned, tarefa: n.linkedIssueId }));
+    },
+  },
+  {
+    name: 'criar_nota',
+    description: 'Cria uma nota pessoal para o usuário neste app. Útil para registrar lembretes, resumos ou pendências. Opcionalmente vincule a uma tarefa via linkedIssueId.',
+    input_schema: { type: 'object', properties: { title: { type: 'string' }, body: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } }, linkedIssueId: { type: 'number' } }, required: ['body'] },
+    run: async (a, { req }) => {
+      const uid = await getMyUserId(req);
+      const now = Date.now();
+      const note = {
+        id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+        title: typeof a.title === 'string' ? a.title : '',
+        body: typeof a.body === 'string' ? a.body : '',
+        tags: Array.isArray(a.tags) ? a.tags.filter(t => typeof t === 'string') : [],
+        pinned: false, color: null,
+        linkedIssueId: Number.isInteger(a.linkedIssueId) ? a.linkedIssueId : null,
+        linkedProjectId: null, createdAt: now, updatedAt: now,
+      };
+      userNotes(uid).unshift(note);
+      saveNotes();
+      return { ok: true, id: note.id, titulo: note.title };
+    },
+  },
+  // ── Horas (escrita segura) ────────────────────────────────────────────
+  {
+    name: 'lancar_horas',
+    description: 'Lança horas (time entry) em uma tarefa do Redmine. spent_on opcional (YYYY-MM-DD, padrão hoje). activity_id opcional. Confirme com o usuário antes de lançar.',
+    input_schema: { type: 'object', properties: { issue_id: { type: 'number' }, hours: { type: 'number' }, comments: { type: 'string' }, spent_on: { type: 'string' }, activity_id: { type: 'number' } }, required: ['issue_id', 'hours'] },
+    run: async (a, { redmine }) => {
+      const time_entry = { issue_id: a.issue_id, hours: a.hours };
+      if (a.comments) time_entry.comments = a.comments;
+      if (a.spent_on) time_entry.spent_on = a.spent_on;
+      if (a.activity_id) time_entry.activity_id = a.activity_id;
+      const { data } = await redmine.post('/time_entries.json', { time_entry });
+      const t = data.time_entry;
+      return { ok: true, id: t.id, horas: t.hours, tarefa: t.issue?.id, data: t.spent_on };
+    },
+  },
+];
+
+const CHAT_SYSTEM = `Você é o assistente do Bluemine, integrado ao sistema da B2click. Responda em português do Brasil, de forma objetiva e útil.
+Você tem acesso a vários subsistemas via ferramentas:
+- Redmine: tarefas, projetos, horas e usuário.
+- Wiki corporativa (DokuWiki): documentação e procedimentos internos (buscar_wiki, ler_pagina_wiki).
+- E-mail (Zimbra): consulta de mensagens (listar_emails, buscar_emails, ler_email).
+- Notas pessoais do app (listar_notas, criar_nota).
+Regras:
+- Use as ferramentas para obter dados REAIS. Nunca invente IDs, status, nomes, números, conteúdo de e-mails ou de wiki.
+- Sempre cite tarefas no formato #ID (ex.: #83314) para ficarem clicáveis.
+- Para responder sobre "como fazer X" ou procedimentos internos, prefira buscar na wiki antes de responder de memória.
+- Você pode ESCREVER apenas em duas situações: criar nota pessoal (criar_nota) e lançar horas (lancar_horas). Antes de lançar horas, confirme com o usuário os valores (tarefa, horas, data).
+- Você NÃO envia e-mails, NÃO altera/exclui tarefas e NÃO muda status. Se pedirem, explique gentilmente que ainda não consegue fazer isso.
+- Se uma busca não retornar resultados, diga isso claramente em vez de inventar.`;
+
+async function execChatTool(name, args, ctx) {
+  const tool = CHAT_TOOLS.find(t => t.name === name);
+  if (!tool) return { erro: `ferramenta desconhecida: ${name}` };
+  try { return await tool.run(args || {}, ctx); }
+  catch (e) { return { erro: e.response?.status ? `${e.response.status} ${e.response.statusText || ''}`.trim() : (e.message || 'falha') }; }
+}
+
+app.post('/api/ai/chat', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { messages } = req.body;
+  if (!Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error: 'messages obrigatório' });
+
+  const redmine = makeRedmine(req);
+  const ctx = { redmine, req };
+  const trace = [];
+  const MAX_STEPS = 8;
+
+  if (provider === 'anthropic') {
+    const client = new Anthropic({ apiKey: key });
+    const tools = CHAT_TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
+    const convo = messages.map(m => ({ role: m.role, content: m.content }));
+    for (let step = 0; step < MAX_STEPS; step++) {
+      const resp = await client.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 1500, system: CHAT_SYSTEM, tools, messages: convo });
+      const toolUses = resp.content.filter(b => b.type === 'tool_use');
+      if (toolUses.length === 0) {
+        const text = resp.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+        return res.json({ reply: text, trace });
+      }
+      convo.push({ role: 'assistant', content: resp.content });
+      const results = [];
+      for (const tu of toolUses) {
+        trace.push({ tool: tu.name, args: tu.input });
+        const out = await execChatTool(tu.name, tu.input, ctx);
+        results.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(out).slice(0, 8000) });
+      }
+      convo.push({ role: 'user', content: results });
+    }
+    return res.json({ reply: 'Não consegui concluir a consulta em tempo hábil. Tente reformular.', trace });
+  }
+
+  if (provider === 'openai') {
+    const client = new OpenAI({ apiKey: key });
+    const tools = CHAT_TOOLS.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
+    const convo = [{ role: 'system', content: CHAT_SYSTEM }, ...messages.map(m => ({ role: m.role, content: m.content }))];
+    for (let step = 0; step < MAX_STEPS; step++) {
+      const resp = await client.chat.completions.create({ model: 'gpt-4o', max_tokens: 1500, messages: convo, tools });
+      const msg = resp.choices[0].message;
+      if (!msg.tool_calls || msg.tool_calls.length === 0) {
+        return res.json({ reply: (msg.content || '').trim(), trace });
+      }
+      convo.push(msg);
+      for (const tc of msg.tool_calls) {
+        let args = {};
+        try { args = JSON.parse(tc.function.arguments || '{}'); } catch { /* ignore */ }
+        trace.push({ tool: tc.function.name, args });
+        const out = await execChatTool(tc.function.name, args, ctx);
+        convo.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(out).slice(0, 8000) });
+      }
+    }
+    return res.json({ reply: 'Não consegui concluir a consulta em tempo hábil. Tente reformular.', trace });
+  }
+
+  return res.status(400).json({ error: `provider desconhecido: ${provider}` });
+}));
+
 // Daily standup — gera texto de standup a partir das tarefas abertas.
 app.post('/api/ai/standup', handle(async (req, res) => {
   const { provider, key } = getAICredentials(req);
@@ -883,6 +1305,60 @@ ${list}`,
   });
 
   res.json({ standup });
+}));
+
+// Retrospectiva semanal — resumo das entregas da semana + em andamento + riscos.
+app.post('/api/ai/weekly-digest', handle(async (req, res) => {
+  const { provider, key } = getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+
+  const { open = [], completed = [] } = req.body;
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const doneThisWeek = completed.filter(i => {
+    const d = i.closed_on || i.updated_on;
+    return d && new Date(d).getTime() >= weekAgo;
+  });
+
+  if (doneThisWeek.length === 0 && open.length === 0) {
+    return res.json({ digest: 'Nenhuma atividade na última semana.' });
+  }
+
+  const fmt = (arr) => arr.slice(0, 30).map(i =>
+    `- #${i.id} [${i.status?.name}] ${i.subject}`
+  ).join('\n');
+  const inProgress = open.filter(i => /andamento|progress/i.test(i.status?.name || ''));
+
+  const digest = await aiComplete(provider, key, {
+    system: 'Você é um assistente que escreve retrospectivas semanais para um desenvolvedor de um time de software. Responda em português do Brasil, em markdown.',
+    user: `Escreva uma retrospectiva semanal concisa e útil com base nas tarefas abaixo. Use exatamente estas seções:
+
+## ✅ Entregue esta semana
+[liste as concluídas com IDs; se vazio, "Nada concluído nesta semana."]
+
+## 🔄 Em andamento
+[tarefas em andamento e o que falta]
+
+## ⚠️ Riscos e bloqueios
+[infira riscos pelos status — tarefas paradas, muitas pendências, nada concluído — ou "Nenhum aparente"]
+
+## 🎯 Foco sugerido para a próxima semana
+[2-4 bullets priorizando o que destravar primeiro]
+
+Seja específico e cite IDs. Não invente dados além do que está nas listas.
+
+Concluídas nos últimos 7 dias (${doneThisWeek.length}):
+${fmt(doneThisWeek) || '(nenhuma)'}
+
+Em andamento (${inProgress.length}):
+${fmt(inProgress) || '(nenhuma)'}
+
+Demais tarefas abertas (${open.length}):
+${fmt(open) || '(nenhuma)'}`,
+    maxTokens: 700,
+    fast: false,
+  });
+
+  res.json({ digest });
 }));
 
 // Avaliação de complexidade — o modelo avalia o quão complexa é a tarefa com base
@@ -1040,6 +1516,10 @@ app.post('/api/ai/detect-ambiguities', handle(async (req, res) => {
 
   const redmineUrl = req.headers['x-redmine-url'] || lastAuth.url;
   const redmineKey = req.headers['x-redmine-key'] || lastAuth.key;
+  const redmineUser = req.headers['x-redmine-user'] || lastAuth.username;
+  const redminePass = req.headers['x-redmine-pass'] || lastAuth.password;
+  const redmineAuthHeaders = buildAuthHeaders(redmineKey, redmineUser, redminePass);
+  const hasRedmineAuth = !!(redmineUrl && (redmineKey || (redmineUser && redminePass)));
 
   // Separa anexos por tipo
   const imageTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
@@ -1059,21 +1539,21 @@ app.post('/api/ai/detect-ambiguities', handle(async (req, res) => {
 
   // Busca imagens base64
   const fetchedImages = [];
-  if (redmineUrl && redmineKey) {
+  if (hasRedmineAuth) {
     for (const att of imageAtts) {
-      const img = await fetchAttachmentBase64(redmineUrl, redmineKey, att.id, att.filename);
+      const img = await fetchAttachmentBase64(redmineUrl, redmineAuthHeaders, att.id, att.filename);
       if (img) fetchedImages.push({ ...img, filename: att.filename });
     }
   }
 
   // Busca conteúdo de arquivos de texto
   const textContents = [];
-  if (redmineUrl && redmineKey) {
+  if (hasRedmineAuth) {
     for (const att of textAtts) {
       try {
         const resp = await axios.get(
           `${redmineUrl}/attachments/download/${att.id}/${encodeURIComponent(att.filename)}`,
-          { headers: { 'X-Redmine-API-Key': redmineKey }, responseType: 'text', maxContentLength: 80 * 1024 }
+          { headers: redmineAuthHeaders, responseType: 'text', maxContentLength: 80 * 1024 }
         );
         textContents.push({ filename: att.filename, content: resp.data.slice(0, 4000) });
       } catch (e) {
@@ -1331,11 +1811,11 @@ const saveSubs = () => writeJsonSecure(SUBS_FILE, subscriptions);
 // Expira inscrições inativas (sem re-inscrição) há mais de 30 dias.
 const SUB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-// Coleta os IDs atuais relevantes para um par url/key (inicializa/atualiza "seen").
-async function collectPushState(url, key) {
+// Coleta os IDs atuais relevantes para um par url/credenciais (inicializa/atualiza "seen").
+async function collectPushState(url, key, username, password) {
   const client = axios.create({
     baseURL: url,
-    headers: { 'X-Redmine-API-Key': key, 'Content-Type': 'application/json' },
+    headers: { ...buildAuthHeaders(key, username, password), 'Content-Type': 'application/json' },
   });
   const me = (await client.get('/users/current.json')).data.user.id;
 
@@ -1364,17 +1844,20 @@ app.get('/api/push/vapid-public-key', (req, res) => {
 
 app.post('/api/push/subscribe', handle(async (req, res) => {
   const url = req.headers['x-redmine-url'];
-  const key = req.headers['x-redmine-key'];
+  const key = req.headers['x-redmine-key'] || '';
+  const username = req.headers['x-redmine-user'] || '';
+  const password = req.headers['x-redmine-pass'] || '';
   const subscription = req.body?.subscription;
   const talkAuth = req.body?.talkAuth || null; // { url, user, token } — opcional
-  if (!url || !key || !subscription?.endpoint) {
-    console.warn('[push] subscribe rejeitado — faltando:', { url: !!url, key: !!key, endpoint: !!subscription?.endpoint });
+  const hasAuth = !!(key || (username && password));
+  if (!url || !hasAuth || !subscription?.endpoint) {
+    console.warn('[push] subscribe rejeitado — faltando:', { url: !!url, hasAuth, endpoint: !!subscription?.endpoint });
     return res.status(400).json({ error: 'subscription e credenciais são obrigatórios' });
   }
 
   // Estado inicial para não disparar como "novo" tudo o que já existe hoje.
   let seen = { assigned: [], review: [], monitored: [] };
-  try { seen = (await collectPushState(url, key)).seen; }
+  try { seen = (await collectPushState(url, key, username, password)).seen; }
   catch (e) { console.warn('[push] não consegui inicializar o estado:', e.response?.status || e.message); }
 
   // Estado inicial do Talk: pega o lastMessage.id de cada sala para não notificar retroativamente.
@@ -1393,7 +1876,7 @@ app.post('/api/push/subscribe', handle(async (req, res) => {
     } catch (e) { console.warn('[push] não inicializei estado Talk:', e.response?.status || e.message); }
   }
 
-  const rec = { endpoint: subscription.endpoint, subscription, url, key, seen, talkAuth, talkSeen, updatedAt: Date.now() };
+  const rec = { endpoint: subscription.endpoint, subscription, url, key, username, password, seen, talkAuth, talkSeen, updatedAt: Date.now() };
   const idx = subscriptions.findIndex(s => s.endpoint === subscription.endpoint);
   if (idx >= 0) subscriptions[idx] = rec; else subscriptions.push(rec);
   saveSubs();
@@ -1460,7 +1943,7 @@ async function pollPush() {
   try {
     for (const rec of [...subscriptions]) {
       try {
-        const { issues, seen } = await collectPushState(rec.url, rec.key);
+        const { issues, seen } = await collectPushState(rec.url, rec.key || '', rec.username || '', rec.password || '');
         const prev = rec.seen || { assigned: [], review: [], monitored: [] };
         const toNotify = [];
 
@@ -1930,7 +2413,9 @@ app.post('/api/notes', handle(async (req, res) => {
   const now = Date.now();
   const b = req.body || {};
   const note = {
-    id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+    id: (typeof b.id === 'string' && b.id && !userNotes(uid).some(n => n.id === b.id))
+      ? b.id
+      : `${now}-${Math.random().toString(36).slice(2, 8)}`,
     title: typeof b.title === 'string' ? b.title : '',
     body: typeof b.body === 'string' ? b.body : '',
     tags: Array.isArray(b.tags) ? b.tags.filter(t => typeof t === 'string') : [],
@@ -1963,6 +2448,145 @@ app.delete('/api/notes/:id', handle(async (req, res) => {
   saveNotes();
   res.json({ ok: true });
 }));
+
+// =========================================================================
+// E-MAIL — Zimbra via API SOAP (HTTPS). Ver server/zimbra.js.
+// Credenciais: reaproveita o login usuário/senha do Redmine (mesma senha AD);
+// no modo chave de API, usa os headers x-mail-* (config manual no front).
+// =========================================================================
+
+// Testa a conexão/autenticação no Zimbra com as credenciais resolvidas.
+app.get('/api/mail/ping', handle(async (req, res) => {
+  const { host, user } = zimbra.resolveMailCreds(req);
+  await zimbra.tokenFor(req); // lança 401/412 se não autenticar
+  res.json({ ok: true, host, user });
+}));
+
+// Lista de pastas com contadores (Inbox, Sent, Junk, Trash…).
+app.get('/api/mail/folders', handle(async (req, res) => {
+  res.json({ folders: await zimbra.listFolders(req) });
+}));
+
+// Lista mensagens de uma pasta (paginado).
+app.get('/api/mail/messages', handle(async (req, res) => {
+  const { folder = 'inbox', limit = 25, offset = 0 } = req.query;
+  res.json(await zimbra.listMessages(req, { folder, limit, offset }));
+}));
+
+// Busca por texto livre (sintaxe de busca do Zimbra).
+app.get('/api/mail/search', handle(async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.json({ messages: [], more: false });
+  res.json(await zimbra.searchMessages(req, q, { limit: req.query.limit || 25 }));
+}));
+
+// Contador de não-lidos da Inbox (para o sino).
+app.get('/api/mail/unread', handle(async (req, res) => {
+  res.json(await zimbra.unreadCount(req));
+}));
+
+// Mensagem completa (corpo HTML/texto + anexos). Marca como lida por padrão.
+app.get('/api/mail/messages/:id', handle(async (req, res) => {
+  const markRead = req.query.markRead !== '0';
+  res.json(await zimbra.getMessage(req, req.params.id, { markRead }));
+}));
+
+// Ações: marcar lido/não-lido, sinalizar, lixeira… op ∈ read|!read|flag|!flag|trash|spam
+app.post('/api/mail/messages/:id/action', handle(async (req, res) => {
+  const op = String(req.body?.op || '').trim();
+  if (!op) return res.status(400).json({ error: 'op obrigatório' });
+  res.json(await zimbra.actOnMessage(req, req.params.id, op));
+}));
+
+// Enviar e-mail (novo ou resposta).
+app.post('/api/mail/send', handle(async (req, res) => {
+  const { to, cc, subject, text, html, inReplyTo } = req.body || {};
+  if (!to || (Array.isArray(to) && to.length === 0)) {
+    return res.status(400).json({ error: 'destinatário (to) obrigatório' });
+  }
+  res.json(await zimbra.sendMessage(req, { to, cc, subject, text, html, inReplyTo }));
+}));
+
+// Compromissos do calendário numa janela [start, end] (epoch ms).
+app.get('/api/mail/calendar', handle(async (req, res) => {
+  const { start, end } = req.query;
+  res.json({ events: await zimbra.listAppointments(req, { start, end }) });
+}));
+
+// Debug: JSON cru do Zimbra para conferir o mapeamento de campos do appointment.
+// Remover após validar slimAppointment contra o servidor real.
+app.get('/api/mail/calendar/_debug', handle(async (req, res) => {
+  const { start, end } = req.query;
+  res.json(await zimbra.listAppointments(req, { start, end, raw: true }));
+}));
+
+// Responder convite: aceitar / recusar / talvez.
+app.post('/api/mail/calendar/:id/reply', handle(async (req, res) => {
+  const { verb, compNum } = req.body || {};
+  res.json(await zimbra.replyToInvite(req, { id: req.params.id, verb, compNum }));
+}));
+
+// Download de anexo (proxy autenticado).
+app.get('/api/mail/messages/:id/attachments/:part', handle(async (req, res) => {
+  const { data, contentType } = await zimbra.fetchAttachment(req, req.params.id, req.params.part);
+  res.set('Content-Type', contentType);
+  res.set('Cache-Control', 'private, max-age=3600');
+  res.send(data);
+}));
+
+// =========================================================================
+// DokuWiki XMLRPC — leitura e busca de páginas da wiki corporativa.
+// Usa as mesmas credenciais do AD (x-redmine-user / x-redmine-pass).
+// Host padrão: wiki.redesoft.com.br (ou DOKUWIKI_HOST env var).
+// =========================================================================
+
+// Busca full-text no DokuWiki (scraping do HTML de resultados).
+app.get('/api/wiki/search', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (!q) return res.json({ results: [] });
+    res.json({ results: await doku.searchPages(req, q) });
+  } catch (err) {
+    if (err.code === 'WIKI_NO_CREDS') return res.status(401).json({ error: 'credentials_required' });
+    console.error('[wiki/search]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Conteúdo HTML de uma página via export_xhtmlbody (links reescritos para absolutos).
+app.get('/api/wiki/page', async (req, res) => {
+  try {
+    const id = String(req.query.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id obrigatório' });
+    const html = await doku.getPageHTML(req, id);
+    res.json({ id, html });
+  } catch (err) {
+    if (err.code === 'WIKI_NO_CREDS') return res.status(401).json({ error: 'credentials_required' });
+    console.error('[wiki/page]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Proxy de mídia (imagens) do DokuWiki — necessário pois o browser não envia Basic Auth em <img>.
+app.get('/api/wiki/media', async (req, res) => {
+  try {
+    const url = String(req.query.url || '').trim();
+    if (!url.startsWith('https://')) return res.status(400).end();
+    const { user, pass } = doku.getLastWikiCreds();
+    const response = await axios.get(url, {
+      headers: { ...doku.basicAuth(user, pass) },
+      responseType: 'stream',
+      timeout: 10000,
+    });
+    const ct = response.headers['content-type'] || 'image/png';
+    res.set('Content-Type', ct);
+    res.set('Cache-Control', 'public, max-age=3600');
+    response.data.pipe(res);
+  } catch (err) {
+    console.error('[wiki/media]', err.message);
+    res.status(404).end();
+  }
+});
 
 // =========================================================================
 // NOVO: CONFIGURAÇÃO PARA INJETAR O FRONTEND DENTRO DO EXECUTÁVEL DO BACKEND

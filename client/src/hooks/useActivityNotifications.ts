@@ -1,19 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Issue } from '../types/redmine';
+import type { Issue, Mention } from '../types/redmine';
 import { useBrowserNotifications } from './useBrowserNotifications';
 import { wasRecentlyMutated } from '../utils/recentMutations';
 
-export type NotifType = 'assigned' | 'activity' | 'review';
+export type NotifType = 'assigned' | 'activity' | 'review' | 'mention' | 'mail';
+
+interface NotifIssue {
+  id: number;
+  subject: string;
+  project?: { name: string };
+}
 
 export interface AppNotification {
   id: string;
   type: NotifType;
-  issue: Issue;
+  issue?: NotifIssue;
+  tab?: string;
   seenAt: Date;
+  snippet?: string;
+  author?: string;
 }
 
-function issueBody(issue: Issue): string {
-  return `#${issue.id} — ${issue.subject}\n${issue.project.name}`;
+function issueBody(issue: NotifIssue): string {
+  return `#${issue.id} — ${issue.subject}${issue.project ? `\n${issue.project.name}` : ''}`;
 }
 
 /**
@@ -27,11 +36,13 @@ export function useActivityNotifications(
   activityIssues: Issue[] | undefined,
   reviewIssues?: Issue[] | undefined,
   currentUserId?: number,
+  mentions?: Mention[] | undefined,
 ) {
   const { notify } = useBrowserNotifications();
 
   const seenAssigned = useRef<Set<number> | null>(null);
   const seenReview = useRef<Set<number> | null>(null);
+  const seenMentions = useRef<Set<number> | null>(null);
   const lastUpdated = useRef<Map<number, string> | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
@@ -127,6 +138,36 @@ export function useActivityNotifications(
       }),
     );
   }, [activityIssues, notify]);
+
+  // ── Menções a mim em notas ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!mentions) return;
+    const ids = new Set(mentions.map(m => m.journalId));
+    if (seenMentions.current === null) { seenMentions.current = ids; return; }
+
+    const novos = mentions.filter(m => !seenMentions.current!.has(m.journalId));
+    seenMentions.current = ids;
+    if (novos.length === 0) return;
+
+    const now = new Date();
+    setNotifications(prev => [
+      ...novos.map(m => ({
+        id: `m-${m.journalId}`,
+        type: 'mention' as NotifType,
+        issue: m.issue,
+        seenAt: now,
+        snippet: m.snippet,
+        author: m.author ? m.author.name : undefined,
+      })),
+      ...prev,
+    ]);
+    novos.forEach(m =>
+      notify('💬 Você foi mencionado', {
+        body: `${m.author?.name ? `${m.author.name}: ` : ''}${m.snippet}`,
+        tag: `rk-m-${m.journalId}`,
+      }),
+    );
+  }, [mentions, notify]);
 
   const dismiss = (id: string) =>
     setNotifications(prev => prev.filter(n => n.id !== id));

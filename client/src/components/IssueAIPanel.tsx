@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Sparkles, X, Copy, Check, Loader2, Download, FileText, NotebookPen, ClipboardCheck, Clock, AlertTriangle, Tag, RotateCcw } from 'lucide-react';
+import { Sparkles, X, Copy, Check, Loader2, Download, FileText, NotebookPen, ClipboardCheck, Clock, AlertTriangle, Tag, RotateCcw, MessageSquare } from 'lucide-react';
 import { redmineApi } from '../api/redmine';
 import { getAIKey } from '../utils/aiConfig';
 import type { Issue } from '../types/redmine';
 
-type Mode = 'prompt' | 'history' | 'draft' | 'checklist' | 'estimate' | 'ambiguities' | 'versionnote';
+type Mode = 'prompt' | 'history' | 'draft' | 'reply' | 'checklist' | 'estimate' | 'ambiguities' | 'versionnote';
 
 interface ComplexityResult {
   level: string;
@@ -19,7 +19,7 @@ interface VersionNoteResult { notes: string[]; reasoning: string; }
 
 // Sinaliza que o modal desta issue deve auto-gerar o prompt ao montar.
 let pendingAIIssueId: number | null = null;
-export function triggerAIOnOpen(issueId: number) { pendingAIIssueId = issueId; }
+function triggerAIOnOpen(issueId: number) { pendingAIIssueId = issueId; }
 
 interface ResultState {
   mode: Mode;
@@ -177,6 +177,7 @@ export function IssueAIPanel({ issue, compact = false, onOpen, onInsertNote }: P
       if (mode === 'prompt')    text = await redmineApi.generatePrompt(issue);
       if (mode === 'history')   text = await redmineApi.summarizeHistory(issue);
       if (mode === 'draft')     text = await redmineApi.draftNote(issue);
+      if (mode === 'reply')     text = await redmineApi.draftReply(issue);
       if (mode === 'checklist') text = await redmineApi.reviewChecklist(issue);
       if (mode === 'estimate') {
         const c = await redmineApi.assessComplexity(issue);
@@ -231,6 +232,7 @@ export function IssueAIPanel({ issue, compact = false, onOpen, onInsertNote }: P
     prompt:    'Prompt gerado por IA',
     history:   'Resumo do histórico',
     draft:     'Rascunho de nota',
+    reply:     'Resposta ao cliente',
     checklist: 'Checklist de revisão',
     estimate:     'Complexidade',
     ambiguities:  'Requisitos ambíguos',
@@ -294,6 +296,7 @@ export function IssueAIPanel({ issue, compact = false, onOpen, onInsertNote }: P
           { mode: 'prompt'    as Mode, label: 'Gerar prompt',        icon: <Sparkles size={11} />,       always: true },
           { mode: 'history'   as Mode, label: 'Resumir histórico',   icon: <FileText size={11} />,       always: true },
           { mode: 'draft'     as Mode, label: 'Rascunho de nota',    icon: <NotebookPen size={11} />,    always: true },
+          { mode: 'reply'     as Mode, label: 'Resposta ao cliente', icon: <MessageSquare size={11} />,  always: true },
           { mode: 'checklist' as Mode, label: 'Checklist de revisão',icon: <ClipboardCheck size={11} />, always: false },
           { mode: 'estimate'    as Mode, label: 'Complexidade',      icon: <Clock size={11} />,         always: true },
           { mode: 'ambiguities' as Mode, label: 'Req. ambíguos',    icon: <AlertTriangle size={11} />, always: true },
@@ -467,7 +470,7 @@ export function IssueAIPanel({ issue, compact = false, onOpen, onInsertNote }: P
           onCopy={copy}
           onClose={() => setResult(null)}
           onDownload={result.mode === 'prompt' ? download : undefined}
-          onInsert={result.mode === 'draft' && onInsertNote
+          onInsert={(result.mode === 'draft' || result.mode === 'reply') && onInsertNote
             ? () => { onInsertNote(result.text); setResult(null); }
             : undefined
           }

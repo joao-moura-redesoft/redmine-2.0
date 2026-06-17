@@ -1,7 +1,10 @@
 import { useState, useMemo } from 'react';
 import { useProjects, useProjectIssues } from '../hooks/useRedmine';
-import { RefreshCw, Rocket, Copy, Check } from 'lucide-react';
+import { RefreshCw, Rocket, Copy, Check, TrendingDown } from 'lucide-react';
 import type { Issue } from '../types/redmine';
+import { VersionBurndown } from './VersionBurndown';
+
+type Mode = 'release' | 'burndown';
 
 const CF_IMPACTO = 229;
 const CF_NOTA = 213;
@@ -22,6 +25,7 @@ interface Props {
 export function ReleaseView({ onIssueClick }: Props) {
   const { data: projects } = useProjects();
   const [projectId, setProjectId] = useState<number | undefined>(undefined);
+  const [mode, setMode] = useState<Mode>('release');
 
   const { data: issues, isLoading, isFetching, refetch } = useProjectIssues(projectId);
   const [copied, setCopied] = useState(false);
@@ -52,11 +56,25 @@ export function ReleaseView({ onIssueClick }: Props) {
     <div className="max-w-4xl mx-auto">
       <div className="mb-4 flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-lg font-semibold text-slate-800">Release</h2>
-          <p className="text-sm text-slate-500 mt-0.5">O que vai na próxima versão — tarefas em atualização/fechamento (já confirmadas), por impacto.</p>
+          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{mode === 'release' ? 'Release' : 'Burndown & Velocity'}</h2>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {mode === 'release'
+              ? 'O que vai na próxima versão — tarefas em atualização/fechamento (já confirmadas), por impacto.'
+              : 'Progresso da versão/sprint: o que falta entregar e o ritmo de conclusão.'}
+          </p>
+          <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 mt-2 w-fit text-xs">
+            <button
+              onClick={() => setMode('release')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition-colors ${mode === 'release' ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400' : 'text-slate-500'}`}
+            ><Rocket size={12} /> Notas de release</button>
+            <button
+              onClick={() => setMode('burndown')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition-colors ${mode === 'burndown' ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400' : 'text-slate-500'}`}
+            ><TrendingDown size={12} /> Burndown</button>
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          {total > 0 && (
+          {mode === 'release' && total > 0 && (
             <button onClick={copyNotes} className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100">
               {copied ? <Check size={13} /> : <Copy size={13} />}{copied ? 'Copiado!' : 'Copiar notas'}
             </button>
@@ -64,18 +82,22 @@ export function ReleaseView({ onIssueClick }: Props) {
           <select
             value={projectId ?? ''}
             onChange={e => setProjectId(e.target.value ? Number(e.target.value) : undefined)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 max-w-64"
+            className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400 max-w-64"
           >
-            <option value="">Todos os projetos</option>
+            <option value="">{mode === 'burndown' ? 'Selecione um projeto' : 'Todos os projetos'}</option>
             {(projects ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <button onClick={() => refetch()} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100" title="Atualizar">
-            <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} />
-          </button>
+          {mode === 'release' && (
+            <button onClick={() => refetch()} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Atualizar">
+              <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} />
+            </button>
+          )}
         </div>
       </div>
 
-      {isLoading ? (
+      {mode === 'burndown' ? (
+        <VersionBurndown projectId={projectId} />
+      ) : isLoading ? (
         <div className="flex items-center justify-center py-20 text-slate-400"><RefreshCw size={20} className="animate-spin" /></div>
       ) : total === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-slate-400">

@@ -17,13 +17,22 @@ export interface Note {
 export type NotePatch = Partial<Pick<Note,
   'title' | 'body' | 'tags' | 'pinned' | 'color' | 'linkedIssueId' | 'linkedProjectId'>>;
 
+// Id gerado no cliente para permitir criação otimista (sem flicker nem troca
+// de id quando o servidor responde).
+export const newNoteId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
 const api = axios.create({ baseURL: '/api' });
 
 api.interceptors.request.use(config => {
   const auth = getStoredAuth();
   if (auth) {
     config.headers['X-Redmine-Url'] = auth.url;
-    config.headers['X-Redmine-Key'] = auth.apiKey;
+    if (auth.apiKey) {
+      config.headers['X-Redmine-Key'] = auth.apiKey;
+    } else if (auth.username && auth.password) {
+      config.headers['X-Redmine-User'] = auth.username;
+      config.headers['X-Redmine-Pass'] = auth.password;
+    }
   }
   return config;
 });
@@ -33,7 +42,7 @@ export async function fetchNotes(): Promise<Note[]> {
   return data;
 }
 
-export async function createNote(patch: NotePatch = {}): Promise<Note> {
+export async function createNote(patch: NotePatch & { id?: string } = {}): Promise<Note> {
   const { data } = await api.post<Note>('/notes', patch);
   return data;
 }

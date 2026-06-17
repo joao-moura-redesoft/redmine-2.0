@@ -1,12 +1,14 @@
 import axios from 'axios';
-import type { Issue, IssueStatus, Project, Tracker, Priority, CurrentUser, Version, TimeEntry, TimeEntryActivity } from '../types/redmine';
+import type { Issue, IssueStatus, Project, Tracker, Priority, CurrentUser, Version, TimeEntry, TimeEntryActivity, Mention } from '../types/redmine';
 import { getActiveAI } from '../utils/aiConfig';
 
 export const AUTH_KEY = 'redmine_auth';
 
 export interface RedmineAuth {
   url: string;
-  apiKey: string;
+  apiKey?: string;
+  username?: string;
+  password?: string;
 }
 
 export interface Upload {
@@ -20,7 +22,9 @@ export function getStoredAuth(): RedmineAuth | null {
     const raw = localStorage.getItem(AUTH_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed?.url && parsed?.apiKey) return parsed;
+    if (!parsed?.url) return null;
+    if (parsed.apiKey) return parsed;
+    if (parsed.username && parsed.password) return parsed;
     return null;
   } catch { return null; }
 }
@@ -33,14 +37,31 @@ export function clearAuth() {
   localStorage.removeItem(AUTH_KEY);
 }
 
+/** Headers de autenticação para fetch() manual (fora do axios com interceptor). */
+export function authHeaders(): Record<string, string> {
+  const auth = getStoredAuth();
+  if (!auth) return {};
+  const h: Record<string, string> = { 'x-redmine-url': auth.url };
+  if (auth.apiKey) h['x-redmine-key'] = auth.apiKey;
+  else if (auth.username && auth.password) {
+    h['x-redmine-user'] = auth.username;
+    h['x-redmine-pass'] = auth.password;
+  }
+  return h;
+}
+
 const api = axios.create({ baseURL: '/api' });
 
-// Injeta as credenciais em cada request
 api.interceptors.request.use(config => {
   const auth = getStoredAuth();
   if (auth) {
     config.headers['X-Redmine-Url'] = auth.url;
-    config.headers['X-Redmine-Key'] = auth.apiKey;
+    if (auth.apiKey) {
+      config.headers['X-Redmine-Key'] = auth.apiKey;
+    } else if (auth.username && auth.password) {
+      config.headers['X-Redmine-User'] = auth.username;
+      config.headers['X-Redmine-Pass'] = auth.password;
+    }
   }
   return config;
 });
@@ -222,6 +243,20 @@ export const redmineApi = {
     return data.issues ?? [];
   },
 
+  getMentions: async (): Promise<Mention[]> => {
+    const { data } = await api.get('/issues/mentions');
+    return data.mentions ?? [];
+  },
+
+  weeklyDigest: async (open: Issue[], completed: Issue[]): Promise<string> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/weekly-digest', { open, completed }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data.digest as string;
+  },
+
   // ── IA ────────────────────────────────────────────────────────────────
   getAIStatus: async (): Promise<{ configured: boolean }> => {
     const { data } = await api.get('/ai/status');
@@ -263,6 +298,26 @@ export const redmineApi = {
       headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
     });
     return data.draft as string;
+  },
+
+  aiChat: async (
+    messages: { role: 'user' | 'assistant'; content: string }[],
+  ): Promise<{ reply: string; trace: { tool: string; args: unknown }[] }> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/chat', { messages }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data;
+  },
+
+  draftReply: async (issue: Issue, instruction?: string): Promise<string> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/draft-reply', { issue, instruction }, {
+      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
+    });
+    return data.reply as string;
   },
 
   detectAmbiguities: async (issue: Issue): Promise<{ hasIssues: boolean; ambiguities: { trecho: string; problema: string; pergunta: string }[] }> => {

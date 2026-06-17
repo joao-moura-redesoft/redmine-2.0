@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, ExternalLink, ChevronDown, ChevronRight, ChevronLeft, Check, Pencil, Play, GitBranch, ArrowRight, Loader2, AlertCircle, RotateCcw, FileText, File, Star, Link2, GitMerge, Copy, Plus, CheckSquare, User, Clock, Tag, Calendar, Search, CircleDot, Image as ImageIcon, Paperclip, Download, NotebookPen } from 'lucide-react';
+import { X, ExternalLink, ChevronDown, ChevronRight, ChevronLeft, Check, Pencil, Play, GitBranch, ArrowRight, Loader2, AlertCircle, RotateCcw, FileText, File, Star, Link2, GitMerge, Copy, Plus, CheckSquare, User, Clock, Tag, Calendar, Search, CircleDot, Image as ImageIcon, Paperclip, Download, NotebookPen, StickyNote, BookOpen } from 'lucide-react';
 import type { Attachment } from '../types/redmine';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
 import { TimeTracker } from './TimeTracker';
@@ -12,8 +12,11 @@ import { redmineApi } from '../api/redmine';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useIssueDetail, useAddNote, useStatuses, useUpdateIssue, useProjectMembers, useCurrentUser, useUpdateJournal } from '../hooks/useRedmine';
+import { useNotes } from '../hooks/useNotes';
 import { talkBridge } from '../utils/talkBridge';
 import { localWatches, useLocalWatches } from '../utils/localWatches';
+import { wikiLinks, type WikiLink } from '../utils/wikiLinks';
+import { WikiLinkSearch } from './WikiView';
 import { Markdown } from './Markdown';
 import { getMissingFields } from '../utils/alerts';
 
@@ -83,6 +86,8 @@ interface Props {
   onNavigate?: (id: number) => void;
   /** Cria uma nova nota pré-vinculada a esta tarefa e abre o módulo de Notas */
   onNewNote?: (patch: { title?: string; linkedIssueId?: number; linkedProjectId?: number }) => void;
+  /** Abre o módulo de Notas filtrado por esta tarefa */
+  onViewNotes?: (issueId: number) => void;
 }
 
 /* Tamanho de arquivo legível */
@@ -1028,13 +1033,91 @@ function RelatedIssues({ issue, onNavigate }: {
   );
 }
 
+/* ── Seção de links da Wiki ── */
+
+function WikiLinksSection({ issueId }: { issueId: number }) {
+  const [links, setLinks] = useState<WikiLink[]>(() => wikiLinks.get(issueId));
+  const [showSearch, setShowSearch] = useState(false);
+
+  function handleSelect(id: string, title: string, namespace: string) {
+    wikiLinks.add(issueId, { id, title, namespace });
+    setLinks(wikiLinks.get(issueId));
+    setShowSearch(false);
+  }
+
+  function handleRemove(linkId: string) {
+    wikiLinks.remove(issueId, linkId);
+    setLinks(wikiLinks.get(issueId));
+  }
+
+  return (
+    <div className="px-4 pt-3 pb-1">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+          <BookOpen size={12} />
+          Wiki
+        </p>
+        <button
+          onClick={() => setShowSearch(true)}
+          className="text-xs text-blue-500 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-0.5 transition-colors"
+        >
+          <Plus size={11} /> Vincular
+        </button>
+      </div>
+
+      {links.length === 0 && (
+        <p className="text-xs text-slate-400 italic">Nenhuma página vinculada.</p>
+      )}
+
+      <div className="space-y-1">
+        {links.map(link => (
+          <div key={link.id} className="flex items-center gap-2 group">
+            <FileText size={11} className="text-slate-400 flex-shrink-0" />
+            <span className="text-xs text-slate-600 dark:text-slate-300 flex-1 truncate">
+              {link.title || link.id}
+              {link.namespace && (
+                <span className="text-slate-400 ml-1">({link.namespace.replace(/:/g, ' / ')})</span>
+              )}
+            </span>
+            <a
+              href={`https://wiki.redesoft.com.br/doku.php?id=${encodeURIComponent(link.id)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-slate-300 hover:text-blue-500 flex-shrink-0 transition-colors"
+              title="Abrir no DokuWiki"
+            >
+              <ExternalLink size={11} />
+            </a>
+            <button
+              onClick={() => handleRemove(link.id)}
+              className="text-slate-300 hover:text-red-400 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all"
+              title="Desvincular"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {showSearch && (
+        <WikiLinkSearch
+          onSelect={handleSelect}
+          onClose={() => setShowSearch(false)}
+        />
+      )}
+    </div>
+  );
+}
+
 /* ── Modal principal ── */
 
-export function IssueModal({ issueId, onClose, onNavigate, onNewNote }: Props) {
+export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNotes }: Props) {
   const { data: issue, isLoading } = useIssueDetail(issueId);
   const { data: statuses } = useStatuses();
   const { data: members } = useProjectMembers(issue?.project.id);
   const { data: currentUser } = useCurrentUser();
+  const { data: allNotes = [] } = useNotes();
+  const linkedNotesCount = allNotes.filter(n => n.linkedIssueId === issueId).length;
   const addNote = useAddNote();
   const updateJournal = useUpdateJournal(issueId);
   const [editingJournal, setEditingJournal] = useState<{ id: number; text: string } | null>(null);
@@ -1193,6 +1276,20 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote }: Props) {
             )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Ver notas vinculadas a esta tarefa */}
+            {issue && onViewNotes && linkedNotesCount > 0 && (
+              <button
+                onClick={() => onViewNotes(issue.id)}
+                title={`Ver ${linkedNotesCount} nota(s) vinculada(s) a esta tarefa`}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 transition-colors"
+              >
+                <StickyNote size={13} /> Notas
+                <span className="min-w-[16px] h-4 px-1 inline-flex items-center justify-center text-[10px] font-bold rounded-full bg-blue-600 text-white">
+                  {linkedNotesCount}
+                </span>
+              </button>
+            )}
+
             {/* Nova nota sobre esta tarefa (módulo de Notas) */}
             {issue && onNewNote && (
               <button
@@ -1486,6 +1583,9 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote }: Props) {
 
                 {/* Tarefas relacionadas e subtarefas */}
                 <RelatedIssues issue={issue} onNavigate={onNavigate} />
+
+                {/* Páginas da Wiki vinculadas */}
+                <WikiLinksSection issueId={issue.id} />
             </div>
 
             {/* ── DIREITA: descrição + chat ── */}

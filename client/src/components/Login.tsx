@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Eye, EyeOff, Gem, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
+import { Eye, EyeOff, Gem, Loader2, AlertCircle, ExternalLink, KeyRound, User } from 'lucide-react';
 import { saveAuth, RedmineAuth } from '../api/redmine';
 import axios from 'axios';
 
@@ -7,10 +7,15 @@ interface Props {
   onSuccess: () => void;
 }
 
+type AuthMode = 'token' | 'userpass';
+
 export function Login({ onSuccess }: Props) {
   const [url, setUrl] = useState('https://');
+  const [mode, setMode] = useState<AuthMode>('token');
   const [apiKey, setApiKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showSecret, setShowSecret] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,19 +26,27 @@ export function Login({ onSuccess }: Props) {
     const cleanUrl = url.replace(/\/$/, '');
 
     try {
-      const { data } = await axios.get('/api/users/current', {
-        headers: {
-          'X-Redmine-Url': cleanUrl,
-          'X-Redmine-Key': apiKey.trim(),
-        },
-      });
+      const headers: Record<string, string> = { 'X-Redmine-Url': cleanUrl };
+      let auth: RedmineAuth;
 
-      saveAuth({ url: cleanUrl, apiKey: apiKey.trim() });
+      if (mode === 'token') {
+        headers['X-Redmine-Key'] = apiKey.trim();
+        auth = { url: cleanUrl, apiKey: apiKey.trim() };
+      } else {
+        headers['X-Redmine-User'] = username.trim();
+        headers['X-Redmine-Pass'] = password;
+        auth = { url: cleanUrl, username: username.trim(), password };
+      }
+
+      await axios.get('/api/users/current', { headers });
+      saveAuth(auth);
       onSuccess();
     } catch (err: any) {
       const status = err.response?.status;
       if (status === 401 || status === 403) {
-        setError('Chave de API inválida ou sem permissão. Verifique e tente novamente.');
+        setError(mode === 'token'
+          ? 'Chave de API inválida ou sem permissão. Verifique e tente novamente.'
+          : 'Usuário ou senha inválidos. Verifique e tente novamente.');
       } else if (status === 404 || err.code === 'ERR_NETWORK') {
         setError('URL do Redmine não encontrada. Verifique o endereço e tente novamente.');
       } else {
@@ -44,7 +57,11 @@ export function Login({ onSuccess }: Props) {
     }
   };
 
-  const canSubmit = url.length > 10 && apiKey.trim().length > 10 && !loading;
+  const canSubmit = url.length > 10 && !loading && (
+    mode === 'token'
+      ? apiKey.trim().length > 10
+      : username.trim().length > 0 && password.length > 0
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 to-blue-50 flex items-center justify-center p-4">
@@ -76,41 +93,111 @@ export function Login({ onSuccess }: Props) {
             />
           </div>
 
-          {/* API Key */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              Chave de API
-            </label>
-            <div className="relative">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                placeholder="••••••••••••••••••••••••••••••••••••••••"
-                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2.5 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                onKeyDown={e => e.key === 'Enter' && canSubmit && validate()}
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey(v => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-            <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1">
-              Encontre em
-              <a
-                href={`${url.length > 10 ? url : 'https://redmine'}/my/account`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-500 hover:underline inline-flex items-center gap-0.5"
-              >
-                Minha conta → Chave de acesso API
-                <ExternalLink size={11} />
-              </a>
-            </p>
+          {/* Toggle de modo */}
+          <div className="flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">
+            <button
+              type="button"
+              onClick={() => { setMode('token'); setError(null); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-md transition-all ${
+                mode === 'token'
+                  ? 'bg-white text-blue-600 shadow-sm border border-slate-200'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <KeyRound size={13} />
+              Token API
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode('userpass'); setError(null); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-md transition-all ${
+                mode === 'userpass'
+                  ? 'bg-white text-blue-600 shadow-sm border border-slate-200'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <User size={13} />
+              Usuário e Senha
+            </button>
           </div>
+
+          {/* Campos por modo */}
+          {mode === 'token' ? (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                Chave de API
+              </label>
+              <div className="relative">
+                <input
+                  type={showSecret ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={e => setApiKey(e.target.value)}
+                  placeholder="••••••••••••••••••••••••••••••••••••••••"
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2.5 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+                  onKeyDown={e => e.key === 'Enter' && canSubmit && validate()}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSecret(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5 flex items-center gap-1">
+                Encontre em
+                <a
+                  href={`${url.length > 10 ? url : 'https://redmine'}/my/account`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-500 hover:underline inline-flex items-center gap-0.5"
+                >
+                  Minha conta → Chave de acesso API
+                  <ExternalLink size={11} />
+                </a>
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Usuário
+                </label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  placeholder="seu.usuario"
+                  autoComplete="username"
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  onKeyDown={e => e.key === 'Enter' && canSubmit && validate()}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Senha
+                </label>
+                <div className="relative">
+                  <input
+                    type={showSecret ? 'text' : 'password'}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    autoComplete="current-password"
+                    className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2.5 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    onKeyDown={e => e.key === 'Enter' && canSubmit && validate()}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSecret(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Erro */}
           {error && (

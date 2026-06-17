@@ -114,6 +114,15 @@ export function useWatchedIssues() {
   });
 }
 
+export function useIssuesByIds(ids: number[]) {
+  return useQuery({
+    queryKey: ['issues-by-ids', [...ids].sort((a, b) => a - b)],
+    queryFn: () => redmineApi.getIssuesByIds(ids),
+    enabled: ids.length > 0,
+    refetchInterval: 90 * 1000,
+  });
+}
+
 export function useCompletedIssues() {
   return useQuery({
     queryKey: ['issues-completed'],
@@ -214,6 +223,15 @@ export function useCreateTimeEntry() {
       qc.invalidateQueries({ queryKey: ['time-entries-issue', vars.issue_id] });
       qc.invalidateQueries({ queryKey: ['issue', vars.issue_id] });
     },
+  });
+}
+
+export function useMentions() {
+  return useQuery({
+    queryKey: ['issues-mentions'],
+    queryFn: redmineApi.getMentions,
+    refetchInterval: 2 * 60 * 1000,
+    refetchIntervalInBackground: true,
   });
 }
 

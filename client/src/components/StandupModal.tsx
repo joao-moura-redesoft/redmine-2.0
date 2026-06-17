@@ -1,33 +1,47 @@
 import { useState } from 'react';
-import { X, Sparkles, Copy, Check, Loader2, RefreshCw } from 'lucide-react';
+import { X, Sparkles, Copy, Check, Loader2, RefreshCw, CalendarRange, Sun } from 'lucide-react';
 import { redmineApi } from '../api/redmine';
 import { getAIKey } from '../utils/aiConfig';
 import type { Issue } from '../types/redmine';
 
+type Mode = 'daily' | 'weekly';
+
 interface Props {
   issues: Issue[];
+  completedIssues?: Issue[];
   onClose: () => void;
 }
 
-export function StandupModal({ issues, onClose }: Props) {
+export function StandupModal({ issues, completedIssues = [], onClose }: Props) {
+  const [mode, setMode] = useState<Mode>('daily');
   const [standup, setStandup] = useState('');
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
   const [generated, setGenerated] = useState(false);
 
+  const switchMode = (m: Mode) => {
+    if (m === mode) return;
+    setMode(m);
+    setStandup('');
+    setGenerated(false);
+    setError('');
+  };
+
   const generate = async () => {
     setError('');
     setLoading(true);
     try {
-      const text = await redmineApi.standup(issues);
+      const text = mode === 'daily'
+        ? await redmineApi.standup(issues)
+        : await redmineApi.weeklyDigest(issues, completedIssues);
       setStandup(text);
       setGenerated(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg.includes('401') || msg.includes('403')
         ? 'Chave inválida. Verifique nas Configurações.'
-        : 'Erro ao gerar standup. Tente novamente.');
+        : 'Erro ao gerar. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -57,7 +71,7 @@ export function StandupModal({ issues, onClose }: Props) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2">
             <Sparkles size={16} className="text-purple-500" />
-            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Daily Standup</h2>
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{mode === 'daily' ? 'Daily Standup' : 'Retrospectiva Semanal'}</h2>
           </div>
           <button
             onClick={onClose}
@@ -68,10 +82,23 @@ export function StandupModal({ issues, onClose }: Props) {
         </div>
 
         <div className="p-5 space-y-4">
+          {/* Toggle de modo */}
+          <div className="flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 text-xs">
+            <button
+              onClick={() => switchMode('daily')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-medium transition-colors ${mode === 'daily' ? 'bg-purple-50 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400' : 'text-slate-500'}`}
+            ><Sun size={13} /> Diário</button>
+            <button
+              onClick={() => switchMode('weekly')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-medium transition-colors ${mode === 'weekly' ? 'bg-purple-50 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400' : 'text-slate-500'}`}
+            ><CalendarRange size={13} /> Semanal</button>
+          </div>
+
           {/* Resumo das tarefas */}
           <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">
               {issues.length} tarefa{issues.length !== 1 ? 's' : ''} abertas
+              {mode === 'weekly' && completedIssues.length > 0 && ` · ${completedIssues.length} concluída${completedIssues.length !== 1 ? 's' : ''} recentes`}
             </p>
             <div className="flex flex-wrap gap-1.5">
               {Object.entries(byStatus).map(([status, count]) => (
@@ -95,7 +122,7 @@ export function StandupModal({ issues, onClose }: Props) {
           {generated && standup && (
             <div className="border border-purple-200 dark:border-purple-800 rounded-xl overflow-hidden">
               <div className="flex items-center justify-between px-3 py-2 bg-purple-50 dark:bg-purple-900/30 border-b border-purple-100 dark:border-purple-800">
-                <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Standup gerado</span>
+                <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">{mode === 'daily' ? 'Standup gerado' : 'Retrospectiva gerada'}</span>
                 <button
                   onClick={copy}
                   className="flex items-center gap-1 px-2 py-1 text-xs bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-700 rounded-md hover:bg-purple-50 dark:hover:bg-purple-900/40 text-purple-600 dark:text-purple-400 transition-colors"
@@ -132,7 +159,7 @@ export function StandupModal({ issues, onClose }: Props) {
               ? <><Loader2 size={13} className="animate-spin" /> Gerando…</>
               : generated
                 ? <><RefreshCw size={13} /> Regenerar</>
-                : <><Sparkles size={13} /> Gerar standup</>
+                : <><Sparkles size={13} /> {mode === 'daily' ? 'Gerar standup' : 'Gerar retrospectiva'}</>
             }
           </button>
         </div>

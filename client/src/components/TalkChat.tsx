@@ -13,7 +13,7 @@ import {
   getTalkAuth, resolveMessageText, fetchParticipants, markMessagesRead,
   uploadFileToTalk, fetchMessages,
 } from '../api/talk';
-import { getStoredAuth, redmineApi } from '../api/redmine';
+import { getStoredAuth, authHeaders, redmineApi } from '../api/redmine';
 import { talkBridge } from '../utils/talkBridge';
 import { talkMute } from '../utils/talkMute';
 import type { TalkRoom, TalkMessage, TalkParticipant } from '../api/talk';
@@ -141,7 +141,7 @@ function RedmineIssueChip({ id, isMe, onIssueClick }: {
     queryKey: ['issue-chip', id],
     queryFn: async () => {
       const r = await fetch(`/api/issues/by-ids?ids=${id}`, {
-        headers: { 'x-redmine-url': auth!.url, 'x-redmine-key': auth!.apiKey },
+        headers: authHeaders(),
       });
       const d = await r.json();
       return (d.issues?.[0] ?? null) as { id: number; subject: string } | null;

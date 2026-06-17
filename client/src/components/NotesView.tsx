@@ -7,7 +7,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '../hooks/useNotes';
 import { useProjects } from '../hooks/useRedmine';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
-import type { Note, NotePatch } from '../api/notes';
+import { fuzzyBest } from '../utils/fuzzy';
+import { newNoteId, type Note, type NotePatch } from '../api/notes';
 import { RichNoteEditor } from './RichNoteEditor';
 import { redmineApi } from '../api/redmine';
 import { markdownToTextile } from '../utils/markdownToTextile';
@@ -170,6 +171,19 @@ function NoteEditor({ note, onIssueClick, projectName, onDuplicate, onAutoDelete
   // Guardam a última edição ainda não persistida, para flush ao desmontar
   const pendingTitle = useRef<string | null>(null);
   const pendingBody = useRef<string | null>(null);
+  // Espelham SEMPRE o valor atual (state e prop) para o efeito de desmontagem
+  // não depender da closure obsoleta do `note`/refs do primeiro render — senão
+  // uma nota recém-salva era considerada vazia e auto-excluída ao trocar de nota.
+  const latestTitle = useRef(note.title);
+  const latestBody = useRef(note.body);
+  const noteRef = useRef(note);
+  latestTitle.current = title;
+  latestBody.current = body;
+  noteRef.current = note;
+  // Momento em que o editor montou — evita que desmontagens instantâneas
+  // (StrictMode em dev, reconciliação da criação otimista) auto-excluam a nota
+  // recém-criada antes de o usuário ter chance de escrever.
+  const mountedAt = useRef<number>(Date.now());
 
   // Reseta o estado local só ao trocar de nota (não a cada atualização otimista)
   useEffect(() => {
@@ -209,14 +223,20 @@ function NoteEditor({ note, onIssueClick, projectName, onDuplicate, onAutoDelete
   useEffect(() => () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     if (titleTimer.current) clearTimeout(titleTimer.current);
-    const latestTitle = pendingTitle.current ?? note.title;
-    const latestBody = pendingBody.current ?? note.body;
-    const empty = !latestTitle.trim() && !latestBody.trim() && note.tags.length === 0 && !note.linkedIssueId;
-    if (empty) { onAutoDeleteEmpty(note.id); return; }
+    const n = noteRef.current;
+    const lt = latestTitle.current;
+    const lb = latestBody.current;
+    const empty = !lt.trim() && !lb.trim() && n.tags.length === 0 && !n.linkedIssueId;
+    // Só auto-exclui se o editor ficou aberto tempo suficiente — desmontagens
+    // instantâneas não são uma saída deliberada do usuário.
+    const settled = Date.now() - mountedAt.current > 1200;
+    if (empty && settled) { onAutoDeleteEmpty(n.id); return; }
+    if (empty) return;
+    // Persiste edições ainda no debounce (não salvas) antes de sair.
     const flush: NotePatch = {};
     if (pendingTitle.current !== null) flush.title = pendingTitle.current;
     if (pendingBody.current !== null) flush.body = pendingBody.current;
-    if (Object.keys(flush).length) updateNote.mutate({ id: note.id, patch: flush });
+    if (Object.keys(flush).length) updateNote.mutate({ id: n.id, patch: flush });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -439,9 +459,10 @@ function NoteEditor({ note, onIssueClick, projectName, onDuplicate, onAutoDelete
 }
 
 // ─── View principal ───────────────────────────────────────────────────────────
-export function NotesView({ onIssueClick, seed }: {
+export function NotesView({ onIssueClick, seed, focus }: {
   onIssueClick?: (id: number) => void;
   seed?: { nonce: number; patch: NotePatch } | null;
+  focus?: { nonce: number; issueId: number } | null;
 }) {
   const { data: notes = [], isLoading } = useNotes();
   const { data: projects = [] } = useProjects();
@@ -453,10 +474,23 @@ export function NotesView({ onIssueClick, seed }: {
   const [pinnedOnly, setPinnedOnly] = useState(false);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [activeProject, setActiveProject] = useState<number | null>(null);
+  const [activeIssue, setActiveIssue] = useState<number | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Note | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const newBtnRef = useRef<HTMLDivElement>(null);
   const consumedSeed = useRef<number>(0);
+  const consumedFocus = useRef<number>(0);
+
+  // Foco externo (vindo do modal da tarefa): filtra notas por essa tarefa
+  useEffect(() => {
+    if (!focus || focus.nonce === consumedFocus.current) return;
+    consumedFocus.current = focus.nonce;
+    setActiveIssue(focus.issueId);
+    setActiveTag(null); setActiveProject(null); setPinnedOnly(false); setSearch('');
+    const first = notes.find(n => n.linkedIssueId === focus.issueId);
+    if (first) setSelectedId(first.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce]);
 
   // Fecha o menu de templates ao clicar fora
   useEffect(() => {
@@ -474,7 +508,9 @@ export function NotesView({ onIssueClick, seed }: {
   useEffect(() => {
     if (!seed || seed.nonce === consumedSeed.current) return;
     consumedSeed.current = seed.nonce;
-    createNote.mutate(seed.patch, { onSuccess: n => setSelectedId(n.id) });
+    const id = newNoteId();
+    setSelectedId(id);
+    createNote.mutate({ ...seed.patch, id });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed?.nonce]);
 
@@ -492,14 +528,31 @@ export function NotesView({ onIssueClick, seed }: {
   }, [notes, projects]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return notes
+    const q = search.trim();
+    const base = notes
       .filter(n => !pinnedOnly || n.pinned)
       .filter(n => !activeTag || n.tags.includes(activeTag))
       .filter(n => !activeProject || n.linkedProjectId === activeProject)
-      .filter(n => !q || noteTitle(n).toLowerCase().includes(q) || n.body.toLowerCase().includes(q) || n.tags.some(t => t.includes(q)))
-      .sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.updatedAt - a.updatedAt));
-  }, [notes, search, pinnedOnly, activeTag, activeProject]);
+      .filter(n => !activeIssue || n.linkedIssueId === activeIssue);
+
+    if (!q) {
+      // Sem busca: fixadas primeiro, depois mais recentes
+      return base.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.updatedAt - a.updatedAt));
+    }
+    // Com busca: ranking fuzzy (título pesa mais que corpo/tags)
+    return base
+      .map(n => {
+        const score = Math.max(
+          fuzzyBest(q, noteTitle(n)),
+          fuzzyBest(q, n.body) - 30,
+          fuzzyBest(q, n.tags.join(' ')) - 10,
+        );
+        return { n, score };
+      })
+      .filter(x => x.score >= 0)
+      .sort((a, b) => b.score - a.score)
+      .map(x => x.n);
+  }, [notes, search, pinnedOnly, activeTag, activeProject, activeIssue]);
 
   // Mantém uma seleção válida
   useEffect(() => {
@@ -510,8 +563,12 @@ export function NotesView({ onIssueClick, seed }: {
 
   const selected = notes.find(n => n.id === selectedId) ?? null;
 
-  const handleNew = (patch: NotePatch = {}) =>
-    createNote.mutate(patch, { onSuccess: n => { setSelectedId(n.id); setSearch(''); } });
+  const handleNew = (patch: NotePatch = {}) => {
+    const id = newNoteId();
+    setSelectedId(id);
+    setSearch('');
+    createNote.mutate({ ...patch, id });
+  };
 
   // Nota diária: abre a de hoje se já existir, senão cria
   const openDailyNote = () => {
@@ -523,14 +580,14 @@ export function NotesView({ onIssueClick, seed }: {
   };
 
   const handleDuplicate = (n: Note) => {
-    createNote.mutate(
-      {
-        title: n.title ? `${n.title} (cópia)` : '',
-        body: n.body, tags: n.tags, color: n.color,
-        linkedIssueId: n.linkedIssueId, linkedProjectId: n.linkedProjectId,
-      },
-      { onSuccess: created => setSelectedId(created.id) },
-    );
+    const id = newNoteId();
+    setSelectedId(id);
+    createNote.mutate({
+      id,
+      title: n.title ? `${n.title} (cópia)` : '',
+      body: n.body, tags: n.tags, color: n.color,
+      linkedIssueId: n.linkedIssueId, linkedProjectId: n.linkedProjectId,
+    });
   };
 
   // Auto-exclui notas vazias ao sair delas (evita acúmulo de notas em branco)
@@ -583,6 +640,13 @@ export function NotesView({ onIssueClick, seed }: {
             </div>
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
+            {activeIssue && (
+              <button onClick={() => setActiveIssue(null)}
+                      title="Remover filtro de tarefa"
+                      className="inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 border bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-900/20">
+                <span className="font-mono font-bold">#{activeIssue}</span> <X size={10} />
+              </button>
+            )}
             <button onClick={() => setPinnedOnly(v => !v)}
                     className={`inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 border transition-colors ${
                       pinnedOnly ? 'bg-amber-50 border-amber-300 text-amber-700 dark:bg-amber-900/20' : 'border-slate-200 dark:border-slate-700 text-slate-500'

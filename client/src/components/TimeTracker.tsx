@@ -3,6 +3,7 @@ import { Play, Square, Clock, Plus, Check, Loader2, ChevronDown } from 'lucide-r
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useTimer } from '../hooks/useTimer';
+import { useStopAndLog } from '../hooks/useStopAndLog';
 import { useIssueTimeEntries, useTimeEntryActivities, useCreateTimeEntry } from '../hooks/useRedmine';
 
 interface Props {
@@ -24,6 +25,7 @@ export function TimeTracker({ issueId, spentHours }: Props) {
   const { data: entries, isLoading: entriesLoading } = useIssueTimeEntries(issueId);
   const { data: activities } = useTimeEntryActivities();
   const createEntry = useCreateTimeEntry();
+  const { logHours } = useStopAndLog();
 
   const defaultActivity = activities?.find(a => a.is_default) ?? activities?.[0];
 
@@ -52,20 +54,13 @@ export function TimeTracker({ issueId, spentHours }: Props) {
   // tempo medido nunca se perde.
   const handleStopAndLog = async () => {
     const h = timer.stop();
-    if (!h || h < 0.02 || !activityId) {
-      openFormWithHours(h);
-      return;
-    }
-    try {
-      await createEntry.mutateAsync({
-        issue_id: issueId,
-        hours: h,
-        activity_id: activityId as number,
-        spent_on: new Date().toISOString().split('T')[0],
-      });
-      setJustLogged(h);
+    const result = await logHours(issueId, h, { activityId: activityId || undefined });
+    if (result.logged) {
+      setJustLogged(result.hours);
       setTimeout(() => setJustLogged(null), 4000);
-    } catch {
+    } else {
+      // Tempo irrisório, sem atividade ou POST falhou — cai no form manual
+      // já preenchido, para o tempo medido nunca se perder.
       openFormWithHours(h);
     }
   };

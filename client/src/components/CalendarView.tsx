@@ -8,11 +8,14 @@ import {
   DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
   useDraggable, useDroppable, type DragStartEvent, type DragEndEvent,
 } from '@dnd-kit/core';
-import { ChevronLeft, ChevronRight, ChevronDown, RefreshCw, CalendarDays, Loader2, User, Search, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, RefreshCw, CalendarDays, Loader2, User, Search, Check, Clock, MapPin, X } from 'lucide-react';
 import { useIssues, useUserIssues, useAllMembers, useUpdateIssue } from '../hooks/useRedmine';
+import { useZimbraEvents, useReplyToInvite } from '../hooks/useZimbraEvents';
+import { isMailAvailable } from '../utils/mailConfig';
 import { useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { getPrevisaoRevisao, CF_IDS } from '../utils/alerts';
 import type { Issue } from '../types/redmine';
+import type { CalendarEvent, InviteVerb } from '../api/mail';
 
 type DateField = 'due_date' | 'review';
 type ViewMode = 'month' | 'week';
@@ -95,6 +98,92 @@ function IssueChip({ issue, overdue, closed, showAssignee, onIssueClick }: {
         {issue.subject}
       </span>
     </button>
+  );
+}
+
+/* ── Chip de compromisso do Zimbra (read-only + responder convite) ── */
+const PTST_BORDER: Record<string, string> = {
+  AC: 'border-l-emerald-500',  // aceito
+  DE: 'border-l-red-400',      // recusado
+  TE: 'border-l-amber-400',    // talvez
+};
+
+function EventChip({ ev }: { ev: CalendarEvent }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const reply = useReplyToInvite();
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const time = ev.allDay || ev.start == null ? 'Dia todo' : format(new Date(ev.start), 'HH:mm');
+  const range = ev.start != null && ev.end != null && !ev.allDay
+    ? `${format(new Date(ev.start), 'HH:mm')} – ${format(new Date(ev.end), 'HH:mm')}`
+    : 'Dia todo';
+  const canceled = ev.status === 'CANC';
+  const doReply = (verb: InviteVerb) => reply.mutate({ id: ev.id, verb, compNum: ev.compNum });
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        title={`${time} · ${ev.subject}`}
+        className={`w-full flex items-center gap-1 text-left rounded px-1 py-0.5 text-[11px] bg-teal-50 dark:bg-teal-900/30 hover:bg-teal-100 dark:hover:bg-teal-900/50 border-l-2 ${PTST_BORDER[ev.ptst] ?? 'border-l-teal-400'} transition-colors`}
+      >
+        <Clock size={9} className="text-teal-500 flex-shrink-0" />
+        {!ev.allDay && <span className="text-teal-600 dark:text-teal-400 font-medium flex-shrink-0">{time}</span>}
+        <span className={`truncate text-teal-800 dark:text-teal-200 ${canceled ? 'line-through opacity-60' : ''}`}>{ev.subject}</span>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full mt-1 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl z-40 p-3 text-left cursor-default" onClick={e => e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-2 mb-1.5">
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-snug">{ev.subject}</p>
+            <button onClick={() => setOpen(false)} className="text-slate-300 hover:text-slate-500 flex-shrink-0"><X size={13} /></button>
+          </div>
+          <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400">
+            <p className="flex items-center gap-1.5"><Clock size={11} /> {range}</p>
+            {ev.location && <p className="flex items-center gap-1.5"><MapPin size={11} /> {ev.location}</p>}
+            {ev.organizer && <p className="flex items-center gap-1.5"><User size={11} /> {ev.organizer.name}</p>}
+            {canceled && <p className="text-red-500 font-medium">Cancelado</p>}
+          </div>
+
+          {!ev.isOrganizer && !canceled && (
+            <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+              {reply.isSuccess ? (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><Check size={12} /> Resposta enviada</p>
+              ) : (
+                <>
+                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                    {ev.ptst === 'AC' ? 'Você aceitou' : ev.ptst === 'DE' ? 'Você recusou' : ev.ptst === 'TE' ? 'Você respondeu talvez' : 'Responder convite'}
+                  </p>
+                  <div className="flex gap-1.5">
+                    {([['ACCEPT', 'Aceitar', 'emerald'], ['TENTATIVE', 'Talvez', 'amber'], ['DECLINE', 'Recusar', 'red']] as const).map(([verb, label, color]) => (
+                      <button
+                        key={verb}
+                        onClick={() => doReply(verb)}
+                        disabled={reply.isPending}
+                        className={`flex-1 text-xs font-medium px-2 py-1 rounded-md border transition-colors disabled:opacity-40
+                          ${color === 'emerald' ? 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'
+                            : color === 'amber' ? 'border-amber-200 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30'
+                            : 'border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {reply.isError && <p className="text-[11px] text-red-500 mt-1.5">Falha ao responder. Tente novamente.</p>}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -189,6 +278,8 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
   const [personId, setPersonId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
+  const [showEvents, setShowEvents] = useState(true);
+  const mailOn = isMailAvailable();
 
   const updateIssue = useUpdateIssue();
   const qc = useQueryClient();
@@ -231,6 +322,20 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
 
   const rangeStart = format(days[0], 'yyyy-MM-dd');
   const rangeEnd = format(days[days.length - 1], 'yyyy-MM-dd');
+
+  // Agenda Zimbra na janela visível (epoch ms: início do 1º dia → fim do último).
+  const eventsQuery = useZimbraEvents(days[0].getTime(), days[days.length - 1].getTime() + 86_400_000);
+  const byEvent = useMemo(() => {
+    const map = new Map<string, CalendarEvent[]>();
+    if (!showEvents) return map;
+    (eventsQuery.data ?? []).forEach(ev => {
+      if (ev.start == null) return;
+      const d = format(new Date(ev.start), 'yyyy-MM-dd');
+      const arr = map.get(d);
+      if (arr) arr.push(ev); else map.set(d, [ev]);
+    });
+    return map;
+  }, [eventsQuery.data, showEvents]);
 
   // Agrupa por dia, ordenado dentro do dia
   const byDay = useMemo(() => {
@@ -341,6 +446,22 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
               Previsão Revisão
             </button>
           </div>
+
+          {/* Agenda Zimbra (só quando o e-mail está disponível) */}
+          {mailOn && (
+            <button
+              onClick={() => setShowEvents(v => !v)}
+              title={showEvents ? 'Ocultar agenda do e-mail' : 'Mostrar agenda do e-mail'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                showEvents
+                  ? 'border-teal-200 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 dark:border-teal-800'
+                  : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+              }`}
+            >
+              {eventsQuery.isFetching ? <Loader2 size={13} className="animate-spin" /> : <Clock size={13} />}
+              Agenda
+            </button>
+          )}
         </div>
       </div>
 
@@ -421,6 +542,9 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
                     </div>
 
                     <div className="flex flex-col gap-1">
+                      {(byEvent.get(dayStr) ?? []).map(ev => (
+                        <EventChip key={`${ev.id}-${ev.start}`} ev={ev} />
+                      ))}
                       {visible.map(issue => {
                         const closed = isClosed(issue);
                         const overdue = !closed && dayStr < todayStr;
