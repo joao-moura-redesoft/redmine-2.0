@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import type { Attachment } from '../types/redmine';
+import { attachmentUrl } from '../api/redmine';
 import { textileToMarkdown } from '../utils/textileToMarkdown';
 
 marked.setOptions({ breaks: true, gfm: true });
@@ -30,7 +31,7 @@ function preprocess(text: string, attachments?: Attachment[]): string {
     let decoded = file;
     try { decoded = decodeURIComponent(file); } catch { /* mantém */ }
     const att = byName.get(decoded) || byName.get(file);
-    if (att) return `![${att.filename}](/api/attachments/${att.id}/${encodeURIComponent(att.filename)})`;
+    if (att) return `![${att.filename}](${attachmentUrl(att.id, att.filename)})`;
     return match; // não encontrou anexo: deixa como está
   });
 }

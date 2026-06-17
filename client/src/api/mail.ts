@@ -69,6 +69,7 @@ export interface MailMessageFull {
   html: string;
   text: string;
   attachments: MailAttachment[];
+  sessionToken: string | null;
 }
 
 const api = axios.create({ baseURL: '/api' });
@@ -135,7 +136,10 @@ export const mailApi = {
     await api.post('/mail/send', payload);
   },
 
-  attachmentUrl: (id: string, part: string): string => `/api/mail/messages/${id}/attachments/${part}`,
+  attachmentUrl: (id: string, part: string, sessionToken?: string | null): string => {
+    const base = `/api/mail/messages/${id}/attachments/${part}`;
+    return sessionToken ? `${base}?s=${sessionToken}` : base;
+  },
 
   getCalendar: async (start: number, end: number): Promise<CalendarEvent[]> => {
     const { data } = await api.get('/mail/calendar', { params: { start, end } });

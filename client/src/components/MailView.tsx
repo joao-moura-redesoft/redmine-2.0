@@ -320,7 +320,7 @@ function MessageReader({ id, onClose, onReply, onChanged, onActed }: {
             {msg.attachments.map(a => (
               <a
                 key={a.part}
-                href={mailApi.attachmentUrl(msg.id, a.part)}
+                href={mailApi.attachmentUrl(msg.id, a.part, msg.sessionToken)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 transition-colors"

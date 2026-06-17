@@ -50,6 +50,23 @@ export function authHeaders(): Record<string, string> {
   return h;
 }
 
+// Token de sessão por usuário para URLs de anexo (substitui o lastAuth global).
+let _sessionToken: string | null = null;
+
+export async function initSession(): Promise<void> {
+  const auth = getStoredAuth();
+  if (!auth) return;
+  try {
+    const { data } = await axios.post('/api/attachments/session', null, { headers: authHeaders() });
+    _sessionToken = data.token ?? null;
+  } catch { /* silencioso; imagens de anexo retornarão 401 */ }
+}
+
+export function attachmentUrl(id: number, filename: string): string {
+  const base = `/api/attachments/${id}/${encodeURIComponent(filename)}`;
+  return _sessionToken ? `${base}?s=${_sessionToken}` : base;
+}
+
 const api = axios.create({ baseURL: '/api' });
 
 api.interceptors.request.use(config => {

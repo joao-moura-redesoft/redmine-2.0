@@ -1,0 +1,23 @@
+FROM node:20-alpine
+
+# Necessário para o concurrently e eventuais dependências nativas
+RUN apk add --no-cache libc6-compat
+
+WORKDIR /app
+
+# Copia arquivos de dependência
+COPY package*.json ./
+COPY client/package*.json ./client/
+
+# Instala todas as dependências
+RUN npm install
+RUN cd client && npm install
+
+# Copia o restante do código
+COPY . .
+
+# Expõe as portas do backend e frontend
+EXPOSE 3001 5173
+
+# Executa o script de desenvolvimento (concurrently)
+CMD ["npm", "run", "dev"]

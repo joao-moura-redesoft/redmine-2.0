@@ -43,7 +43,23 @@ const PROVIDERS: ProviderConfig[] = [
     badge: 'bg-emerald-50 border-emerald-200 text-emerald-700',
     badgeDark: 'dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-300',
   },
+  {
+    id: 'gemini',
+    name: 'Gemini (Google)',
+    prefix: 'AIza',
+    placeholder: 'AIza...',
+    docsUrl: 'aistudio.google.com/apikey',
+    color: 'text-blue-600 dark:text-blue-400',
+    badge: 'bg-blue-50 border-blue-200 text-blue-700',
+    badgeDark: 'dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300',
+  },
 ];
+
+const PROVIDER_NAMES: Record<AIProvider, string> = {
+  anthropic: 'Claude (Anthropic)',
+  openai: 'ChatGPT (OpenAI)',
+  gemini: 'Gemini (Google)',
+};
 
 function ProviderSection({ config, active }: { config: ProviderConfig; active: boolean }) {
   const [currentKey, setCurrentKey] = useState(() => getAIKeys()[config.id] ?? '');
@@ -600,7 +616,7 @@ export function SettingsModal({ onClose }: Props) {
             </div>
 
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-              Configure uma ou mais chaves. O <strong>Claude</strong> é usado quando disponível; o <strong>ChatGPT</strong> entra como fallback.
+              Configure uma ou mais chaves. A ordem de preferência é <strong>Claude</strong> → <strong>ChatGPT</strong> → <strong>Gemini</strong>.
               As chaves ficam salvas apenas neste navegador.
             </p>
 
@@ -609,7 +625,7 @@ export function SettingsModal({ onClose }: Props) {
               <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
                 Usando: <strong className="text-slate-700 dark:text-slate-200">
-                  {active.provider === 'anthropic' ? 'Claude (Anthropic)' : 'ChatGPT (OpenAI)'}
+                  {PROVIDER_NAMES[active.provider]}
                 </strong>
               </div>
             )}

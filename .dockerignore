@@ -1,0 +1,14 @@
+node_modules
+client/node_modules
+server/node_modules
+dist
+client/dist
+client/dev-dist
+.git
+.env
+.DS_Store
+npm-debug.log
+server-err.log
+server.log
+vite.log
+vite-err.log

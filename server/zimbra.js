@@ -9,6 +9,7 @@
 // usuário "pelado" (ex.: joao.moura), sem @dominio.
 // =========================================================================
 const axios = require('axios');
+const { createSession, MAIL_TTL_MS } = require('./lib/sessions');
 
 const DEFAULT_HOST = process.env.ZIMBRA_HOST || 'email.redesoft.org';
 
@@ -82,11 +83,6 @@ function resolveMailCreds(req) {
   return { host, user, password };
 }
 
-// Últimas credenciais de e-mail autenticadas. Usado pelo proxy de anexos/imagens
-// inline, cujas requisições vêm direto do <img>/<a> do navegador e NÃO carregam
-// os headers de auth (mesmo padrão do lastAuth do Redmine em index.js).
-let lastMailCreds = null;
-
 // Garante um token válido para o request atual. Lança 412 se faltarem credenciais.
 async function tokenFor(req) {
   const { host, user, password } = resolveMailCreds(req);
@@ -95,8 +91,7 @@ async function tokenFor(req) {
     err.statusCode = 412; // Precondition Failed
     throw err;
   }
-  lastMailCreds = { host, user, password };
-  return { host, user, token: await authenticate(host, user, password) };
+  return { host, user, password, token: await authenticate(host, user, password) };
 }
 
 // Faults do Zimbra que indicam token expirado/inválido — devem disparar
@@ -170,15 +165,16 @@ function walkParts(part, acc) {
   }
 }
 
-function fullMessage(m) {
+function fullMessage(m, sessionToken) {
   const acc = { html: '', text: '', attachments: [], inline: [] };
   walkParts(m.mp, acc);
 
-  // Troca as referências cid: por URLs do nosso proxy autenticado, para as
-  // imagens embutidas aparecerem dentro do iframe.
+  // Troca as referências cid: por URLs do proxy autenticado via token de sessão.
+  // O token é emitido em getMessage() e vale 1h — tempo suficiente para carregar imagens.
   let html = acc.html;
+  const qs = sessionToken ? `?s=${sessionToken}` : '';
   for (const img of acc.inline) {
-    const url = `/api/mail/messages/${m.id}/attachments/${img.part}`;
+    const url = `/api/mail/messages/${m.id}/attachments/${img.part}${qs}`;
     html = html.split(`cid:${img.ci}`).join(url);
   }
 
@@ -193,6 +189,7 @@ function fullMessage(m) {
     html,
     text: acc.text,
     attachments: acc.attachments,
+    sessionToken: sessionToken || null,
   };
 }
 
@@ -244,11 +241,16 @@ async function listMessages(req, { folder = 'inbox', limit = 25, offset = 0 } = 
 }
 
 async function getMessage(req, id, { markRead = true } = {}) {
+  const { host, user, password } = resolveMailCreds(req);
   const resp = await mailSoap(req, 'urn:zimbraMail', 'GetMsgRequest', {
     m: { id: String(id), html: 1, read: markRead ? 1 : 0, needExp: 1 },
   });
   const m = resp.m?.[0] || resp.m;
-  return fullMessage(m);
+  // Cria sessão de curta duração (1h) para autorizar downloads de anexos desta mensagem.
+  const sessionToken = (user && password)
+    ? createSession({ kind: 'mail', host, user, password }, MAIL_TTL_MS)
+    : null;
+  return fullMessage(m, sessionToken);
 }
 
 async function searchMessages(req, q, { limit = 25, offset = 0 } = {}) {
@@ -367,26 +369,20 @@ async function unreadCount(req) {
 }
 
 // Baixa o conteúdo bruto de um anexo (proxy autenticado) via REST do Zimbra.
-// As requisições de <img>/<a> não têm headers de auth, então caímos para as
-// últimas credenciais autenticadas (lastMailCreds).
-async function fetchAttachment(req, msgId, part) {
-  const attUrl = (host, token) =>
-    `https://${host}/service/home/~/?auth=qp&zauthtoken=${encodeURIComponent(token)}&id=${encodeURIComponent(msgId)}&part=${encodeURIComponent(part)}`;
-  let { host, user, password } = resolveMailCreds(req);
-  if (!user || !password) {
-    if (!lastMailCreds) { const e = new Error('Não autenticado no e-mail.'); e.statusCode = 401; throw e; }
-    ({ host, user, password } = lastMailCreds);
-  }
+// Recebe as credenciais explicitamente (vindas da sessão), sem estado global.
+async function fetchAttachment({ host, user, password }, msgId, part) {
+  const attUrl = (tok) =>
+    `https://${host}/service/home/~/?auth=qp&zauthtoken=${encodeURIComponent(tok)}&id=${encodeURIComponent(msgId)}&part=${encodeURIComponent(part)}`;
   let token = await authenticate(host, user, password);
   let resp;
   try {
-    resp = await axios.get(attUrl(host, token), { responseType: 'arraybuffer', timeout: 30000 });
+    resp = await axios.get(attUrl(token), { responseType: 'arraybuffer', timeout: 30000 });
   } catch (e) {
     // 401/440 do Zimbra = token caiu: reautentica com as mesmas credenciais.
     if (e.response?.status !== 401 && e.response?.status !== 440) throw e;
     tokenCache.delete(`${host}:${user}`);
     token = await authenticate(host, user, password);
-    resp = await axios.get(attUrl(host, token), { responseType: 'arraybuffer', timeout: 30000 });
+    resp = await axios.get(attUrl(token), { responseType: 'arraybuffer', timeout: 30000 });
   }
   return {
     data: Buffer.from(resp.data),

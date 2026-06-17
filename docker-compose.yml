@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: bluemine_dev
+    ports:
+      - "3001:3001" # Backend
+      - "5173:5173" # Frontend (Vite)
+    volumes:
+      # Sincroniza o código local com o container
+      - .:/app
+      # Ignora os node_modules do host (Windows) para não sobrescrever os do container (Alpine Linux)
+      - /app/node_modules
+      - /app/client/node_modules
+    environment:
+      - NODE_ENV=development
+      # Evita problemas de polling de arquivos em alguns sistemas no hot-reload do Vite
+      - CHOKIDAR_USEPOLLING=true

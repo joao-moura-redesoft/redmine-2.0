@@ -1,8 +1,9 @@
-export type AIProvider = 'anthropic' | 'openai';
+export type AIProvider = 'anthropic' | 'openai' | 'gemini';
 
 export interface AIKeys {
   anthropic?: string;
   openai?: string;
+  gemini?: string;
 }
 
 const STORAGE_KEY = 'rk_ai_keys';
@@ -27,11 +28,12 @@ export function clearAIKey(provider: AIProvider) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(keys));
 }
 
-/** Retorna o provedor ativo e a key (Claude preferido, OpenAI como fallback). */
+/** Retorna o provedor ativo e a key (Claude preferido, depois OpenAI, depois Gemini). */
 export function getActiveAI(): { provider: AIProvider; key: string } | null {
   const keys = load();
   if (keys.anthropic) return { provider: 'anthropic', key: keys.anthropic };
   if (keys.openai)    return { provider: 'openai',    key: keys.openai    };
+  if (keys.gemini)    return { provider: 'gemini',    key: keys.gemini    };
   return null;
 }
 

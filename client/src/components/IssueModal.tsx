@@ -8,7 +8,7 @@ import { CommentComposer } from './CommentComposer';
 import { MarkdownEditor } from './MarkdownEditor';
 import { markdownToTextile } from '../utils/markdownToTextile';
 import { textileToMarkdown } from '../utils/textileToMarkdown';
-import { redmineApi } from '../api/redmine';
+import { redmineApi, attachmentUrl } from '../api/redmine';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useIssueDetail, useAddNote, useStatuses, useUpdateIssue, useProjectMembers, useCurrentUser, useUpdateJournal } from '../hooks/useRedmine';
@@ -98,7 +98,7 @@ function fmtSize(bytes?: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-const attUrl = (a: Attachment) => `/api/attachments/${a.id}/${encodeURIComponent(a.filename)}`;
+const attUrl = (a: Attachment) => attachmentUrl(a.id, a.filename);
 
 /* Anexos da própria tarefa: imagens como miniatura, demais como chips */
 function TaskAttachments({ attachments }: { attachments: Attachment[] }) {

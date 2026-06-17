@@ -17,7 +17,7 @@ import { CreateIssueModal } from './components/CreateIssueModal';
 import { localWatches, useLocalWatches } from './utils/localWatches';
 import { Login } from './components/Login';
 import { GlobalSearch } from './components/GlobalSearch';
-import { getStoredAuth, clearAuth } from './api/redmine';
+import { getStoredAuth, clearAuth, initSession } from './api/redmine';
 import { getAIKey } from './utils/aiConfig';
 import { useActivityNotifications } from './hooks/useActivityNotifications';
 import { useMailNotifications } from './hooks/useMailNotifications';
@@ -66,6 +66,8 @@ export function App() {
 }
 
 function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
+  useEffect(() => { initSession(); }, []);
+
   const { data: user } = useCurrentUser();
   const { data: projects } = useProjects();
   const issuesQuery = useIssues();
