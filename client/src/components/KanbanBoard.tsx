@@ -9,7 +9,9 @@ import {
   useSensors,
   useDroppable,
 } from '@dnd-kit/core';
-import { Plus, RefreshCw, EyeOff, Search, AlertTriangle, Bell, BellRing, X, ArrowUpDown, Columns, ChevronDown, Archive, CheckSquare, Rows3, Flag, Milestone, CalendarClock, Play, Square } from 'lucide-react';
+import { Plus, RefreshCw, EyeOff, Search, AlertTriangle, Bell, BellRing, X, ArrowUpDown, Columns, ChevronDown, Archive, CheckSquare, Rows3, Flag, Milestone, CalendarClock, Play, Square, GripHorizontal, Palette } from 'lucide-react';
+import { SortableContext, horizontalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useIssues, useStatuses, useUpdateIssueStatus, useProjectVersions, useVersionIssues } from '../hooks/useRedmine';
 import { useTimer } from '../hooks/useTimer';
 import type { Version } from '../types/redmine';
@@ -222,7 +224,23 @@ interface ColumnProps {
   timerFormatted?: string;
   onTimerStart?: (id: number) => void;
   onTimerStop?: () => void;
+  customColorKey?: string;
+  onColorChange?: (statusId: number, colorKey: string | null) => void;
 }
+
+const CUSTOM_COLORS: Record<string, { borderT: string, bg: string, border: string, dot: string, hex: string }> = {
+  red: { borderT: 'border-t-red-500', bg: 'bg-red-50', border: 'border-red-300', dot: 'bg-red-500', hex: '#ef4444' },
+  orange: { borderT: 'border-t-orange-500', bg: 'bg-orange-50', border: 'border-orange-300', dot: 'bg-orange-500', hex: '#f97316' },
+  amber: { borderT: 'border-t-amber-500', bg: 'bg-amber-50', border: 'border-amber-300', dot: 'bg-amber-500', hex: '#f59e0b' },
+  green: { borderT: 'border-t-green-500', bg: 'bg-green-50', border: 'border-green-300', dot: 'bg-green-500', hex: '#22c55e' },
+  cyan: { borderT: 'border-t-cyan-500', bg: 'bg-cyan-50', border: 'border-cyan-300', dot: 'bg-cyan-500', hex: '#06b6d4' },
+  blue: { borderT: 'border-t-blue-500', bg: 'bg-blue-50', border: 'border-blue-300', dot: 'bg-blue-500', hex: '#3b82f6' },
+  indigo: { borderT: 'border-t-indigo-500', bg: 'bg-indigo-50', border: 'border-indigo-300', dot: 'bg-indigo-500', hex: '#6366f1' },
+  violet: { borderT: 'border-t-violet-500', bg: 'bg-violet-50', border: 'border-violet-300', dot: 'bg-violet-500', hex: '#8b5cf6' },
+  fuchsia: { borderT: 'border-t-fuchsia-500', bg: 'bg-fuchsia-50', border: 'border-fuchsia-300', dot: 'bg-fuchsia-500', hex: '#d946ef' },
+  rose: { borderT: 'border-t-rose-500', bg: 'bg-rose-50', border: 'border-rose-300', dot: 'bg-rose-500', hex: '#f43f5e' },
+  slate: { borderT: 'border-t-slate-500', bg: 'bg-slate-50', border: 'border-slate-300', dot: 'bg-slate-500', hex: '#64748b' },
+};
 
 const COL_COLORS: Record<string, string> = {
   'Em andamento': 'border-t-blue-500',
@@ -237,36 +255,127 @@ const COL_COLORS: Record<string, string> = {
   'Impedido': 'border-t-red-500',
 };
 
-function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, onQuickStatusChange, onArchive, onUnarchive, selectedIds, selectionMode, onToggleSelect, pinned, onUnpin, focusedIssueId, compactMode, onSubtaskOpen, onSubtaskDone, activeTimerIssueId, timerFormatted, onTimerStart, onTimerStop }: ColumnProps) {
-  const { isOver, setNodeRef } = useDroppable({ id: `col-${status.id}` });
-  const borderColor = COL_COLORS[status.name] ?? 'border-t-slate-400';
+function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, onQuickStatusChange, onArchive, onUnarchive, selectedIds, selectionMode, onToggleSelect, pinned, onUnpin, focusedIssueId, compactMode, onSubtaskOpen, onSubtaskDone, activeTimerIssueId, timerFormatted, onTimerStart, onTimerStop, customColorKey, onColorChange }: ColumnProps) {
+  const {
+    isOver,
+    setNodeRef,
+    attributes,
+    listeners,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: `col-${status.id}`,
+    data: { type: 'Column', status },
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : 1,
+    opacity: isDragging ? 0.3 : 1,
+  };
+
+  const customTheme = customColorKey ? CUSTOM_COLORS[customColorKey] : null;
+  const fallbackBorder = COL_COLORS[status.name] ?? 'border-t-slate-400';
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(status.is_closed);
+  const [colorOpen, setColorOpen] = useState(false);
+
+  const headerStyle = customTheme ? {
+    borderTop: `4px solid ${customTheme.hex}`,
+    backgroundColor: isOver ? customTheme.hex + '26' : customTheme.hex + '0f', // 15% opacidade no drag over, 5% normal
+    borderColor: customTheme.hex + '40', // 25% opacidade na borda
+  } : {};
+
+  const bodyStyle = customTheme ? {
+    backgroundColor: isOver ? customTheme.hex + '1a' : customTheme.hex + '08', // 10% opacidade no drag over, 3% normal
+    borderColor: customTheme.hex + '40',
+  } : {};
 
   return (
-    <div ref={setNodeRef} className="flex flex-col w-72 flex-shrink-0">
+    <div ref={setNodeRef} style={style} className={`flex flex-col w-72 flex-shrink-0 ${customTheme ? `theme-${customColorKey}` : ''} ${isOver ? 'is-over' : ''}`}>
       {/* Header */}
-      <div className={`bg-white border-t-4 ${borderColor} px-4 py-3 border border-slate-200 transition-colors duration-150
-        ${collapsed ? 'rounded-xl' : 'rounded-t-xl border-b-0'}
-        ${isOver ? 'bg-blue-50 border-blue-300' : ''}`}
+      <div 
+        className={`col-header px-4 py-3 border-x border-b transition-colors duration-150
+          ${collapsed ? 'rounded-xl' : 'rounded-t-xl'}
+          ${!customTheme ? `bg-white border-slate-200 border-t-4 ${fallbackBorder}` : ''}
+          ${isOver && !customTheme ? 'bg-blue-50 border-blue-300' : ''}`}
+        style={headerStyle}
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
+            <div
+              {...attributes}
+              {...listeners}
+              className="cursor-grab hover:bg-slate-100 p-1 rounded transition-colors text-slate-400 hover:text-slate-600"
+              title="Arrastar coluna"
+            >
+              <GripHorizontal size={14} />
+            </div>
             <h3 className="text-sm font-semibold text-slate-700">{status.name}</h3>
             <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
               {issues.length + archivedIssues.length}
             </span>
           </div>
           <div className="flex items-center gap-1">
+            {onColorChange && (
+              <div className="relative">
+                <button
+                  onClick={() => setColorOpen(v => !v)}
+                  title="Mudar cor da coluna"
+                  className="text-slate-300 hover:text-slate-500 transition-colors p-0.5 rounded"
+                >
+                  <Palette size={13} />
+                </button>
+                {colorOpen && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setColorOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-2 w-48 flex flex-wrap gap-1.5 cursor-default">
+                      {Object.entries(CUSTOM_COLORS).map(([key, c]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={(e) => { 
+                            e.preventDefault(); 
+                            e.stopPropagation(); 
+                            onColorChange(status.id, key); 
+                            setColorOpen(false); 
+                          }}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          title={`Cor ${key}`}
+                          className={`w-6 h-6 rounded-full border-2 transition-transform hover:scale-110 ${customColorKey === key ? 'border-slate-800 scale-110' : 'border-transparent'}`}
+                          style={{ backgroundColor: c.hex }}
+                        />
+                      ))}
+                      <button
+                        type="button"
+                        onClick={(e) => { 
+                          e.preventDefault(); 
+                          e.stopPropagation(); 
+                          onColorChange(status.id, null); 
+                          setColorOpen(false); 
+                        }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        title="Cor padrão"
+                        className={`w-6 h-6 rounded-full border-2 border-slate-200 flex items-center justify-center transition-transform hover:scale-110 hover:bg-slate-50 ${!customColorKey ? 'border-slate-800 scale-110' : ''}`}
+                      >
+                        <X size={12} className="text-slate-400" />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             {pinned && issues.length === 0 && onUnpin && (
-              <button onClick={onUnpin} title="Remover coluna" className="text-slate-300 hover:text-slate-500 transition-colors">
+              <button onClick={onUnpin} title="Remover coluna" className="text-slate-300 hover:text-slate-500 transition-colors p-0.5 rounded">
                 <X size={13} />
               </button>
             )}
             <button
               onClick={() => setCollapsed(v => !v)}
               title={collapsed ? 'Expandir coluna' : 'Recolher coluna'}
-              className="text-slate-400 hover:text-slate-600 transition-colors"
+              className="text-slate-400 hover:text-slate-600 transition-colors p-0.5 rounded"
             >
               <ChevronDown size={15} className={`transition-transform duration-200 ${collapsed ? '' : 'rotate-180'}`} />
             </button>
@@ -285,8 +394,8 @@ function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, 
       {/* Body — oculto quando recolhido */}
       {!collapsed && (
       <div
-        className={`flex-1 min-h-[200px] p-2 rounded-b-xl border border-t-0 border-slate-200 space-y-2 transition-colors duration-150 ${
-          isOver ? 'bg-blue-50 border-blue-300' : 'bg-slate-50'
+        className={`col-body flex-1 min-h-[200px] p-2 rounded-b-xl border border-t-0 space-y-2 transition-colors duration-150 ${
+          isOver && !customTheme ? 'bg-blue-50 border-blue-300' : (!isOver && !customTheme ? 'bg-slate-50 border-slate-200' : '')
         }`}
       >
         {issues.map(issue => (
@@ -311,7 +420,9 @@ function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, 
           />
         ))}
         {issues.length === 0 && (
-          <div className={`flex items-center justify-center h-20 rounded-lg border-2 border-dashed transition-colors ${isOver ? 'border-blue-300 bg-blue-50/50' : 'border-slate-200'}`}>
+          <div 
+            className={`flex items-center justify-center h-20 rounded-lg border-2 border-dashed transition-colors ${isOver && !customTheme ? 'border-blue-300 bg-blue-50/50' : (!isOver && !customTheme ? 'border-slate-200' : '')} ${customTheme ? 'col-empty-state' : ''}`}
+          >
             <p className="text-xs text-slate-400">Solte aqui</p>
           </div>
         )}
@@ -385,13 +496,38 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
   const [dragError, setDragError] = useState<string | null>(null);
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
   const [hiddenStatuses, setHiddenStatuses] = useState<Set<number>>(new Set());
-  const [pinnedStatuses, setPinnedStatuses] = useState<Set<number>>(new Set());
+  const [columnColors, setColumnColors] = useState<Record<number, string>>(() => {
+    try {
+      const saved = localStorage.getItem('kanban-column-colors');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {};
+  });
+
+  useEffect(() => {
+    localStorage.setItem('kanban-column-colors', JSON.stringify(columnColors));
+  }, [columnColors]);
+
+  const [pinnedStatuses, setPinnedStatuses] = useState<Set<number>>(() => {
+    try {
+      const saved = localStorage.getItem('kanban-pinned-statuses');
+      if (saved) return new Set(JSON.parse(saved));
+    } catch (e) {}
+    return new Set();
+  });
   const [archivedIds, setArchivedIds] = useState<Set<number>>(loadArchived);
   const [localIssueStatuses, setLocalIssueStatuses] = useState<Map<number, number>>(new Map());
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>('priority');
   const [showAddColumn, setShowAddColumn] = useState(false);
+  const [columnOrder, setColumnOrder] = useState<number[]>(() => {
+    try {
+      const saved = localStorage.getItem('kanban-column-order');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [];
+  });
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
@@ -469,6 +605,27 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
   const handleSubtaskDone = useCallback((subtaskId: number, statusId: number) => {
     updateStatus.mutate({ id: subtaskId, statusId });
   }, [updateStatus]);
+
+  const handleColorChange = useCallback((statusId: number, colorKey: string | null) => {
+    setColumnColors(prev => {
+      const next = { ...prev };
+      if (colorKey) {
+        next[statusId] = colorKey;
+      } else {
+        delete next[statusId];
+      }
+      return next;
+    });
+  }, []);
+
+  const togglePinnedStatus = useCallback((id: number) => {
+    setPinnedStatuses(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      localStorage.setItem('kanban-pinned-statuses', JSON.stringify(Array.from(n)));
+      return n;
+    });
+  }, []);
 
   const applyFilter = (f: SavedFilter) => {
     setSortBy(f.sortBy);
@@ -572,10 +729,24 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
     const baseIds = activeFilter || search
       ? new Set(issues?.map(i => i.status.id) ?? [])
       : usedIds;
-    return allStatuses.filter(s =>
+    
+    const visible = allStatuses.filter(s =>
       !hiddenStatuses.has(s.id) && (baseIds.has(s.id) || pinnedStatuses.has(s.id))
     );
-  }, [allStatuses, filteredIssues, issues, hiddenStatuses, pinnedStatuses, activeFilter, search]);
+
+    // Ordenar de acordo com columnOrder
+    if (columnOrder.length > 0) {
+      visible.sort((a, b) => {
+        const idxA = columnOrder.indexOf(a.id);
+        const idxB = columnOrder.indexOf(b.id);
+        if (idxA === -1 && idxB === -1) return 0;
+        if (idxA === -1) return 1;
+        if (idxB === -1) return -1;
+        return idxA - idxB;
+      });
+    }
+    return visible;
+  }, [allStatuses, filteredIssues, issues, hiddenStatuses, pinnedStatuses, activeFilter, search, columnOrder]);
 
   const issuesByStatus = useMemo(() => {
     const map = new Map<number, Issue[]>();
@@ -622,20 +793,40 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
   };
 
   const handleDragStart = ({ active }: DragStartEvent) => {
-    setActiveIssue(issues?.find(i => `issue-${i.id}` === active.id) ?? null);
+    if (String(active.id).startsWith('issue-')) {
+      setActiveIssue(issues?.find(i => `issue-${i.id}` === active.id) ?? null);
+    }
   };
 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     setActiveIssue(null);
     if (!over) return;
+
+    // Se estiver arrastando uma COLUNA
+    if (active.data.current?.type === 'Column' && over.data.current?.type === 'Column') {
+      if (active.id !== over.id) {
+        const oldIndex = visibleStatuses.findIndex(s => `col-${s.id}` === active.id);
+        const newIndex = visibleStatuses.findIndex(s => `col-${s.id}` === over.id);
+        
+        const newOrder = arrayMove(visibleStatuses.map(s => s.id), oldIndex, newIndex);
+        setColumnOrder(newOrder);
+        localStorage.setItem('kanban-column-order', JSON.stringify(newOrder));
+      }
+      return;
+    }
+
+    // Se estiver arrastando uma TAREFA
     const issueId = parseInt(String(active.id).replace('issue-', ''));
     const overId = String(over.id);
     if (!overId.startsWith('col-')) return;
+    
     const targetStatusId = parseInt(overId.replace('col-', ''));
     const issue = issues?.find(i => i.id === issueId);
     if (!issue) return;
+    
     const current = localIssueStatuses.get(issueId) ?? issue.status.id;
     if (current === targetStatusId) return;
+    
     setLocalIssueStatuses(prev => new Map(prev).set(issueId, targetStatusId));
     updateStatus.mutate(
       { id: issueId, statusId: targetStatusId },
@@ -662,8 +853,53 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Toolbar */}
+    <div className="flex-1 flex flex-col h-full bg-slate-50 dark:bg-slate-950 min-w-0">
+      <style>{`
+        ${Object.entries(CUSTOM_COLORS).map(([key, c]) => `
+          .theme-${key} {
+            --col-bg: ${c.hex}0f;
+            --col-bg-hover: ${c.hex}1a;
+            --col-border: ${c.hex}40;
+            --col-border-top: ${c.hex};
+          }
+          html.dark .theme-${key} {
+            --col-bg: ${c.hex}26;
+            --col-bg-hover: ${c.hex}40;
+            --col-border: ${c.hex}66;
+          }
+          
+          /* Especificidade altíssima para esmagar as regras do index.css (html.dark .border-b) */
+          body .theme-${key} .col-header,
+          html.dark body .theme-${key} .col-header {
+            border-top-color: var(--col-border-top) !important;
+            border-top-width: 4px !important;
+            border-top-style: solid !important;
+            background-color: var(--col-bg) !important;
+          }
+          body .theme-${key} .col-body,
+          html.dark body .theme-${key} .col-body {
+            background-color: var(--col-bg) !important;
+            border-color: var(--col-border) !important;
+          }
+          body .theme-${key}.is-over .col-header,
+          html.dark body .theme-${key}.is-over .col-header,
+          body .theme-${key}.is-over .col-body,
+          html.dark body .theme-${key}.is-over .col-body {
+            background-color: var(--col-bg-hover) !important;
+            border-color: var(--col-border) !important;
+          }
+          body .theme-${key} .col-empty-state,
+          html.dark body .theme-${key} .col-empty-state {
+            background-color: var(--col-bg) !important;
+            border-color: var(--col-border) !important;
+          }
+          body .theme-${key}.is-over .col-empty-state,
+          html.dark body .theme-${key}.is-over .col-empty-state {
+            background-color: var(--col-bg-hover) !important;
+          }
+        `).join('\n')}
+      `}</style>
+      {/* HEADER */}
       <div className="flex items-center justify-between mb-3 flex-shrink-0 gap-3">
         <div className="flex items-center gap-2 min-w-0">
           <h1 className="text-lg font-semibold text-slate-800 whitespace-nowrap">
@@ -752,13 +988,7 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
                     return (
                       <button
                         key={s.id}
-                        onClick={() => {
-                          setPinnedStatuses(prev => {
-                            const n = new Set(prev);
-                            pinned ? n.delete(s.id) : n.add(s.id);
-                            return n;
-                          });
-                        }}
+                        onClick={() => togglePinnedStatus(s.id)}
                         className={`w-full flex items-center justify-between px-3 py-1.5 text-sm hover:bg-blue-50 transition-colors ${pinned ? 'text-blue-600 font-medium' : 'text-slate-700'}`}
                       >
                         <span>{s.name}</span>
@@ -960,32 +1190,36 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
           ref={boardRef}
           className="flex gap-4 overflow-x-auto pb-4 flex-1 items-start scrollbar-thin"
         >
-          {visibleStatuses.map(status => (
-            <KanbanColumn
-              key={status.id}
-              status={status}
-              issues={issuesByStatus.get(status.id) ?? []}
-              archivedIssues={archivedByStatus.get(status.id) ?? []}
-              onIssueClick={issue => onIssueClick(issue.id)}
-              statuses={allStatuses ?? []}
-              onQuickStatusChange={handleQuickStatusChange}
-              onArchive={archiveIssue}
-              onUnarchive={unarchiveIssue}
-              selectedIds={selectedIds}
-              selectionMode={selectionMode}
-              onToggleSelect={toggleSelect}
-              pinned={pinnedStatuses.has(status.id)}
-              onUnpin={() => setPinnedStatuses(prev => { const n = new Set(prev); n.delete(status.id); return n; })}
-              focusedIssueId={focusedIssueId}
-              compactMode={compactMode}
-              onSubtaskOpen={onIssueClick}
-              onSubtaskDone={handleSubtaskDone}
-              activeTimerIssueId={timer.activeIssueId}
-              timerFormatted={timer.formatted}
-              onTimerStart={timer.start}
-              onTimerStop={() => timer.stop()}
-            />
-          ))}
+          <SortableContext items={visibleStatuses.map(s => `col-${s.id}`)} strategy={horizontalListSortingStrategy}>
+            {visibleStatuses.map(status => (
+              <KanbanColumn
+                key={status.id}
+                status={status}
+                issues={issuesByStatus.get(status.id) ?? []}
+                archivedIssues={archivedByStatus.get(status.id) ?? []}
+                onIssueClick={issue => onIssueClick(issue.id)}
+                statuses={allStatuses ?? []}
+                onQuickStatusChange={handleQuickStatusChange}
+                onArchive={archiveIssue}
+                onUnarchive={unarchiveIssue}
+                selectedIds={selectedIds}
+                selectionMode={selectionMode}
+                onToggleSelect={toggleSelect}
+                pinned={pinnedStatuses.has(status.id)}
+                onUnpin={() => togglePinnedStatus(status.id)}
+                focusedIssueId={focusedIssueId}
+                compactMode={compactMode}
+                onSubtaskOpen={onIssueClick}
+                onSubtaskDone={handleSubtaskDone}
+                activeTimerIssueId={timer.activeIssueId}
+                timerFormatted={timer.formatted}
+                onTimerStart={timer.start}
+                onTimerStop={() => timer.stop()}
+                customColorKey={columnColors[status.id]}
+                onColorChange={handleColorChange}
+              />
+            ))}
+          </SortableContext>
         </div>
 
         <DragOverlay dropAnimation={{ duration: 150, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
