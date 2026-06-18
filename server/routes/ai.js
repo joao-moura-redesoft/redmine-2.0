@@ -185,7 +185,7 @@ router.post('/ai/chat', handle(async (req, res) => {
     const tools = CHAT_TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
     const convo = messages.map(m => ({ role: m.role, content: m.content }));
     for (let step = 0; step < MAX_STEPS; step++) {
-      const resp = await client.messages.create({ model: 'claude-3-7-sonnet-20250219', max_tokens: 1500, system: CHAT_SYSTEM, tools, messages: convo });
+      const resp = await client.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 1500, system: CHAT_SYSTEM, tools, messages: convo });
       const toolUses = resp.content.filter(b => b.type === 'tool_use');
       if (toolUses.length === 0) {
         const text = resp.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();

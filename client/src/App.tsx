@@ -44,6 +44,7 @@ import {
   Sparkles, NotebookPen, Bot, ShieldCheck, AtSign, Mail, BookOpen,
 } from 'lucide-react';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { Routes, Route, Navigate, NavLink, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Issue } from './types/redmine';
@@ -76,8 +77,22 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const toIntegrate = (allIssues ?? []).filter(i => i.status.id === 35);
   const [selectedProject, setSelectedProject] = useState<number | undefined>(undefined);
   const [showProjectMenu, setShowProjectMenu] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [selectedIssueId, setSelectedIssueId] = useState<number | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Modal de tarefa dirigido pela URL (?issue=123)
+  const issueParam = searchParams.get('issue');
+  const selectedIssueId = issueParam ? Number(issueParam) : null;
+  // push → o botão Voltar fecha o modal mantendo a view atrás
+  const openIssue = (id: number) =>
+    setSearchParams(prev => { prev.set('issue', String(id)); return prev; });
+  const closeIssue = () =>
+    setSearchParams(prev => { prev.delete('issue'); return prev; }, { replace: true });
+  // Navegar entre tarefas dentro do modal não empilha histórico
+  const navigateIssue = (id: number) =>
+    setSearchParams(prev => { prev.set('issue', String(id)); return prev; }, { replace: true });
+
   const [showNotifications, setShowNotifications] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -86,9 +101,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const notifRef = useRef<HTMLDivElement>(null);
 
   const { focusedIssueId } = useShortcuts({
-    activeTab,
-    setActiveTab: setActiveTab as (tab: string) => void,
-    onOpenIssue: setSelectedIssueId,
+    onOpenIssue: openIssue,
     onOpenPalette: () => setPaletteOpen(o => !o),
     paletteOpen,
     modalOpen: !!selectedIssueId,
@@ -136,14 +149,14 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const [noteSeed, setNoteSeed] = useState<{ nonce: number; patch: NotePatch } | null>(null);
   const openNewNote = (patch: NotePatch = {}) => {
     setNoteSeed({ nonce: Date.now(), patch });
-    setActiveTab('notes');
+    navigate('/notes');
   };
 
   const [notesFocus, setNotesFocus] = useState<{ nonce: number; issueId: number } | null>(null);
   const openTaskNotes = (issueId: number) => {
     setNotesFocus({ nonce: Date.now(), issueId });
-    setSelectedIssueId(null);
-    setActiveTab('notes');
+    closeIssue();
+    navigate('/notes');
   };
 
   usePushNotifications();
@@ -151,20 +164,23 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const [pendingTalkToken, setPendingTalkToken] = useState<string | null>(null);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const issueParam = params.get('issue');
-    const talkParam  = params.get('talkRoom');
-    if (issueParam) setSelectedIssueId(Number(issueParam));
-    if (talkParam)  setPendingTalkToken(talkParam);
-    if (issueParam || talkParam) window.history.replaceState({}, '', '/');
+    // talkRoom é um deep-link one-shot: consome e limpa só esse param, preservando a rota/?issue=.
+    // Removemos via setSearchParams do router (não window.history) — assim o estado interno do
+    // react-router fica em sincronia e o param não "ressuscita" no próximo setSearchParams.
+    const talkParam = new URLSearchParams(window.location.search).get('talkRoom');
+    if (talkParam) {
+      setPendingTalkToken(talkParam);
+      setSearchParams(prev => { prev.delete('talkRoom'); return prev; }, { replace: true });
+    }
 
     if (!('serviceWorker' in navigator)) return;
     const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'open-issue' && e.data.issueId)   setSelectedIssueId(Number(e.data.issueId));
+      if (e.data?.type === 'open-issue' && e.data.issueId)   openIssue(Number(e.data.issueId));
       if (e.data?.type === 'open-talk'  && e.data.talkToken) setPendingTalkToken(e.data.talkToken);
     };
     navigator.serviceWorker.addEventListener('message', handler);
     return () => navigator.serviceWorker.removeEventListener('message', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -211,39 +227,43 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const tabMap = Object.fromEntries(tabs.map(t => [t.id, t])) as Record<Tab, typeof tabs[0]>;
 
   const NavItem = ({ tab }: { tab: typeof tabs[0] }) => (
-    <button
-      onClick={() => setActiveTab(tab.id)}
+    <NavLink
+      to={`/${tab.id}`}
       title={sidebarCollapsed ? tab.label : undefined}
-      className={`w-full flex items-center gap-2.5 rounded-lg transition-colors text-sm text-left relative
+      className={({ isActive }) => `w-full flex items-center gap-2.5 rounded-lg transition-colors text-sm text-left relative
         ${sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2'}
-        ${activeTab === tab.id
+        ${isActive
           ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium'
           : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
         }`}
     >
-      <span className="flex-shrink-0 relative">
-        {tab.icon}
-        {sidebarCollapsed && tab.count !== undefined && tab.count > 0 && (
-          <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
-            {tab.count > 9 ? '9+' : tab.count}
-          </span>
-        )}
-      </span>
-      {!sidebarCollapsed && (
+      {({ isActive }) => (
         <>
-          <span className="flex-1 truncate">{tab.label}</span>
-          {tab.count !== undefined && tab.count > 0 && (
-            <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${
-              activeTab === tab.id
-                ? 'bg-blue-100 dark:bg-blue-800/60 text-blue-700 dark:text-blue-300'
-                : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-            }`}>
-              {tab.count}
-            </span>
+          <span className="flex-shrink-0 relative">
+            {tab.icon}
+            {sidebarCollapsed && tab.count !== undefined && tab.count > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                {tab.count > 9 ? '9+' : tab.count}
+              </span>
+            )}
+          </span>
+          {!sidebarCollapsed && (
+            <>
+              <span className="flex-1 truncate">{tab.label}</span>
+              {tab.count !== undefined && tab.count > 0 && (
+                <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 ${
+                  isActive
+                    ? 'bg-blue-100 dark:bg-blue-800/60 text-blue-700 dark:text-blue-300'
+                    : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                }`}>
+                  {tab.count}
+                </span>
+              )}
+            </>
           )}
         </>
       )}
-    </button>
+    </NavLink>
   );
 
   return (
@@ -352,11 +372,11 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 py-2 flex items-center gap-3 flex-shrink-0">
           {/* Search */}
           <div className="flex-1 min-w-0">
-            <GlobalSearch onSelectIssue={setSelectedIssueId} />
+            <GlobalSearch onSelectIssue={openIssue} />
           </div>
 
           {/* Project selector (Kanban only) */}
-          {activeTab === 'kanban' && (
+          {location.pathname === '/kanban' && (
             <div className="relative flex-shrink-0">
               <button
                 onClick={() => setShowProjectMenu(!showProjectMenu)}
@@ -450,9 +470,9 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
                             className="text-left w-full"
                             onClick={() => {
                               if (n.type === 'mail') {
-                                setActiveTab('mail');
+                                navigate('/mail');
                               } else if (n.issue) {
-                                setSelectedIssueId(n.issue.id);
+                                openIssue(n.issue.id);
                               }
                               setShowNotifications(false);
                               dismiss(n.id);
@@ -488,91 +508,96 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
 
         {/* Main content */}
         <main className="flex-1 overflow-auto p-6">
-          {activeTab === 'inbox'     && <InboxView onIssueClick={setSelectedIssueId} />}
-          {activeTab === 'dashboard' && <Dashboard onIssueClick={setSelectedIssueId} />}
-          {activeTab === 'myday'     && <MyDayView onIssueClick={setSelectedIssueId} />}
-          {activeTab === 'people'    && <PeopleView onIssueClick={setSelectedIssueId} />}
-          {activeTab === 'team'      && <TeamView onIssueClick={setSelectedIssueId} />}
-          {activeTab === 'release'   && <ReleaseView onIssueClick={setSelectedIssueId} />}
-          {activeTab === 'notes'     && <NotesView onIssueClick={setSelectedIssueId} seed={noteSeed} focus={notesFocus} />}
-          {activeTab === 'assistant' && <AssistantView onIssueClick={setSelectedIssueId} />}
-          {activeTab === 'mail'      && <MailView />}
-          {activeTab === 'wiki'      && <WikiView />}
-          {activeTab === 'totp'      && <TotpView />}
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/inbox"     element={<InboxView onIssueClick={openIssue} />} />
+            <Route path="/dashboard" element={<Dashboard onIssueClick={openIssue} />} />
+            <Route path="/myday"     element={<MyDayView onIssueClick={openIssue} />} />
+            <Route path="/people"    element={<PeopleView onIssueClick={openIssue} />} />
+            <Route path="/team"      element={<TeamView onIssueClick={openIssue} />} />
+            <Route path="/release"   element={<ReleaseView onIssueClick={openIssue} />} />
+            <Route path="/notes"     element={<NotesView onIssueClick={openIssue} seed={noteSeed} focus={notesFocus} />} />
+            <Route path="/assistant" element={<AssistantView onIssueClick={openIssue} />} />
+            <Route path="/mail"      element={<MailView />} />
+            <Route path="/wiki"      element={<WikiView />} />
+            <Route path="/totp"      element={<TotpView />} />
 
-          {activeTab === 'kanban' && (
-            <KanbanBoard
-              projectId={selectedProject}
-              userName={user ? `${user.firstname} ${user.lastname}` : undefined}
-              onIssueClick={setSelectedIssueId}
-              focusedIssueId={focusedIssueId ?? undefined}
-              onProjectChange={setSelectedProject}
-            />
-          )}
+            <Route path="/kanban" element={
+              <KanbanBoard
+                projectId={selectedProject}
+                userName={user ? `${user.firstname} ${user.lastname}` : undefined}
+                onIssueClick={openIssue}
+                focusedIssueId={focusedIssueId ?? undefined}
+                onProjectChange={setSelectedProject}
+              />
+            } />
 
-          {activeTab === 'calendar' && (
-            <CalendarView projectId={selectedProject} onIssueClick={setSelectedIssueId} />
-          )}
+            <Route path="/calendar" element={
+              <CalendarView projectId={selectedProject} onIssueClick={openIssue} />
+            } />
 
-          {activeTab === 'review' && (
-            <div className="max-w-6xl mx-auto">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Para revisar</h2>
-                <p className="text-sm text-slate-500 mt-0.5">Tarefas em Pendente Revisão onde você é o revisor — sua fila de revisão.</p>
+            <Route path="/review" element={
+              <div className="max-w-6xl mx-auto">
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Para revisar</h2>
+                  <p className="text-sm text-slate-500 mt-0.5">Tarefas em Pendente Revisão onde você é o revisor — sua fila de revisão.</p>
+                </div>
+                <IssueListView issues={toReview.data} isLoading={toReview.isLoading} isFetching={toReview.isFetching} onRefetch={toReview.refetch} onIssueClick={openIssue} showAssignee emptyMessage="Nenhuma tarefa aguardando sua revisão." focusedIssueId={focusedIssueId ?? undefined} />
               </div>
-              <IssueListView issues={toReview.data} isLoading={toReview.isLoading} isFetching={toReview.isFetching} onRefetch={toReview.refetch} onIssueClick={setSelectedIssueId} showAssignee emptyMessage="Nenhuma tarefa aguardando sua revisão." focusedIssueId={focusedIssueId ?? undefined} />
-            </div>
-          )}
+            } />
 
-          {activeTab === 'test' && (
-            <div className="max-w-6xl mx-auto">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Para testar</h2>
-                <p className="text-sm text-slate-500 mt-0.5">Suas tarefas em Pendente Teste.</p>
+            <Route path="/test" element={
+              <div className="max-w-6xl mx-auto">
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Para testar</h2>
+                  <p className="text-sm text-slate-500 mt-0.5">Suas tarefas em Pendente Teste.</p>
+                </div>
+                <IssueListView issues={toTest} isLoading={issuesQuery.isLoading} isFetching={issuesQuery.isFetching} onRefetch={issuesQuery.refetch} onIssueClick={openIssue} emptyMessage="Nenhuma tarefa aguardando teste com você." focusedIssueId={focusedIssueId ?? undefined} />
               </div>
-              <IssueListView issues={toTest} isLoading={issuesQuery.isLoading} isFetching={issuesQuery.isFetching} onRefetch={issuesQuery.refetch} onIssueClick={setSelectedIssueId} emptyMessage="Nenhuma tarefa aguardando teste com você." focusedIssueId={focusedIssueId ?? undefined} />
-            </div>
-          )}
+            } />
 
-          {activeTab === 'integrate' && (
-            <div className="max-w-6xl mx-auto">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Para integrar</h2>
-                <p className="text-sm text-slate-500 mt-0.5">Suas tarefas em Pendente Integração.</p>
+            <Route path="/integrate" element={
+              <div className="max-w-6xl mx-auto">
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Para integrar</h2>
+                  <p className="text-sm text-slate-500 mt-0.5">Suas tarefas em Pendente Integração.</p>
+                </div>
+                <IssueListView issues={toIntegrate} isLoading={issuesQuery.isLoading} isFetching={issuesQuery.isFetching} onRefetch={issuesQuery.refetch} onIssueClick={openIssue} emptyMessage="Nenhuma tarefa aguardando integração com você." focusedIssueId={focusedIssueId ?? undefined} />
               </div>
-              <IssueListView issues={toIntegrate} isLoading={issuesQuery.isLoading} isFetching={issuesQuery.isFetching} onRefetch={issuesQuery.refetch} onIssueClick={setSelectedIssueId} emptyMessage="Nenhuma tarefa aguardando integração com você." focusedIssueId={focusedIssueId ?? undefined} />
-            </div>
-          )}
+            } />
 
-          {activeTab === 'monitoring' && (
-            <div className="max-w-6xl mx-auto">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Monitoramento</h2>
-                <p className="text-sm text-slate-500 mt-0.5">Tarefas onde você é o desenvolvedor mas estão com outro responsável — em revisão, teste, integração etc.</p>
+            <Route path="/monitoring" element={
+              <div className="max-w-6xl mx-auto">
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Monitoramento</h2>
+                  <p className="text-sm text-slate-500 mt-0.5">Tarefas onde você é o desenvolvedor mas estão com outro responsável — em revisão, teste, integração etc.</p>
+                </div>
+                <IssueListView issues={monitored.data} isLoading={monitored.isLoading} isFetching={monitored.isFetching} onRefetch={monitored.refetch} onIssueClick={openIssue} showAssignee emptyMessage="Nenhuma tarefa em monitoramento." focusedIssueId={focusedIssueId ?? undefined} />
               </div>
-              <IssueListView issues={monitored.data} isLoading={monitored.isLoading} isFetching={monitored.isFetching} onRefetch={monitored.refetch} onIssueClick={setSelectedIssueId} showAssignee emptyMessage="Nenhuma tarefa em monitoramento." focusedIssueId={focusedIssueId ?? undefined} />
-            </div>
-          )}
+            } />
 
-          {activeTab === 'authored' && (
-            <div className="max-w-6xl mx-auto">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Criadas por mim</h2>
-                <p className="text-sm text-slate-500 mt-0.5">Tarefas que você abriu e ainda estão abertas, independentemente de quem está responsável.</p>
+            <Route path="/authored" element={
+              <div className="max-w-6xl mx-auto">
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Criadas por mim</h2>
+                  <p className="text-sm text-slate-500 mt-0.5">Tarefas que você abriu e ainda estão abertas, independentemente de quem está responsável.</p>
+                </div>
+                <IssueListView issues={authored.data} isLoading={authored.isLoading} isFetching={authored.isFetching} onRefetch={authored.refetch} onIssueClick={openIssue} showAssignee emptyMessage="Você não tem tarefas abertas criadas por você." focusedIssueId={focusedIssueId ?? undefined} />
               </div>
-              <IssueListView issues={authored.data} isLoading={authored.isLoading} isFetching={authored.isFetching} onRefetch={authored.refetch} onIssueClick={setSelectedIssueId} showAssignee emptyMessage="Você não tem tarefas abertas criadas por você." focusedIssueId={focusedIssueId ?? undefined} />
-            </div>
-          )}
+            } />
 
-          {activeTab === 'watched' && (
-            <div className="max-w-6xl mx-auto">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Observadas</h2>
-                <p className="text-sm text-slate-500 mt-0.5">Tarefas que você acompanha como watcher, mesmo sem ser o responsável.</p>
+            <Route path="/watched" element={
+              <div className="max-w-6xl mx-auto">
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Observadas</h2>
+                  <p className="text-sm text-slate-500 mt-0.5">Tarefas que você acompanha como watcher, mesmo sem ser o responsável.</p>
+                </div>
+                <IssueListView issues={watched.data} isLoading={watched.isLoading} isFetching={watched.isFetching} onRefetch={watched.refetch} onIssueClick={openIssue} showAssignee emptyMessage="Você não está observando nenhuma tarefa." focusedIssueId={focusedIssueId ?? undefined} />
               </div>
-              <IssueListView issues={watched.data} isLoading={watched.isLoading} isFetching={watched.isFetching} onRefetch={watched.refetch} onIssueClick={setSelectedIssueId} showAssignee emptyMessage="Você não está observando nenhuma tarefa." focusedIssueId={focusedIssueId ?? undefined} />
-            </div>
-          )}
+            } />
+
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
         </main>
       </div>
 
@@ -580,9 +605,9 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
       {selectedIssueId && (
         <IssueModal
           issueId={selectedIssueId}
-          onClose={() => setSelectedIssueId(null)}
-          onNavigate={setSelectedIssueId}
-          onNewNote={(patch) => { setSelectedIssueId(null); openNewNote(patch); }}
+          onClose={closeIssue}
+          onNavigate={navigateIssue}
+          onNewNote={(patch) => { closeIssue(); openNewNote(patch); }}
           onViewNotes={openTaskNotes}
         />
       )}
@@ -603,8 +628,8 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             run: () => localWatches.toggle(selectedIssueId),
           }] : []),
         ]}
-        onSelectTab={id => setActiveTab(id as Tab)}
-        onSelectIssue={setSelectedIssueId}
+        onSelectTab={id => navigate(`/${id}`)}
+        onSelectIssue={openIssue}
       />
 
       {showCreate  && <CreateIssueModal onClose={() => setShowCreate(false)} />}
@@ -615,7 +640,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
       )}
 
       <TalkChat
-        onIssueClick={setSelectedIssueId}
+        onIssueClick={openIssue}
         openRoomToken={pendingTalkToken}
         onRoomOpened={() => setPendingTalkToken(null)}
       />

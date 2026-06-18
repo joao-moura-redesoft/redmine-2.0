@@ -29,18 +29,29 @@ async function zimbraSoap(host, token, namespace, requestName, payload) {
     Header: { context },
     Body: { [requestName]: { _jsns: namespace, ...payload } },
   };
-  const { data } = await axios.post(soapUrl(host), body, {
-    headers: { 'Content-Type': 'application/json' },
-    timeout: 20000,
-  });
-  if (data.Body?.Fault) {
-    const fault = data.Body.Fault;
+  // Extrai um Fault do Zimbra (Reason/Code) num Error legível com .zimbraCode.
+  const faultToError = (fault) => {
     const reason = fault.Reason?.Text || 'Erro Zimbra';
     const code = fault.Detail?.Error?.Code || '';
     const err = new Error(`${reason}${code ? ` (${code})` : ''}`);
     err.zimbraCode = code;
-    throw err;
+    return err;
+  };
+
+  let data;
+  try {
+    ({ data } = await axios.post(soapUrl(host), body, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 20000,
+    }));
+  } catch (e) {
+    // O Zimbra devolve o Fault com HTTP 500 — o axios rejeita antes de chegarmos
+    // ao parse abaixo. Se o corpo da resposta tiver um Fault, extrai a razão/código.
+    const fault = e.response?.data?.Body?.Fault;
+    if (fault) throw faultToError(fault);
+    throw e;
   }
+  if (data.Body?.Fault) throw faultToError(data.Body.Fault);
   return data.Body[`${requestName.replace(/Request$/, '')}Response`];
 }
 
@@ -62,6 +73,7 @@ async function authenticate(host, user, password) {
     if (/AUTH_FAILED|NO_SUCH_ACCOUNT|PASSWORD/i.test(err.zimbraCode || err.message)) {
       err.statusCode = 401;
       err.message = 'Usuário ou senha do e-mail inválidos no Zimbra.';
+      err.isSafe = true; // mensagem intencional: o errorMiddleware deve preservá-la
     }
     throw err;
   }
@@ -89,6 +101,7 @@ async function tokenFor(req) {
   if (!user || !password) {
     const err = new Error('Sem credenciais de e-mail. Faça login com usuário e senha, ou configure o e-mail nas Configurações.');
     err.statusCode = 412; // Precondition Failed
+    err.isSafe = true;     // mensagem intencional: o errorMiddleware deve preservá-la
     throw err;
   }
   return { host, user, password, token: await authenticate(host, user, password) };
@@ -351,7 +364,7 @@ async function listAppointments(req, { start, end, raw = false } = {}) {
 async function replyToInvite(req, { id, verb, compNum = 0 }) {
   const VERBS = { ACCEPT: 'ACCEPT', DECLINE: 'DECLINE', TENTATIVE: 'TENTATIVE' };
   const v = VERBS[String(verb).toUpperCase()];
-  if (!v) { const err = new Error('verb inválido (ACCEPT|DECLINE|TENTATIVE)'); err.statusCode = 400; throw err; }
+  if (!v) { const err = new Error('verb inválido (ACCEPT|DECLINE|TENTATIVE)'); err.statusCode = 400; err.isSafe = true; throw err; }
   await mailSoap(req, 'urn:zimbraMail', 'SendInviteReplyRequest', {
     id: String(id),
     compNum: Number(compNum) || 0,

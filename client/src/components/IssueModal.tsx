@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, ExternalLink, ChevronDown, ChevronRight, ChevronLeft, Check, Pencil, Play, GitBranch, ArrowRight, Loader2, AlertCircle, RotateCcw, FileText, File, Star, Link2, GitMerge, Copy, Plus, CheckSquare, User, Clock, Tag, Calendar, Search, CircleDot, Image as ImageIcon, Paperclip, Download, NotebookPen, StickyNote, BookOpen } from 'lucide-react';
-import type { Attachment } from '../types/redmine';
+import { X, ExternalLink, ChevronDown, ChevronRight, ChevronLeft, Check, Pencil, Play, GitBranch, ArrowRight, Loader2, AlertCircle, RotateCcw, FileText, File, Star, Link2, GitMerge, Copy, Plus, CheckSquare, User, Clock, Tag, Calendar, Search, CircleDot, Image as ImageIcon, Paperclip, Download, NotebookPen, StickyNote, BookOpen, History } from 'lucide-react';
+import type { Attachment, EditField } from '../types/redmine';
+import { RequiredFieldsModal } from './RequiredFieldsModal';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
 import { TimeTracker } from './TimeTracker';
 import { IssueAIPanel } from './IssueAIPanel';
@@ -11,13 +12,14 @@ import { textileToMarkdown } from '../utils/textileToMarkdown';
 import { redmineApi, attachmentUrl } from '../api/redmine';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useIssueDetail, useAddNote, useStatuses, useUpdateIssue, useProjectMembers, useCurrentUser, useUpdateJournal } from '../hooks/useRedmine';
+import { useIssueDetail, useAddNote, useStatuses, useUpdateIssue, useProjectMembers, useCurrentUser, useUpdateJournal, useAllowedStatuses, useEditFields } from '../hooks/useRedmine';
 import { useNotes } from '../hooks/useNotes';
 import { talkBridge } from '../utils/talkBridge';
 import { localWatches, useLocalWatches } from '../utils/localWatches';
 import { wikiLinks, type WikiLink } from '../utils/wikiLinks';
 import { WikiLinkSearch } from './WikiView';
 import { Markdown } from './Markdown';
+import { ActivityLog, JournalAttachments } from './ActivityLog';
 import { getMissingFields } from '../utils/alerts';
 
 function isClosedName(name: string): boolean {
@@ -41,8 +43,19 @@ function countRejections(issue: { journals?: { details?: { property: string; nam
     j.details?.some(d => d.property === 'attr' && d.name === 'status_id' && d.new_value === '34')).length;
 }
 
-type PendingNote = { id: string; text: string; status: 'pending' | 'error'; files?: File[] };
+type PendingNote = { id: string; text: string; status: 'pending' | 'error'; files?: File[]; error?: string };
 type SavingField = { key: string; label: string; status: 'saving' | 'error' };
+
+// Campos obrigatórios que o Redmine exige para salvar nesta tarefa — aprendidos de um
+// 422 anterior e persistidos por tarefa, para avisar o usuário ANTES de tentar comentar.
+const issueBlockKey = (id: number) => `rk_issue_block_${id}`;
+function loadIssueBlock(id: number): string[] {
+  try { return JSON.parse(localStorage.getItem(issueBlockKey(id)) || '[]'); } catch { return []; }
+}
+function saveIssueBlock(id: number, errs: string[]) {
+  if (errs.length) localStorage.setItem(issueBlockKey(id), JSON.stringify(errs));
+  else localStorage.removeItem(issueBlockKey(id));
+}
 
 const IMPACTO_OPTIONS = [
   'JAVA','B2CLICK','B2CLICKPAF','ROTEADORPDV','AUTOMACAO','B2CLICKPOS','B2CLICKPAY',
@@ -239,16 +252,25 @@ function FieldRow({ icon, label, children }: { icon: React.ReactNode; label: str
   );
 }
 
-function StatusField({ currentId, currentName, statuses, allowedIds, onChange, bare }: {
+function StatusField({ currentId, currentName, statuses, allowedIds, allowedLoading, onChange, bare }: {
   currentId: number; currentName: string;
   statuses: { id: number; name: string }[];
   allowedIds?: number[];
+  allowedLoading?: boolean;
   onChange: (id: number) => void;
   bare?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const hasRestrictions = allowedIds !== undefined;
   const noTransitions = hasRestrictions && allowedIds.length === 0;
+  // Enquanto as transições não chegaram (busca sob demanda), aguarda em vez de mostrar tudo.
+  const loading = allowedLoading && !hasRestrictions;
+
+  // Espelha o Redmine: lista apenas as transições permitidas pelo workflow (+ o status atual).
+  // Sem restrições conhecidas (ex.: allowed_statuses ausente), mostra tudo.
+  const visibleStatuses = allowedIds
+    ? statuses.filter(s => allowedIds.includes(s.id) || s.id === currentId)
+    : statuses;
 
   return (
     <div className="relative">
@@ -273,27 +295,23 @@ function StatusField({ currentId, currentName, statuses, allowedIds, onChange, b
                 Workflow não permite transições para este tracker/perfil.
               </p>
             )}
-            {statuses.map(s => {
-              const isAllowed = !hasRestrictions || allowedIds.includes(s.id) || s.id === currentId;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => { if (isAllowed) { onChange(s.id); setOpen(false); } }}
-                  title={!isAllowed ? 'Não permitido pelo workflow do Redmine' : undefined}
-                  className={`w-full flex items-center justify-between px-3 py-1.5 text-sm transition-colors
-                    ${s.id === currentId ? 'font-semibold text-blue-600 bg-blue-50' : ''}
-                    ${isAllowed && s.id !== currentId ? 'hover:bg-blue-50 text-slate-700' : ''}
-                    ${!isAllowed ? 'text-slate-300 cursor-not-allowed' : ''}
-                  `}
-                >
-                  <span>{s.name}</span>
-                  <span className="flex items-center gap-1">
-                    {s.id === currentId && <Check size={12} />}
-                    {!isAllowed && <span className="text-slate-300 text-xs">🔒</span>}
-                  </span>
-                </button>
-              );
-            })}
+            {loading && (
+              <p className="px-3 py-2 text-sm text-slate-400 flex items-center gap-2">
+                <Loader2 size={13} className="animate-spin" /> Carregando transições…
+              </p>
+            )}
+            {!loading && visibleStatuses.map(s => (
+              <button
+                key={s.id}
+                onClick={() => { onChange(s.id); setOpen(false); }}
+                className={`w-full flex items-center justify-between px-3 py-1.5 text-sm transition-colors
+                  ${s.id === currentId ? 'font-semibold text-blue-600 bg-blue-50' : 'hover:bg-blue-50 text-slate-700'}
+                `}
+              >
+                <span>{s.name}</span>
+                {s.id === currentId && <Check size={12} />}
+              </button>
+            ))}
           </div>
         </>
       )}
@@ -1114,8 +1132,38 @@ function WikiLinksSection({ issueId }: { issueId: number }) {
 export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNotes }: Props) {
   const { data: issue, isLoading } = useIssueDetail(issueId);
   const { data: statuses } = useStatuses();
-  const { data: members } = useProjectMembers(issue?.project.id);
   const { data: currentUser } = useCurrentUser();
+  // Transições permitidas: nativo (Redmine 5+) tem prioridade; senão busca sob
+  // demanda, cacheado por workflow (projeto/tracker/status/papel) e não por tarefa.
+  const { data: lazyAllowed, isFetching: allowedLoading } = useAllowedStatuses(
+    {
+      issueId,
+      projectId: issue?.project.id,
+      trackerId: issue?.tracker.id,
+      statusId: issue?.status.id,
+      isAuthor: !!issue && !!currentUser && issue.author.id === currentUser.id,
+      isAssignee: !!issue && !!currentUser && issue.assigned_to?.id === currentUser.id,
+    },
+    !!issue && !issue.allowed_statuses, // se já veio nativo, nem busca
+  );
+  const allowedStatuses = issue?.allowed_statuses ?? lazyAllowed ?? undefined;
+  // Popup de campos obrigatórios: ativado quando o Redmine recusa (422) uma
+  // mudança de status por campo em branco. Só então busca o schema dos campos.
+  const [pendingRequired, setPendingRequired] = useState<
+    { baseFields: Record<string, unknown>; statusName: string; errors: string[] } | null
+  >(null);
+  const { data: editFields = [], isFetching: editFieldsLoading } = useEditFields(
+    { issueId, projectId: issue?.project.id, trackerId: issue?.tracker.id },
+    !!pendingRequired,
+  );
+  const missingFields = useMemo<EditField[]>(() => {
+    if (!pendingRequired) return [];
+    return editFields.filter(f =>
+      f.name !== 'status_id' &&
+      pendingRequired.errors.some(e => e.toLowerCase().includes(f.label.toLowerCase())),
+    );
+  }, [pendingRequired, editFields]);
+  const { data: members } = useProjectMembers(issue?.project.id);
   const { data: allNotes = [] } = useNotes();
   const linkedNotesCount = allNotes.filter(n => n.linkedIssueId === issueId).length;
   const addNote = useAddNote();
@@ -1125,9 +1173,11 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
   const updateIssue = useUpdateIssue();
   const watchedIds = useLocalWatches();
   const [pendingNotes, setPendingNotes] = useState<PendingNote[]>([]);
+  const [blockingErrors, setBlockingErrors] = useState<string[]>(() => loadIssueBlock(issueId));
   const [savingFields, setSavingFields] = useState<SavingField[]>([]);
   const [showDescription, setShowDescription] = useState(false);
   const [phaseView, setPhaseView] = useState(() => localStorage.getItem('rk_phase_view') === '1');
+  const [histView, setHistView] = useState(() => localStorage.getItem('rk_hist_view') === '1');
   const [aiDraftNote, setAiDraftNote] = useState<string | undefined>(undefined);
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
 
@@ -1152,6 +1202,9 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
+  // Recarrega o aviso de campos obrigatórios ao trocar de tarefa.
+  useEffect(() => { setBlockingErrors(loadIssueBlock(issueId)); }, [issueId]);
+
   const sendNote = async (text: string, files: File[] = []) => {
     const id = Date.now().toString();
     setPendingNotes(prev => [...prev, { id, text, status: 'pending', files }]);
@@ -1161,12 +1214,19 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
       const notes = markdownToTextile(text);
       await addNote.mutateAsync({ id: issueId, notes, uploads });
       setPendingNotes(prev => prev.filter(n => n.id !== id));
+      setBlockingErrors([]); saveIssueBlock(issueId, []); // salvou → destrava o aviso
       // Compartilha arquivos na sala Talk ativa (se houver)
       if (files.length > 0 && talkBridge.hasReceiver()) {
         for (const f of files) talkBridge.shareFile(f).catch(() => {});
       }
-    } catch {
-      setPendingNotes(prev => prev.map(n => n.id === id ? { ...n, status: 'error' } : n));
+    } catch (err: unknown) {
+      // Redmine valida a tarefa inteira ao salvar uma nota: se há campo obrigatório
+      // vazio, devolve 422 com `errors` — surfaçamos isso e memorizamos para avisar antes.
+      const e = err as { response?: { data?: { errors?: string[]; error?: string } } };
+      const errs = e.response?.data?.errors;
+      const msg = (Array.isArray(errs) && errs.length ? errs.join(' · ') : e.response?.data?.error) || '';
+      setPendingNotes(prev => prev.map(n => n.id === id ? { ...n, status: 'error', error: msg } : n));
+      if (Array.isArray(errs) && errs.length) { setBlockingErrors(errs); saveIssueBlock(issueId, errs); }
     }
   };
 
@@ -1181,8 +1241,19 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
   const trackField = (key: string, label: string, fields: Record<string, unknown>) => {
     setSavingFields(prev => [...prev.filter(f => f.key !== key), { key, label, status: 'saving' }]);
     updateIssue.mutate({ id: issueId, fields }, {
-      onSuccess: () => setSavingFields(prev => prev.filter(f => f.key !== key)),
-      onError: () => {
+      onSuccess: () => {
+        setSavingFields(prev => prev.filter(f => f.key !== key));
+        setPendingRequired(null); // fecha o popup se este foi um reenvio bem-sucedido
+      },
+      onError: (err: unknown) => {
+        // 422 com lista de erros numa mudança de status → campos obrigatórios em branco.
+        const resp = (err as { response?: { status?: number; data?: { errors?: string[] } } })?.response;
+        if (resp?.status === 422 && Array.isArray(resp.data?.errors) && fields.status_id) {
+          setSavingFields(prev => prev.filter(f => f.key !== key)); // sem indicador de erro vermelho
+          const statusName = statuses?.find(s => s.id === Number(fields.status_id))?.name ?? '';
+          setPendingRequired({ baseFields: fields, statusName, errors: resp.data!.errors! });
+          return;
+        }
         setSavingFields(prev => prev.map(f => f.key === key ? { ...f, status: 'error' } : f));
         setTimeout(() => setSavingFields(prev => prev.filter(f => f.key !== key)), 4000);
       }
@@ -1365,7 +1436,8 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                             currentId={issue.status.id}
                             currentName={issue.status.name}
                             statuses={statuses}
-                            allowedIds={issue.allowed_statuses?.map(s => s.id)}
+                            allowedIds={allowedStatuses?.map(s => s.id)}
+                            allowedLoading={allowedLoading}
                             onChange={id => updateField({ status_id: id })}
                           />
                           {!isClosedName(issue.status.name) && (() => {
@@ -1528,7 +1600,7 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                   </div>
                 )}
                 {issue.status.id === 71 && (() => {
-                  const allowed = issue.allowed_statuses?.map(s => s.id);
+                  const allowed = allowedStatuses?.map(s => s.id);
                   const canApprove = !allowed || allowed.includes(35); // Pendente Integração
                   const canReject = !allowed || allowed.includes(34);  // Pendente Correção
                   if (!canApprove && !canReject) return null;
@@ -1561,11 +1633,11 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                 {/* Avançar — etapas sem CTA dedicado (Teste, Integração, Atualização, Fechamento…) */}
                 {![32, 8, 34, 71].includes(issue.status.id)
                   && !isClosedName(issue.status.name)
-                  && (issue.allowed_statuses?.filter(s => s.id !== issue.status.id).length ?? 0) > 0 && (
+                  && (allowedStatuses?.filter(s => s.id !== issue.status.id).length ?? 0) > 0 && (
                   <div className="px-4 pt-3">
                     <p className="text-xs font-medium text-slate-500 mb-1.5">Avançar para:</p>
                     <div className="flex flex-wrap gap-2">
-                      {issue.allowed_statuses!.filter(s => s.id !== issue.status.id).map(s => (
+                      {allowedStatuses!.filter(s => s.id !== issue.status.id).map(s => (
                         <button
                           key={s.id}
                           onClick={() => updateField({ status_id: s.id })}
@@ -1645,35 +1717,58 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                   />
                 </div>
 
-                {/* Toggle de visualização por fase */}
-                <div className="flex items-center justify-end px-4 pt-3 pb-0">
+                {/* Toggles de visualização */}
+                <div className="flex items-center justify-end gap-1.5 px-4 pt-3 pb-0">
                   <button
-                    onClick={() => setPhaseView(v => {
+                    onClick={() => setHistView(v => {
                       const next = !v;
-                      localStorage.setItem('rk_phase_view', next ? '1' : '0');
+                      localStorage.setItem('rk_hist_view', next ? '1' : '0');
                       return next;
                     })}
                     className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-md transition-colors ${
-                      phaseView
+                      histView
                         ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
                         : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
                     }`}
-                    title="Agrupar comentários por status"
+                    title="Mostrar histórico completo: mudanças de status, atribuições e demais alterações"
                   >
-                    <span className={`w-1.5 h-1.5 rounded-full ${phaseView ? 'bg-blue-500' : 'bg-slate-300'}`} />
-                    Fases
+                    <History size={12} />
+                    Histórico completo
                   </button>
+                  {!histView && (
+                    <button
+                      onClick={() => setPhaseView(v => {
+                        const next = !v;
+                        localStorage.setItem('rk_phase_view', next ? '1' : '0');
+                        return next;
+                      })}
+                      className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-md transition-colors ${
+                        phaseView
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                          : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                      }`}
+                      title="Agrupar comentários por status"
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${phaseView ? 'bg-blue-500' : 'bg-slate-300'}`} />
+                      Fases
+                    </button>
+                  )}
                 </div>
 
                 {/* Chat */}
                 <div className="p-4 space-y-3">
+                  {/* ── Histórico completo (todas as mudanças + notas) ── */}
+                  {histView && (
+                    <ActivityLog journals={issue.journals} statuses={statuses} members={members} issue={issue} />
+                  )}
+
                   {/* ── Vista por fases ── */}
-                  {phaseView && phases.length === 0 && (
+                  {!histView && phaseView && phases.length === 0 && (
                     <div className="flex items-center justify-center py-8">
                       <p className="text-sm text-slate-400">Nenhum comentário ainda.</p>
                     </div>
                   )}
-                  {phaseView && phases.map(phase => {
+                  {!histView && phaseView && phases.map(phase => {
                     const s = phaseStyle(phase.statusName);
                     return (
                       <div key={phase.id} className={`rounded-xl border ${s.bg} ${s.border} overflow-hidden`}>
@@ -1738,9 +1833,12 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                                       </div>
                                     </div>
                                   ) : (
-                                    <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl rounded-tl-sm px-3 py-2">
-                                      <Markdown text={journal.notes} attachments={issue.attachments} textile />
-                                    </div>
+                                    <>
+                                      <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl rounded-tl-sm px-3 py-2">
+                                        <Markdown text={journal.notes} attachments={issue.attachments} textile />
+                                      </div>
+                                      <JournalAttachments journal={journal} attachments={issue.attachments} />
+                                    </>
                                   )}
                                 </div>
                               </div>
@@ -1752,12 +1850,12 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                   })}
 
                   {/* ── Vista normal (padrão) ── */}
-                  {!phaseView && notesOnly.length === 0 && (
+                  {!histView && !phaseView && notesOnly.length === 0 && (
                     <div className="flex items-center justify-center py-8">
                       <p className="text-sm text-slate-400">Nenhum comentário ainda.</p>
                     </div>
                   )}
-                  {!phaseView && notesOnly.map(journal => {
+                  {!histView && !phaseView && notesOnly.map(journal => {
                     const isEditing = editingJournal?.id === journal.id;
                     const isMine = journal.user.id === currentUser?.id;
                     return (
@@ -1811,9 +1909,12 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                               </div>
                             </div>
                           ) : (
-                            <div className="bg-slate-50 border border-slate-100 rounded-xl rounded-tl-sm px-3 py-2">
-                              <Markdown text={journal.notes} attachments={issue.attachments} textile />
-                            </div>
+                            <>
+                              <div className="bg-slate-50 border border-slate-100 rounded-xl rounded-tl-sm px-3 py-2">
+                                <Markdown text={journal.notes} attachments={issue.attachments} textile />
+                              </div>
+                              <JournalAttachments journal={journal} attachments={issue.attachments} />
+                            </>
                           )}
                         </div>
                       </div>
@@ -1842,7 +1943,7 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                           {pending.status === 'error' && (
                             <span className="flex items-center gap-1 text-xs text-red-500">
                               <AlertCircle size={10} />
-                              Falhou ao enviar
+                              {pending.error ? 'Não foi possível salvar' : 'Falhou ao enviar'}
                               <button
                                 onClick={() => retryNote(pending)}
                                 className="flex items-center gap-0.5 underline hover:text-red-700 ml-1"
@@ -1855,6 +1956,9 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                             </span>
                           )}
                         </div>
+                        {pending.status === 'error' && pending.error && (
+                          <p className="text-[11px] text-red-500 mb-1 whitespace-pre-wrap">⚠ {pending.error}</p>
+                        )}
                         <div className={`rounded-xl rounded-tl-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap transition-colors ${
                           pending.status === 'pending'
                             ? 'bg-slate-100 text-slate-500 border border-slate-200'
@@ -1874,6 +1978,15 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
               </div>
               {/* Composer fixo no rodapé do painel de chat */}
               <div className="p-3 border-t border-slate-200 bg-slate-50">
+                {blockingErrors.length > 0 && (
+                  <div className="mb-2 flex items-start gap-1.5 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-2.5 py-1.5">
+                    <AlertCircle size={13} className="flex-shrink-0 mt-0.5 text-amber-500" />
+                    <span>
+                      <strong>O Redmine não deixa salvar comentário nesta tarefa enquanto houver pendência:</strong>{' '}
+                      {blockingErrors.join(' · ')}. Preencha os campos acima na tarefa e tente novamente.
+                    </span>
+                  </div>
+                )}
                 <CommentComposer
                   onSubmit={sendNote}
                   sending={addNote.isPending}
@@ -1890,6 +2003,16 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
     </div>
     {lightbox && (
       <Lightbox images={lightbox.images} index={lightbox.index} onClose={() => setLightbox(null)} />
+    )}
+    {pendingRequired && (
+      <RequiredFieldsModal
+        statusName={pendingRequired.statusName}
+        fields={missingFields}
+        loading={editFieldsLoading}
+        saving={updateIssue.isPending}
+        onCancel={() => setPendingRequired(null)}
+        onSubmit={values => updateField({ ...pendingRequired.baseFields, ...values })}
+      />
     )}
     </>
   );

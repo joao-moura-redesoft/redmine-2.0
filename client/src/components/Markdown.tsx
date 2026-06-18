@@ -18,6 +18,20 @@ interface Props {
 // Sintaxe de imagem do Redmine (Textile): !arquivo.png!, !>img.png!, !{width:300px}img.png!, !http://.../x.png!
 const IMG_RE = /!(?:\{[^}]*\}|[<>=])*([^!\s]+?\.(?:png|jpe?g|gif|webp|svg|bmp))!/gi;
 
+// Nomes de arquivos que o Markdown renderiza inline (sintaxe Textile de imagem).
+// Usado para evitar duplicar previews de anexos que já aparecem na nota.
+export function inlineImageNames(text?: string): Set<string> {
+  const names = new Set<string>();
+  if (!text) return names;
+  for (const m of text.matchAll(IMG_RE)) {
+    const file = m[1];
+    if (/^https?:\/\//i.test(file)) continue; // URL externa, não é anexo
+    names.add(file);
+    try { names.add(decodeURIComponent(file)); } catch { /* mantém */ }
+  }
+  return names;
+}
+
 function preprocess(text: string, attachments?: Attachment[]): string {
   if (!text) return '';
   const byName = new Map<string, Attachment>();

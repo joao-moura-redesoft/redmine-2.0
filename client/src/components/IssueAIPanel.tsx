@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Sparkles, X, Copy, Check, Loader2, Download, FileText, NotebookPen, ClipboardCheck, Clock, AlertTriangle, Tag, RotateCcw, MessageSquare } from 'lucide-react';
 import { redmineApi } from '../api/redmine';
 import { getAIKey } from '../utils/aiConfig';
+import { aiErrorMessage } from '../utils/aiError';
 import type { Issue } from '../types/redmine';
 
 type Mode = 'prompt' | 'history' | 'draft' | 'reply' | 'checklist' | 'estimate' | 'ambiguities' | 'versionnote';
@@ -200,10 +201,7 @@ export function IssueAIPanel({ issue, compact = false, onOpen, onInsertNote }: P
       }
       setResult({ mode, text, copied: false });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg.includes('401') || msg.includes('403')
-        ? 'Chave inválida. Verifique nas Configurações.'
-        : 'Erro ao chamar a IA. Tente novamente.');
+      setError(aiErrorMessage(err));
     } finally {
       setLoading(null);
     }

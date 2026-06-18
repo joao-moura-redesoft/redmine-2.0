@@ -125,7 +125,15 @@ function EventChip({ ev }: { ev: CalendarEvent }) {
     ? `${format(new Date(ev.start), 'HH:mm')} – ${format(new Date(ev.end), 'HH:mm')}`
     : 'Dia todo';
   const canceled = ev.status === 'CANC';
-  const doReply = (verb: InviteVerb) => reply.mutate({ id: ev.id, verb, compNum: ev.compNum });
+  // SendInviteReply do Zimbra usa o id da MENSAGEM do convite (invId), não o id do
+  // item de calendário (ev.id) — usar ev.id dá "no such message" (mail.NO_SUCH_MSG).
+  const doReply = (verb: InviteVerb) => reply.mutate({ id: ev.invId ?? ev.id, verb, compNum: ev.compNum });
+
+  // Resposta atual: a do servidor (ev.ptst), mas reflete na hora a recém-enviada
+  // (reply.variables) enquanto o refetch não chega; em caso de erro, volta para ev.ptst.
+  const verbToPtst: Record<InviteVerb, string> = { ACCEPT: 'AC', TENTATIVE: 'TE', DECLINE: 'DE' };
+  const sentVerb = reply.variables?.verb;
+  const currentPtst = !reply.isError && sentVerb ? verbToPtst[sentVerb] : ev.ptst;
 
   return (
     <div ref={ref} className="relative">
@@ -154,31 +162,36 @@ function EventChip({ ev }: { ev: CalendarEvent }) {
 
           {!ev.isOrganizer && !canceled && (
             <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
-              {reply.isSuccess ? (
-                <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><Check size={12} /> Resposta enviada</p>
-              ) : (
-                <>
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
-                    {ev.ptst === 'AC' ? 'Você aceitou' : ev.ptst === 'DE' ? 'Você recusou' : ev.ptst === 'TE' ? 'Você respondeu talvez' : 'Responder convite'}
-                  </p>
-                  <div className="flex gap-1.5">
-                    {([['ACCEPT', 'Aceitar', 'emerald'], ['TENTATIVE', 'Talvez', 'amber'], ['DECLINE', 'Recusar', 'red']] as const).map(([verb, label, color]) => (
-                      <button
-                        key={verb}
-                        onClick={() => doReply(verb)}
-                        disabled={reply.isPending}
-                        className={`flex-1 text-xs font-medium px-2 py-1 rounded-md border transition-colors disabled:opacity-40
-                          ${color === 'emerald' ? 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'
-                            : color === 'amber' ? 'border-amber-200 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30'
-                            : 'border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30'}`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  {reply.isError && <p className="text-[11px] text-red-500 mt-1.5">Falha ao responder. Tente novamente.</p>}
-                </>
-              )}
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                {currentPtst === 'AC' ? 'Você aceitou — clique para alterar'
+                  : currentPtst === 'DE' ? 'Você recusou — clique para alterar'
+                  : currentPtst === 'TE' ? 'Você respondeu talvez — clique para alterar'
+                  : 'Responder convite'}
+              </p>
+              <div className="flex gap-1.5">
+                {([['ACCEPT', 'Aceitar', 'emerald'], ['TENTATIVE', 'Talvez', 'amber'], ['DECLINE', 'Recusar', 'red']] as const).map(([verb, label, color]) => {
+                  const selected = verbToPtst[verb] === currentPtst;
+                  const sending = reply.isPending && sentVerb === verb;
+                  const palette = color === 'emerald'
+                    ? { sel: 'bg-emerald-500 border-emerald-500 text-white', out: 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30' }
+                    : color === 'amber'
+                    ? { sel: 'bg-amber-500 border-amber-500 text-white', out: 'border-amber-200 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30' }
+                    : { sel: 'bg-red-500 border-red-500 text-white', out: 'border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30' };
+                  return (
+                    <button
+                      key={verb}
+                      onClick={() => doReply(verb)}
+                      disabled={reply.isPending || selected}
+                      className={`flex-1 flex items-center justify-center gap-1 text-xs font-medium px-2 py-1 rounded-md border transition-colors disabled:opacity-60
+                        ${selected ? palette.sel : palette.out}`}
+                    >
+                      {sending ? <Loader2 size={11} className="animate-spin" /> : selected ? <Check size={11} /> : null}
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              {reply.isError && <p className="text-[11px] text-red-500 mt-1.5">Falha ao responder. Tente novamente.</p>}
             </div>
           )}
         </div>

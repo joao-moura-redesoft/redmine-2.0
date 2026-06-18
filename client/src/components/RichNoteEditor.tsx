@@ -5,6 +5,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
+import { TableKit } from '@tiptap/extension-table';
 import { Markdown } from 'tiptap-markdown';
 import { SlashCommand } from './noteSlashCommand';
 import { IssueMention } from './noteIssueMention';
@@ -35,6 +36,10 @@ export function RichNoteEditor({ value, onChange, noteId, placeholder = 'Comece 
       Placeholder.configure({ placeholder }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      // Nós de tabela: sem eles o schema não tem onde encaixar uma tabela colada
+      // (GFM `| … |`), e o tiptap-markdown — que já traz o serializer/parser de
+      // tabela por nome de nó — descartaria o conteúdo. resizable: edição da largura.
+      TableKit.configure({ table: { resizable: true } }),
       SlashCommand,
       IssueMention.configure({ onIssueClick: (id) => issueClickRef.current?.(id) }),
       Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),

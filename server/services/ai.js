@@ -16,8 +16,9 @@ function makeOpenAIClient(provider, key) {
 }
 
 // Modelo a usar para o chat agêntico (tool-use) por provider.
+// Gemini Pro exige billing habilitado (no free tier dá 429 com limit: 0).
 function chatModel(provider) {
-  return provider === 'gemini' ? 'gemini-3.1-pro' : 'gpt-4o';
+  return provider === 'gemini' ? 'gemini-3.1-pro-preview' : 'gpt-4o';
 }
 const doku = require('../dokuwiki');
 const zimbra = require('../zimbra');
@@ -127,7 +128,7 @@ async function aiComplete(provider, key, { system, user, userContent, maxTokens 
 
   if (provider === 'anthropic') {
     const client = new Anthropic({ apiKey: key });
-    const model = fast ? 'claude-3-5-haiku-20241022' : 'claude-3-7-sonnet-20250219';
+    const model = fast ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6';
     const msg = await client.messages.create({
       model,
       max_tokens: maxTokens,
@@ -141,9 +142,9 @@ async function aiComplete(provider, key, { system, user, userContent, maxTokens 
     const client = makeOpenAIClient(provider, key);
     const hasImages = Array.isArray(content) && content.some(c => c.type === 'image_url');
     // OpenAI: sobe para gpt-4o quando há imagens (o mini ignora a instrução de descrever).
-    // Gemini: flash no modo rápido, pro caso contrário.
+    // Gemini: flash no modo rápido, pro caso contrário (Pro exige billing habilitado).
     const model = provider === 'gemini'
-      ? (fast ? 'gemini-3.5-flash' : 'gemini-3.1-pro')
+      ? (fast ? 'gemini-3.5-flash' : 'gemini-3.1-pro-preview')
       : ((hasImages && !fast) ? 'gpt-4o' : 'gpt-4o-mini');
     const msg = await client.chat.completions.create({
       model,

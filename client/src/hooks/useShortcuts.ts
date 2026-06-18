@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 interface Options {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
   onOpenIssue: (id: number) => void;
   onOpenPalette: () => void;
   paletteOpen: boolean;
@@ -10,24 +9,24 @@ interface Options {
 }
 
 export function useShortcuts({
-  activeTab,
-  setActiveTab,
   onOpenIssue,
   onOpenPalette,
   paletteOpen,
   modalOpen,
 }: Options) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [focusedIssueId, setFocusedIssueId] = useState<number | null>(null);
 
   const focusedRef = useRef<number | null>(null);
   focusedRef.current = focusedIssueId;
 
   // Stable refs for callbacks — avoids stale closures without re-registering
-  const cbRef = useRef({ setActiveTab, onOpenIssue, onOpenPalette });
-  useEffect(() => { cbRef.current = { setActiveTab, onOpenIssue, onOpenPalette }; });
+  const cbRef = useRef({ navigate, onOpenIssue, onOpenPalette });
+  useEffect(() => { cbRef.current = { navigate, onOpenIssue, onOpenPalette }; });
 
-  // Reset focus whenever the active tab changes
-  useEffect(() => { setFocusedIssueId(null); }, [activeTab]);
+  // Reset focus whenever the active route changes
+  useEffect(() => { setFocusedIssueId(null); }, [location.pathname]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -47,9 +46,9 @@ export function useShortcuts({
       if (isEditing || paletteOpen || modalOpen) return;
 
       // Tab shortcuts: 1 → Dashboard, 2 → Kanban, 3 → Pessoas
-      if (e.key === '1') { cbRef.current.setActiveTab('dashboard'); return; }
-      if (e.key === '2') { cbRef.current.setActiveTab('kanban'); return; }
-      if (e.key === '3') { cbRef.current.setActiveTab('people'); return; }
+      if (e.key === '1') { cbRef.current.navigate('/dashboard'); return; }
+      if (e.key === '2') { cbRef.current.navigate('/kanban'); return; }
+      if (e.key === '3') { cbRef.current.navigate('/people'); return; }
 
       // Card navigation: J (down) / K (up)
       if (e.key === 'j' || e.key === 'k') {

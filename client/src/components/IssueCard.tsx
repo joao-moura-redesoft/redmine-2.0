@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { CalendarDays, Tag, Copy, Check, ArrowLeftRight, AlertTriangle, Bell, BellRing, Clock, Archive, ListTodo, ChevronDown, Play, Square } from 'lucide-react';
+import { CalendarDays, Tag, Copy, Check, ArrowLeftRight, AlertTriangle, Bell, BellRing, Clock, Archive, ListTodo, ChevronDown, Play, Square, Loader2 } from 'lucide-react';
 import { IssueAIPanel } from './IssueAIPanel';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Issue, IssueStatus, IssueChild } from '../types/redmine';
 import { getMissingFields, getReviewAlert, getBranch, getPrevisaoRevisao } from '../utils/alerts';
+import { useAllowedStatuses, useCurrentUser } from '../hooks/useRedmine';
 
 const PRIORITY_COLORS: Record<string, string> = {
   Baixa: 'bg-slate-100 text-slate-600',
@@ -33,10 +34,27 @@ function QuickStatusMenu({ issue, statuses, onStatusChange }: {
   onStatusChange: (issueId: number, statusId: number) => void;
 }) {
   const [open, setOpen] = useState(false);
-  // allowed_statuses só está disponível no detalhe da issue (não na lista)
-  // Se não tiver, mostra tudo. Se tiver e estiver vazio, avisa.
-  const allowedIds = issue.allowed_statuses?.map(s => s.id);
-  const hasRestrictions = allowedIds !== undefined;
+  const { data: currentUser } = useCurrentUser();
+  // Transições permitidas: buscadas sob demanda (só quando o menu abre), iguais
+  // ao Redmine. Cacheadas por workflow, então cards no mesmo estado não refazem.
+  const { data: lazyAllowed, isFetching } = useAllowedStatuses(
+    {
+      issueId: issue.id,
+      projectId: issue.project.id,
+      trackerId: issue.tracker.id,
+      statusId: issue.status.id,
+      isAuthor: !!currentUser && issue.author?.id === currentUser.id,
+      isAssignee: !!currentUser && issue.assigned_to?.id === currentUser.id,
+    },
+    open && !issue.allowed_statuses,
+  );
+  const allowed = issue.allowed_statuses ?? lazyAllowed ?? undefined;
+  const allowedIds = allowed?.map(s => s.id);
+  const loading = isFetching && allowedIds === undefined;
+  // Espelha o Redmine: só os status permitidos (+ o atual). Sem dados, mostra tudo.
+  const visibleStatuses = allowedIds
+    ? statuses.filter(s => allowedIds.includes(s.id) || s.id === issue.status.id)
+    : statuses;
 
   return (
     <div className="relative" onPointerDown={e => e.stopPropagation()}>
@@ -52,29 +70,28 @@ function QuickStatusMenu({ issue, statuses, onStatusChange }: {
         <>
           <div className="fixed inset-0 z-20" onClick={e => { e.stopPropagation(); setOpen(false); }} />
           <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-30 w-52 py-1 max-h-52 overflow-y-auto scrollbar-thin">
-            {hasRestrictions && allowedIds!.length === 0 && (
+            {loading && (
+              <p className="px-3 py-2 text-xs text-slate-400 flex items-center gap-1.5">
+                <Loader2 size={11} className="animate-spin" /> Carregando transições…
+              </p>
+            )}
+            {!loading && allowedIds && allowedIds.length === 0 && (
               <p className="px-3 py-2 text-xs text-amber-600 border-b border-slate-100">
                 Sem transições permitidas no workflow.
               </p>
             )}
-            {statuses.map(s => {
-              const isAllowed = !hasRestrictions || allowedIds!.includes(s.id) || s.id === issue.status.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={e => { e.stopPropagation(); if (isAllowed) { onStatusChange(issue.id, s.id); setOpen(false); } }}
-                  title={!isAllowed ? 'Não permitido pelo workflow do Redmine' : undefined}
-                  className={`w-full flex items-center justify-between px-3 py-1.5 text-xs transition-colors
-                    ${s.id === issue.status.id ? 'font-semibold text-blue-600 bg-blue-50' : ''}
-                    ${isAllowed && s.id !== issue.status.id ? 'hover:bg-blue-50 text-slate-700' : ''}
-                    ${!isAllowed ? 'text-slate-300 cursor-not-allowed' : ''}
-                  `}
-                >
-                  <span>{s.name}</span>
-                  <span>{s.id === issue.status.id ? <Check size={11} /> : !isAllowed ? '🔒' : null}</span>
-                </button>
-              );
-            })}
+            {!loading && visibleStatuses.map(s => (
+              <button
+                key={s.id}
+                onClick={e => { e.stopPropagation(); onStatusChange(issue.id, s.id); setOpen(false); }}
+                className={`w-full flex items-center justify-between px-3 py-1.5 text-xs transition-colors
+                  ${s.id === issue.status.id ? 'font-semibold text-blue-600 bg-blue-50' : 'hover:bg-blue-50 text-slate-700'}
+                `}
+              >
+                <span>{s.name}</span>
+                {s.id === issue.status.id && <Check size={11} />}
+              </button>
+            ))}
           </div>
         </>
       )}

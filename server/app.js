@@ -3,6 +3,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const errorMiddleware = require('./lib/errorMiddleware');
 
 function buildApp() {
   const app = express();
@@ -35,6 +36,9 @@ function buildApp() {
     if (req.path.startsWith('/api/')) return next();
     res.sendFile(path.join(__dirname, 'dist', 'index.html'));
   });
+
+  // Tratamento centralizado de erros — deve ser o último middleware registrado
+  app.use(errorMiddleware);
 
   return app;
 }

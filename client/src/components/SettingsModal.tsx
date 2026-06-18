@@ -14,7 +14,9 @@ interface Props {
 interface ProviderConfig {
   id: AIProvider;
   name: string;
-  prefix: string;
+  // Prefixo esperado da chave — usado só para validação de conveniência.
+  // Opcional: deixe vazio quando o provider emite chaves em formatos variados (ex.: Gemini via Antigravity).
+  prefix?: string;
   placeholder: string;
   docsUrl: string;
   color: string;
@@ -46,8 +48,8 @@ const PROVIDERS: ProviderConfig[] = [
   {
     id: 'gemini',
     name: 'Gemini (Google)',
-    prefix: 'AIza',
-    placeholder: 'AIza...',
+    // Sem prefixo fixo: AI Studio emite chaves "AIza...", mas Antigravity usa "AQ...".
+    placeholder: 'AIza... ou AQ...',
     docsUrl: 'aistudio.google.com/apikey',
     color: 'text-blue-600 dark:text-blue-400',
     badge: 'bg-blue-50 border-blue-200 text-blue-700',
@@ -70,7 +72,7 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
   const [open, setOpen] = useState(!!currentKey || active);
 
   const save = () => {
-    if (!input.trim().startsWith(config.prefix)) {
+    if (config.prefix && !input.trim().startsWith(config.prefix)) {
       setError(`A chave deve começar com ${config.prefix}`);
       return;
     }
@@ -537,17 +539,26 @@ function WikiSection() {
   );
 }
 
+type SettingsTab = 'corporativo' | 'chat' | 'ia';
+
+const TABS: { id: SettingsTab; label: string; icon: typeof Shield }[] = [
+  { id: 'corporativo', label: 'Corporativo', icon: Shield },
+  { id: 'chat', label: 'Chat', icon: MessageSquare },
+  { id: 'ia', label: 'IA', icon: Sparkles },
+];
+
 export function SettingsModal({ onClose }: Props) {
   const active = getActiveAI();
+  const [tab, setTab] = useState<SettingsTab>('corporativo');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
       <div
-        className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden"
+        className="w-full max-w-md max-h-[85vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+        {/* Header (fixo) */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
           <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Configurações</h2>
           <button
             onClick={onClose}
@@ -557,87 +568,110 @@ export function SettingsModal({ onClose }: Props) {
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-5 space-y-4">
-
-          {/* Seção Credenciais corporativas (AD) */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Shield size={14} className="text-slate-500" />
-              <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
-                Credenciais corporativas
-              </h3>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-              Usuário e senha do AD (Windows). Necessários para E-mail e Wiki quando o login no Redmine é feito por chave de API.
-            </p>
-            <ADCredsSection />
+        {/* Abas (fixas) */}
+        <div className="px-5 pt-4 flex-shrink-0">
+          <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+            {TABS.map(t => {
+              const Icon = t.icon;
+              const isActive = tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Icon size={13} />
+                  {t.label}
+                </button>
+              );
+            })}
           </div>
+        </div>
 
-          <div className="border-t border-slate-100 dark:border-slate-800" />
+        {/* Corpo (rolável) */}
+        <div className="p-5 space-y-4 overflow-y-auto flex-1">
 
-          {/* Serviços corporativos: E-mail + Wiki */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Mail size={14} className="text-blue-500" />
-              <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
-                Serviços corporativos
-              </h3>
-            </div>
-            <MailSection />
-            <WikiSection />
-          </div>
-
-          <div className="border-t border-slate-100 dark:border-slate-800" />
-
-          {/* Seção Nextcloud Talk */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <MessageSquare size={14} className="text-blue-500" />
-              <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
-                Nextcloud Talk
-              </h3>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-              Conecte ao Talk da sua empresa para chat integrado no canto inferior direito do app.
-            </p>
-            <NextcloudSection />
-          </div>
-
-          <div className="border-t border-slate-100 dark:border-slate-800" />
-
-          {/* Seção IA */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Sparkles size={14} className="text-purple-500" />
-              <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
-                Inteligência Artificial
-              </h3>
-            </div>
-
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-              Configure uma ou mais chaves. A ordem de preferência é <strong>Claude</strong> → <strong>ChatGPT</strong> → <strong>Gemini</strong>.
-              As chaves ficam salvas apenas neste navegador.
-            </p>
-
-            {/* Status ativo */}
-            {active && (
-              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                Usando: <strong className="text-slate-700 dark:text-slate-200">
-                  {PROVIDER_NAMES[active.provider]}
-                </strong>
+          {tab === 'corporativo' && (
+            <>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Shield size={14} className="text-slate-500" />
+                  <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                    Credenciais corporativas
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Usuário e senha do AD (Windows). Necessários para E-mail e Wiki quando o login no Redmine é feito por chave de API.
+                </p>
+                <ADCredsSection />
               </div>
-            )}
 
-            {PROVIDERS.map(p => (
-              <ProviderSection
-                key={p.id}
-                config={p}
-                active={active?.provider === p.id}
-              />
-            ))}
-          </div>
+              <div className="border-t border-slate-100 dark:border-slate-800" />
+
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Mail size={14} className="text-blue-500" />
+                  <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                    Serviços corporativos
+                  </h3>
+                </div>
+                <MailSection />
+                <WikiSection />
+              </div>
+            </>
+          )}
+
+          {tab === 'chat' && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <MessageSquare size={14} className="text-blue-500" />
+                <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                  Nextcloud Talk
+                </h3>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Conecte ao Talk da sua empresa para chat integrado no canto inferior direito do app.
+              </p>
+              <NextcloudSection />
+            </div>
+          )}
+
+          {tab === 'ia' && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Sparkles size={14} className="text-purple-500" />
+                <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                  Inteligência Artificial
+                </h3>
+              </div>
+
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Configure uma ou mais chaves. A ordem de preferência é <strong>Claude</strong> → <strong>ChatGPT</strong> → <strong>Gemini</strong>.
+                As chaves ficam salvas apenas neste navegador.
+              </p>
+
+              {active && (
+                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+                  Usando: <strong className="text-slate-700 dark:text-slate-200">
+                    {PROVIDER_NAMES[active.provider]}
+                  </strong>
+                </div>
+              )}
+
+              {PROVIDERS.map(p => (
+                <ProviderSection
+                  key={p.id}
+                  config={p}
+                  active={active?.provider === p.id}
+                />
+              ))}
+            </div>
+          )}
 
         </div>
       </div>

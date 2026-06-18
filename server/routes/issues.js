@@ -7,6 +7,7 @@ const { makeRedmine, getMyUserId, buildAuthHeaders, DEFAULT_URL, DEFAULT_KEY } =
 const handle = require('../lib/handle');
 const { fetchAllPages, mapLimit, fetchAllIssues } = require('../lib/pagination');
 const { syncConcierge, CONCIERGE_INPROGRESS_RE } = require('../services/concierge');
+const { parseEditFormSchema } = require('../lib/editFormSchema');
 
 // Minhas issues
 router.get('/issues', handle(async (req, res) => {
@@ -166,6 +167,107 @@ router.delete('/issues/:id/watch', handle(async (req, res) => {
   res.json({ success: true });
 }));
 
+// Cache das transições de workflow. A chave NÃO é a tarefa: as transições
+// dependem apenas do (projeto, tracker, status atual, se sou autor, se sou
+// responsável) + credencial. Duas tarefas no mesmo estado/tracker/projeto
+// compartilham a mesma lista — então raspamos uma vez, não uma por tarefa.
+// TTL longo porque workflow do Redmine muda raríssimas vezes (config de admin).
+const allowedCache = new Map(); // cacheKey -> { value, expiresAt }
+const ALLOWED_TTL_MS = 10 * 60 * 1000;
+// Cache do schema de campos (popup de obrigatórios), por projeto+tracker.
+const fieldSchemaCache = new Map(); // cacheKey -> { value, expiresAt }
+const FIELD_SCHEMA_TTL_MS = 5 * 60 * 1000;
+
+function workflowCacheKey(req) {
+  const url = req.headers['x-redmine-url'] || DEFAULT_URL;
+  const key = req.headers['x-redmine-key'] || DEFAULT_KEY;
+  const username = req.headers['x-redmine-user'] || '';
+  const password = req.headers['x-redmine-pass'] || '';
+  const cred = key || `${username}:${password}`;
+  const { project_id, tracker_id, status_id, is_author, is_assignee } = req.query;
+  return `${url}:${cred}:p${project_id}:t${tracker_id}:s${status_id}:a${is_author}:g${is_assignee}`;
+}
+
+// Limpeza periódica de entradas expiradas (evita crescimento ilimitado do Map).
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of allowedCache) if (now > v.expiresAt) allowedCache.delete(k);
+  for (const [k, v] of fieldSchemaCache) if (now > v.expiresAt) fieldSchemaCache.delete(k);
+}, 5 * 60 * 1000).unref();
+
+// Redmine < 5.0 não expõe `allowed_statuses` na API REST. As transições de
+// workflow só existem no <select> de status da página HTML da issue — mesma
+// lista que a interface web mostra. Extraímos de lá. (Sem cache aqui: o cache
+// é feito por workflow no endpoint, não por tarefa.)
+async function scrapeAllowedStatuses(redmine, id) {
+  try {
+    const { data } = await redmine.get(`/issues/${id}`, {
+      headers: { Accept: 'text/html' }, responseType: 'text',
+    });
+    const sel = String(data).match(/<select[^>]*name="issue\[status_id\]"[^>]*>([\s\S]*?)<\/select>/i);
+    if (!sel) return null;
+    const opts = [...sel[1].matchAll(/<option[^>]*value="(\d+)"[^>]*>([^<]*)<\/option>/g)]
+      .map(m => ({ id: Number(m[1]), name: m[2].trim() }));
+    return opts.length ? opts : null;
+  } catch {
+    return null; // sem permissão de editar / HTML mudou: cai no fallback (mostra todos)
+  }
+}
+
+// Transições de workflow permitidas — endpoint dedicado e "lazy" (o front busca
+// sob demanda). Cacheado por workflow, não por tarefa: o front manda os
+// determinantes (projeto/tracker/status/autor/responsável) como query params.
+router.get('/issues/:id/allowed-statuses', handle(async (req, res) => {
+  const cacheKey = workflowCacheKey(req);
+  const cached = allowedCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return res.json({ allowed_statuses: cached.value });
+  }
+  const allowed = await scrapeAllowedStatuses(makeRedmine(req), req.params.id);
+  allowedCache.set(cacheKey, { value: allowed, expiresAt: Date.now() + ALLOWED_TTL_MS });
+  res.json({ allowed_statuses: allowed });
+}));
+
+// Schema dos campos editáveis (rótulo, tipo, opções) extraído do formulário da
+// página show. Usado pelo popup de campos obrigatórios. Cache por projeto+tracker
+// (a estrutura de campos depende disso).
+router.get('/issues/:id/edit-fields', handle(async (req, res) => {
+  const url = req.headers['x-redmine-url'] || DEFAULT_URL;
+  const key = req.headers['x-redmine-key'] || DEFAULT_KEY;
+  const username = req.headers['x-redmine-user'] || '';
+  const password = req.headers['x-redmine-pass'] || '';
+  const cred = key || `${username}:${password}`;
+  const { project_id, tracker_id } = req.query;
+  const cacheKey = `${url}:${cred}:p${project_id}:t${tracker_id}`;
+
+  const cached = fieldSchemaCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return res.json({ fields: cached.value });
+  }
+  let fields = [];
+  try {
+    const { data } = await makeRedmine(req).get(`/issues/${req.params.id}`, {
+      headers: { Accept: 'text/html' }, responseType: 'text',
+    });
+    fields = parseEditFormSchema(data);
+  } catch { /* sem permissão / HTML mudou: devolve vazio */ }
+  fieldSchemaCache.set(cacheKey, { value: fields, expiresAt: Date.now() + FIELD_SCHEMA_TTL_MS });
+  res.json({ fields });
+}));
+
+// Todas as issues de uma versão (open + closed) — para estatísticas de sprint.
+// DEVE vir antes de '/issues/:id' senão o :id captura "by-version" e dá 404.
+router.get('/issues/by-version', handle(async (req, res) => {
+  const { project_id, version_id } = req.query;
+  if (!project_id || !version_id) return res.json({ issues: [], total_count: 0 });
+  const issues = await fetchAllIssues(makeRedmine(req), {
+    project_id,
+    fixed_version_id: version_id,
+    status_id: '*',
+  });
+  res.json({ issues, total_count: issues.length });
+}));
+
 // Issue individual com journals, relações, filhos e status permitidos
 router.get('/issues/:id', handle(async (req, res) => {
   const { data } = await makeRedmine(req).get(`/issues/${req.params.id}.json`, {
@@ -177,6 +279,8 @@ router.get('/issues/:id', handle(async (req, res) => {
 // Atualizar issue — verifica se o status realmente mudou (workflow silencioso)
 router.put('/issues/:id', handle(async (req, res) => {
   const redmine = makeRedmine(req);
+  console.log(`[PUT /issues/:id] URL Alvo: ${req.headers['x-redmine-url']} -> /issues/${req.params.id}.json`);
+  console.log('[PUT /issues/:id] Payload para Redmine:', JSON.stringify(req.body, null, 2));
   await redmine.put(`/issues/${req.params.id}.json`, req.body);
 
   const requestedStatusId = req.body?.issue?.status_id;
@@ -230,18 +334,6 @@ router.post('/uploads', express.raw({ type: '*/*', limit: '50mb' }), handle(asyn
 router.get('/issue_statuses', handle(async (req, res) => {
   const { data } = await makeRedmine(req).get('/issue_statuses.json');
   res.json(data);
-}));
-
-// Todas as issues de uma versão (open + closed) — para estatísticas de sprint
-router.get('/issues/by-version', handle(async (req, res) => {
-  const { project_id, version_id } = req.query;
-  if (!project_id || !version_id) return res.json({ issues: [], total_count: 0 });
-  const issues = await fetchAllIssues(makeRedmine(req), {
-    project_id,
-    fixed_version_id: version_id,
-    status_id: '*',
-  });
-  res.json({ issues, total_count: issues.length });
 }));
 
 module.exports = router;

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Issue, IssueStatus, Project, Tracker, Priority, CurrentUser, Version, TimeEntry, TimeEntryActivity, Mention } from '../types/redmine';
+import type { Issue, IssueStatus, Project, Tracker, Priority, CurrentUser, Version, TimeEntry, TimeEntryActivity, Mention, NamedRef, EditField } from '../types/redmine';
 import { getActiveAI } from '../utils/aiConfig';
 
 export const AUTH_KEY = 'redmine_auth';
@@ -94,6 +94,33 @@ export const redmineApi = {
   getIssue: async (id: number): Promise<Issue> => {
     const { data } = await api.get(`/issues/${id}`);
     return data.issue;
+  },
+
+  // Transições de workflow permitidas (buscado sob demanda; null = sem restrição conhecida).
+  // Os determinantes do workflow vão como params para o backend cachear por
+  // (projeto/tracker/status/autor/responsável), e não por tarefa.
+  getAllowedStatuses: async (
+    id: number,
+    wf: { projectId?: number; trackerId?: number; statusId?: number; isAuthor?: boolean; isAssignee?: boolean },
+  ): Promise<NamedRef[] | null> => {
+    const { data } = await api.get(`/issues/${id}/allowed-statuses`, {
+      params: {
+        project_id: wf.projectId, tracker_id: wf.trackerId, status_id: wf.statusId,
+        is_author: wf.isAuthor ? 1 : 0, is_assignee: wf.isAssignee ? 1 : 0,
+      },
+    });
+    return data.allowed_statuses ?? null;
+  },
+
+  // Schema dos campos editáveis (para o popup de campos obrigatórios).
+  getEditFields: async (
+    id: number,
+    wf: { projectId?: number; trackerId?: number },
+  ): Promise<EditField[]> => {
+    const { data } = await api.get(`/issues/${id}/edit-fields`, {
+      params: { project_id: wf.projectId, tracker_id: wf.trackerId },
+    });
+    return data.fields ?? [];
   },
 
   updateIssueStatus: async (id: number, statusId: number): Promise<void> => {

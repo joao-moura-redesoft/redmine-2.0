@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, Plus, Pin, PinOff, Trash2, Tag as TagIcon, X, Link2, Send,
-  StickyNote, Loader2, Check, ExternalLink, Palette, Copy, Download, Folder, CalendarDays, CheckSquare,
+  StickyNote, Loader2, Check, ExternalLink, Palette, Copy, Download, Folder, CalendarDays, CheckSquare, AlertCircle,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '../hooks/useNotes';
-import { useProjects } from '../hooks/useRedmine';
+import { useProjects, useEditFields } from '../hooks/useRedmine';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
 import { fuzzyBest } from '../utils/fuzzy';
 import { newNoteId, type Note, type NotePatch } from '../api/notes';
+import type { EditField } from '../types/redmine';
 import { RichNoteEditor } from './RichNoteEditor';
+import { RequiredFieldsModal } from './RequiredFieldsModal';
 import { redmineApi } from '../api/redmine';
 import { markdownToTextile } from '../utils/markdownToTextile';
 import { formatDistanceToNow, format } from 'date-fns';
@@ -165,7 +167,33 @@ function NoteEditor({ note, onIssueClick, projectName, onDuplicate, onAutoDelete
   const [linking, setLinking] = useState(false);
   const [showColors, setShowColors] = useState(false);
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [sendError, setSendError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Campos obrigatórios: quando o Redmine recusa o comentário (422) por campo em
+  // branco, abrimos o mesmo popup do IssueModal para preencher e reenviar tudo junto.
+  // `pendingRequired` guarda os erros (persiste p/ reabrir); `requiredOpen` é a visibilidade.
+  const [pendingRequired, setPendingRequired] = useState<{ errors: string[] } | null>(null);
+  const [requiredOpen, setRequiredOpen] = useState(false);
+  // Busca projeto/tracker da tarefa só quando o popup é necessário (p/ a chave de
+  // cache do schema; o scraping em si usa o id da tarefa).
+  const { data: linkedIssue } = useQuery({
+    queryKey: ['note-issue-fields', note.linkedIssueId],
+    queryFn: () => redmineApi.getIssue(note.linkedIssueId!),
+    enabled: !!pendingRequired && !!note.linkedIssueId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: editFields = [], isFetching: editFieldsLoading } = useEditFields(
+    { issueId: note.linkedIssueId ?? null, projectId: linkedIssue?.project.id, trackerId: linkedIssue?.tracker.id },
+    !!pendingRequired && !!linkedIssue,
+  );
+  const missingFields = useMemo<EditField[]>(() => {
+    if (!pendingRequired) return [];
+    return editFields.filter(f =>
+      f.name !== 'status_id' &&
+      pendingRequired.errors.some(e => e.toLowerCase().includes(f.label.toLowerCase())),
+    );
+  }, [pendingRequired, editFields]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Guardam a última edição ainda não persistida, para flush ao desmontar
@@ -191,7 +219,7 @@ function NoteEditor({ note, onIssueClick, projectName, onDuplicate, onAutoDelete
     setBody(note.body);
     setTagInput(''); setShowTagInput(false);
     setLinking(false); setShowColors(false);
-    setSendState('idle'); setSaving(false); setClInput('');
+    setSendState('idle'); setSendError(''); setPendingRequired(null); setRequiredOpen(false); setSaving(false); setClInput('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.id]);
 
@@ -262,13 +290,43 @@ function NoteEditor({ note, onIssueClick, projectName, onDuplicate, onAutoDelete
   const sendAsComment = async () => {
     if (!note.linkedIssueId || !body.trim()) return;
     setSendState('sending');
+    setSendError('');
     try {
       await redmineApi.addNote(note.linkedIssueId, markdownToTextile(body));
       setSendState('sent');
       setTimeout(() => setSendState('idle'), 2500);
-    } catch {
+    } catch (err: unknown) {
+      // O Redmine valida a tarefa INTEIRA ao salvar um comentário: campos
+      // obrigatórios vazios voltam como 422 { errors: [...] }. Mostramos a lista
+      // ao usuário em vez de um genérico "Falhou" (antes só dava pra ver no DevTools).
+      const data = (err as { response?: { data?: { errors?: string[]; error?: string } } })?.response?.data;
+      const errs = Array.isArray(data?.errors) && data.errors.length ? data.errors : null;
+      const msg = errs ? errs.join(' · ') : (data?.error || 'Não foi possível enviar o comentário. Tente novamente.');
+      setSendError(msg);
+      setSendState('error'); // permanece até o próximo envio (não some sozinho)
+      // 422 com lista de campos → abre o popup para preencher e reenviar.
+      if (errs) { setPendingRequired({ errors: errs }); setRequiredOpen(true); }
+    }
+  };
+
+  // Reenvia o comentário JUNTO com os campos obrigatórios preenchidos no popup
+  // (um único PUT: notes + campos padrão + custom_fields).
+  const submitRequired = async (values: Record<string, unknown>) => {
+    if (!note.linkedIssueId) return;
+    setSendState('sending');
+    setSendError('');
+    try {
+      await redmineApi.updateIssue(note.linkedIssueId, { notes: markdownToTextile(body), ...values });
+      setPendingRequired(null);
+      setRequiredOpen(false);
+      setSendState('sent');
+      setTimeout(() => setSendState('idle'), 2500);
+    } catch (err: unknown) {
+      const data = (err as { response?: { data?: { errors?: string[]; error?: string } } })?.response?.data;
+      const errs = Array.isArray(data?.errors) && data.errors.length ? data.errors : null;
+      setSendError(errs ? errs.join(' · ') : (data?.error || 'Não foi possível enviar o comentário.'));
       setSendState('error');
-      setTimeout(() => setSendState('idle'), 3000);
+      if (errs) { setPendingRequired({ errors: errs }); setRequiredOpen(true); } // ainda falta algo
     }
   };
 
@@ -439,7 +497,21 @@ function NoteEditor({ note, onIssueClick, projectName, onDuplicate, onAutoDelete
 
       {/* Ação contextual: enviar para a tarefa vinculada (rodapé discreto) */}
       {note.linkedIssueId && (
-        <div className="flex items-center justify-end px-4 py-2 border-t border-slate-100 dark:border-slate-700">
+        <div className="flex flex-col items-end gap-1.5 px-4 py-2 border-t border-slate-100 dark:border-slate-700">
+          {sendState === 'error' && sendError && (
+            <div className="w-full flex items-start gap-1.5 text-[11px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-2.5 py-1.5">
+              <AlertCircle size={13} className="flex-shrink-0 mt-px" />
+              <span className="whitespace-pre-wrap flex-1">{sendError}</span>
+              {pendingRequired && !requiredOpen && (
+                <button
+                  onClick={() => setRequiredOpen(true)}
+                  className="flex-shrink-0 font-medium underline hover:text-red-800 dark:hover:text-red-300"
+                >
+                  Preencher campos
+                </button>
+              )}
+            </div>
+          )}
           <button onClick={sendAsComment} disabled={sendState === 'sending' || !body.trim()}
                   title={`Adicionar o conteúdo desta nota como comentário na tarefa #${note.linkedIssueId}`}
                   className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-lg px-3 py-1.5 transition-colors disabled:opacity-40 ${
@@ -453,6 +525,19 @@ function NoteEditor({ note, onIssueClick, projectName, onDuplicate, onAutoDelete
             {sendState === 'sent' ? 'Enviado como comentário!' : sendState === 'error' ? 'Falhou ao enviar' : `Enviar como comentário em #${note.linkedIssueId}`}
           </button>
         </div>
+      )}
+
+      {requiredOpen && pendingRequired && (
+        <RequiredFieldsModal
+          statusName={`#${note.linkedIssueId}`}
+          intro={<>Para enviar o comentário na tarefa <span className="font-medium">#{note.linkedIssueId}</span>, preencha:</>}
+          submitLabel="Preencher e enviar comentário"
+          fields={missingFields}
+          loading={editFieldsLoading || !linkedIssue}
+          saving={sendState === 'sending'}
+          onCancel={() => setRequiredOpen(false)}
+          onSubmit={submitRequired}
+        />
       )}
     </div>
   );

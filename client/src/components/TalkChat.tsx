@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, Fragment } from 'react';
 import {
   MessageSquare, X, Minus, Send, Paperclip, Reply, Pencil, Trash2,
   Plus, Search, Wifi, WifiOff, ChevronUp, SmilePlus, Bell, BellOff,
@@ -17,7 +17,9 @@ import { getStoredAuth, authHeaders, redmineApi } from '../api/redmine';
 import { talkBridge } from '../utils/talkBridge';
 import { talkMute } from '../utils/talkMute';
 import type { TalkRoom, TalkMessage, TalkParticipant } from '../api/talk';
-import { formatDistanceToNow } from 'date-fns';
+import {
+  formatDistanceToNow, format, isToday, isYesterday, isSameDay, differenceInCalendarDays,
+} from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 // ─── Som de notificação (Web Audio API, sem arquivo externo) ──────────────────
@@ -311,24 +313,29 @@ function TalkImage({ fileId, path, name, actorId }: {
 
 // ─── Mensagem citada (reply) ──────────────────────────────────────────────────
 
-function QuotedMessage({ parent, isMe }: {
+function QuotedMessage({ parent, isMe, onJump }: {
   parent: NonNullable<TalkMessage['parent']>;
   isMe: boolean;
+  onJump?: (id: number) => void;
 }) {
   const text = parent.message === '{file}'
     ? '📎 Arquivo'
     : parent.message.replace(/\{([\w-]+)\}/g, (_, k) => {
         return parent.messageParameters?.[k]?.name ? `@${parent.messageParameters[k].name}` : k;
       });
+  // A citação fica sobre o fundo da página (não dentro da bolha), então usa
+  // paleta legível em ambos os modos; a borda azul indica que é a sua mensagem.
   return (
-    <div className={`text-[10px] rounded-lg px-2 py-1 mb-1 border-l-2 max-w-full truncate ${
-      isMe
-        ? 'bg-white/10 border-white/40 text-white/70'
-        : 'bg-slate-200 border-slate-400 text-slate-500'
-    }`}>
+    <button
+      type="button"
+      onClick={() => onJump?.(parent.id)}
+      title="Ir para a mensagem"
+      className={`talk-quote block text-left text-[10px] rounded-lg px-2 py-1 mb-1 border-l-2 max-w-full truncate transition-colors cursor-pointer ${
+        isMe ? 'border-blue-400' : 'border-slate-400'
+      }`}>
       <span className="font-semibold">{parent.actorDisplayName.split(' ')[0]}: </span>
       <span>{text}</span>
-    </div>
+    </button>
   );
 }
 
@@ -336,13 +343,17 @@ function QuotedMessage({ parent, isMe }: {
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🔥'];
 
-function EmojiPicker({ onPick, onClose }: { onPick: (e: string) => void; onClose: () => void }) {
+function EmojiPicker({ onPick, onClose, align = 'right' }: {
+  onPick: (e: string) => void; onClose: () => void; align?: 'left' | 'right';
+}) {
   return (
-    <div className="absolute z-50 bottom-full mb-1 right-0 bg-white border border-slate-200 rounded-xl shadow-xl p-2 flex gap-1.5"
+    // Ancorada no lado de origem (right p/ minhas msgs, left p/ recebidas).
+    // Emojis compactos em linha única — cabem na janela estreita sem quebrar.
+    <div className={`absolute z-50 bottom-full mb-1 ${align === 'right' ? 'right-0' : 'left-0'} bg-white border border-slate-200 rounded-xl shadow-xl p-1.5 flex gap-1`}
          onMouseLeave={onClose}>
       {QUICK_EMOJIS.map(e => (
         <button key={e} onClick={() => { onPick(e); onClose(); }}
-                className="text-lg hover:scale-125 transition-transform leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-slate-100">
+                className="text-base hover:scale-125 transition-transform leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100">
           {e}
         </button>
       ))}
@@ -375,6 +386,46 @@ function ReactionBar({ reactions, reactionsSelf, onToggle }: {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Divisor de data/hora entre mensagens ─────────────────────────────────────
+
+// Rótulo amigável de um dia: "Hoje", "Ontem", dia da semana (última semana) ou data.
+function formatDayLabel(d: Date): string {
+  if (isToday(d)) return 'Hoje';
+  if (isYesterday(d)) return 'Ontem';
+  const days = differenceInCalendarDays(new Date(), d);
+  if (days > 0 && days < 7) {
+    const wd = format(d, 'EEEE', { locale: ptBR });
+    return wd.charAt(0).toUpperCase() + wd.slice(1);
+  }
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return format(d, sameYear ? "d 'de' MMMM" : "d 'de' MMMM 'de' yyyy", { locale: ptBR });
+}
+
+// Decide se uma mensagem deve exibir um divisor antes dela e qual o rótulo.
+// - 1ª mensagem ou troca de dia → rótulo do dia (ex.: "Hoje", "Ontem", "12 de junho")
+// - mesmo dia, mas intervalo ≥ 1h em relação à anterior → horário (HH:mm)
+const GAP_DIVIDER_SECONDS = 60 * 60;
+function dividerLabel(prev: TalkMessage | undefined, m: TalkMessage): string | null {
+  const cur = new Date(m.timestamp * 1000);
+  if (!prev) return formatDayLabel(cur);
+  const prevDate = new Date(prev.timestamp * 1000);
+  if (!isSameDay(prevDate, cur)) return formatDayLabel(cur);
+  if (m.timestamp - prev.timestamp >= GAP_DIVIDER_SECONDS) {
+    return `${formatDayLabel(cur)} · ${format(cur, 'HH:mm')}`;
+  }
+  return null;
+}
+
+function DateDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center justify-center my-3">
+      <span className="text-[10px] font-medium text-slate-500 bg-slate-100 rounded-full px-2.5 py-0.5">
+        {label}
+      </span>
     </div>
   );
 }
@@ -455,17 +506,19 @@ function SeenBy({ names }: { names: string[] }) {
   );
 }
 
-function Bubble({ msg, isMe, onIssueClick, onReply, onEdit, onDelete, onReact, myId, seenBy, showSender, isDM }: {
+function Bubble({ msg, isMe, onIssueClick, onJumpTo, onReply, onEdit, onDelete, onReact, myId, seenBy, showSender, groupedWithNext, isDM }: {
   msg: TalkMessage;
   isMe: boolean;
   myId: string;
   onIssueClick?: (id: number) => void;
+  onJumpTo?: (id: number) => void;
   onReply: (msg: TalkMessage) => void;
   onEdit: (msg: TalkMessage) => void;
   onDelete: (msg: TalkMessage) => void;
   onReact: (msgId: number, emoji: string, remove: boolean) => void;
   seenBy: string[];
   showSender: boolean;
+  groupedWithNext: boolean;
   isDM: boolean;
 }) {
   const file = msg.message === '{file}'
@@ -482,14 +535,15 @@ function Bubble({ msg, isMe, onIssueClick, onReply, onEdit, onDelete, onReact, m
     : '';
   const [showMenu, setShowMenu] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const reactions = msg.reactions ?? {};
   const reactionsSelf = msg.reactionsSelf ?? [];
 
   return (
-    <div className={`relative flex ${showSender ? 'mb-2' : 'mb-0.5'} gap-1.5 group ${isMe ? 'flex-row-reverse' : 'flex-row'} items-end ${
+    <div className={`relative flex ${groupedWithNext ? 'mb-0.5' : 'mb-2'} gap-1.5 group ${isMe ? 'flex-row-reverse' : 'flex-row'} items-end ${
            showMenu || showEmoji ? 'z-30' : ''
          }`}
-         onMouseLeave={() => { setShowMenu(false); setShowEmoji(false); }}>
+         onMouseLeave={() => { setShowMenu(false); setShowEmoji(false); setConfirmDelete(false); }}>
       {!isMe && !isDM && (
         showSender
           ? <TalkAvatar actorId={msg.actorId} displayName={msg.actorDisplayName} size={24} />
@@ -501,21 +555,16 @@ function Bubble({ msg, isMe, onIssueClick, onReply, onEdit, onDelete, onReact, m
             {msg.actorDisplayName.split(' ')[0]}
           </span>
         )}
-        {/* Barra de ações (hover) */}
-        <div className={`absolute ${isMe ? 'left-0 -translate-x-full pr-1' : 'right-0 translate-x-full pl-1'} top-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity`}>
-          <div className="relative">
-            <button onClick={() => setShowEmoji(v => !v)}
-                    className="p-1 rounded-lg bg-white border border-slate-200 text-slate-400 hover:text-slate-600 shadow-sm"
-                    title="Reagir">
-              <SmilePlus size={11} />
-            </button>
-            {showEmoji && (
-              <EmojiPicker
-                onPick={e => onReact(msg.id, e, reactionsSelf.includes(e))}
-                onClose={() => setShowEmoji(false)}
-              />
-            )}
-          </div>
+        {msg.parent && <QuotedMessage parent={msg.parent} isMe={isMe} onJump={onJumpTo} />}
+        <div id={`talk-msg-${msg.id}`} className="relative rounded-2xl">
+        {/* Barra de ações (hover) — sobreposta à borda superior da bolha, ancorada
+            para dentro, p/ nunca ser cortada em janelas estreitas */}
+        <div className={`absolute top-0 z-20 -translate-y-1/2 ${isMe ? 'right-1' : 'left-1'} flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity`}>
+          <button onClick={() => setShowEmoji(v => !v)}
+                  className="p-1 rounded-lg bg-white border border-slate-200 text-slate-400 hover:text-slate-600 shadow-sm"
+                  title="Reagir">
+            <SmilePlus size={11} />
+          </button>
           {msg.isReplyable && (
             <button onClick={() => onReply(msg)}
                     className="p-1 rounded-lg bg-white border border-slate-200 text-slate-400 hover:text-slate-600 shadow-sm"
@@ -531,22 +580,48 @@ function Bubble({ msg, isMe, onIssueClick, onReply, onEdit, onDelete, onReact, m
                 <Pencil size={11} />
               </button>
               {showMenu && (
-                <div className="absolute top-full mt-1 right-0 z-20 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden min-w-[120px]">
-                  <button onClick={() => { onEdit(msg); setShowMenu(false); }}
-                          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-xs text-slate-700">
-                    <Pencil size={11} /> Editar
-                  </button>
-                  <button onClick={() => { onDelete(msg); setShowMenu(false); }}
-                          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-red-50 text-xs text-red-600">
-                    <Trash2 size={11} /> Excluir
-                  </button>
+                <div className="absolute top-full mt-1 right-0 z-20 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden min-w-[140px]">
+                  {confirmDelete ? (
+                    <div className="p-2">
+                      <p className="text-[11px] text-slate-600 px-1 pb-1.5">Excluir esta mensagem?</p>
+                      <div className="flex gap-1.5">
+                        <button onClick={() => { onDelete(msg); setShowMenu(false); setConfirmDelete(false); }}
+                                className="flex-1 px-2 py-1 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-medium transition-colors">
+                          Excluir
+                        </button>
+                        <button onClick={() => setConfirmDelete(false)}
+                                className="flex-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-medium transition-colors">
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <button onClick={() => { onEdit(msg); setShowMenu(false); }}
+                              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-xs text-slate-700">
+                        <Pencil size={11} /> Editar
+                      </button>
+                      <button onClick={() => setConfirmDelete(true)}
+                              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-red-50 text-xs text-red-600">
+                        <Trash2 size={11} /> Excluir
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </>
           )}
+          {/* Picker ancorado pela barra (borda = borda da bolha), usando toda a
+              largura disponível — não fica preso à posição do botão de emoji */}
+          {showEmoji && (
+            <EmojiPicker
+              align={isMe ? 'right' : 'left'}
+              onPick={e => onReact(msg.id, e, reactionsSelf.includes(e))}
+              onClose={() => setShowEmoji(false)}
+            />
+          )}
         </div>
 
-        {msg.parent && <QuotedMessage parent={msg.parent} isMe={isMe} />}
         <div className={`rounded-2xl text-xs leading-relaxed break-words overflow-hidden ${
           isImage ? 'p-1' : 'px-3 py-1.5'
         } ${
@@ -569,6 +644,7 @@ function Bubble({ msg, isMe, onIssueClick, onReply, onEdit, onDelete, onReact, m
             renderBubbleContent(resolveMessageText(msg), isMe, onIssueClick)
           )}
         </div>
+        </div>
         {/* OG preview — só para mensagens de texto com URL externa */}
         {!file && (() => {
           const text = resolveMessageText(msg);
@@ -577,8 +653,11 @@ function Bubble({ msg, isMe, onIssueClick, onReply, onEdit, onDelete, onReact, m
         })()}
         <ReactionBar reactions={reactions} reactionsSelf={reactionsSelf}
                      onToggle={(e, remove) => onReact(msg.id, e, remove)} />
-        <span className="text-[9px] text-slate-300 mt-0.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {formatDistanceToNow(new Date(msg.timestamp * 1000), { addSuffix: true, locale: ptBR })}
+        <span className={`text-[9px] text-slate-300 mt-0.5 px-1 transition-opacity ${
+          groupedWithNext ? 'opacity-0 group-hover:opacity-100' : 'opacity-100'
+        }`}
+              title={format(new Date(msg.timestamp * 1000), "d 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR })}>
+          {format(new Date(msg.timestamp * 1000), 'HH:mm')}
         </span>
         {isMe && <SeenBy names={seenBy} />}
       </div>
@@ -986,6 +1065,18 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
   // Reply / edit
   const [replyTo, setReplyTo] = useState<TalkMessage | null>(null);
   const [editTarget, setEditTarget] = useState<TalkMessage | null>(null);
+  // O Talk nem sempre devolve `parent` nas mensagens do próprio autor; guardamos
+  // a citação localmente (por id da mensagem enviada) p/ mostrar a referência.
+  const [replyParents, setReplyParents] = useState<Record<number, NonNullable<TalkMessage['parent']>>>({});
+
+  // Rola até a mensagem citada e a destaca brevemente.
+  const jumpToMessage = useCallback((id: number) => {
+    const el = document.getElementById(`talk-msg-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('talk-flash');
+    setTimeout(() => el.classList.remove('talk-flash'), 1200);
+  }, []);
 
   // Search
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1110,7 +1201,22 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
       editMsg.mutate({ messageId: editTarget.id, message: text });
       setEditTarget(null);
     } else {
-      send.mutate({ message: text, replyTo: replyId });
+      const repliedTo = replyTo;
+      send.mutate({ message: text, replyTo: replyId }, {
+        onSuccess: (data) => {
+          // Persiste a citação da própria mensagem: usa o parent do servidor se vier,
+          // senão sintetiza a partir da mensagem que estava sendo respondida.
+          if (!replyId || !data?.id) return;
+          const parent = data.parent ?? (repliedTo ? {
+            id: repliedTo.id,
+            actorDisplayName: repliedTo.actorDisplayName,
+            message: repliedTo.message,
+            messageParameters: repliedTo.messageParameters,
+            messageType: repliedTo.messageType,
+          } : null);
+          if (parent) setReplyParents(prev => ({ ...prev, [data.id]: parent }));
+        },
+      });
     }
     setReplyTo(null);
   };
@@ -1252,19 +1358,34 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
           {visibleMessages.map((m, idx) => {
             const isMe = m.actorId === myId;
             const prev = visibleMessages[idx - 1];
-            const grouped = !!prev && prev.actorId === m.actorId && (m.timestamp - prev.timestamp) < 5 * 60;
+            const next = visibleMessages[idx + 1];
+            const noDividers = !searchQuery.trim();
+            // Divisor de data/hora não se aplica durante a busca (resultados não-contíguos)
+            const divider = noDividers ? dividerLabel(prev, m) : null;
+            const grouped = !divider && !!prev && prev.actorId === m.actorId && (m.timestamp - prev.timestamp) < 5 * 60;
+            // Agrupada com a próxima? (mesmo autor, <5min e sem divisor entre elas)
+            // Controla a margem inferior e a exibição do horário (sempre visível na última do bloco).
+            const groupedWithNext = !!next && next.actorId === m.actorId
+              && (next.timestamp - m.timestamp) < 5 * 60
+              && !(noDividers && dividerLabel(m, next));
             const isDM = room.type === 1;
             const showSender = !isMe && !grouped && !isDM;
+            // Completa a citação caso o servidor não tenha mandado o parent (msgs próprias)
+            const msg = m.parent || !replyParents[m.id] ? m : { ...m, parent: replyParents[m.id] };
             return (
-              <Bubble key={m.id} msg={m} isMe={isMe} myId={myId}
-                      showSender={showSender} isDM={isDM}
-                      onIssueClick={onIssueClick}
-                      onReply={msg => { setReplyTo(msg); setEditTarget(null); }}
-                      onEdit={msg => { setEditTarget(msg); setReplyTo(null); }}
-                      onDelete={msg => { if (confirm('Excluir esta mensagem?')) deleteMsg.mutate(msg.id); }}
-                      onReact={(msgId, emoji, remove) => react.mutate({ messageId: msgId, reaction: emoji, remove })}
-                      seenBy={seenByMap.get(m.id) ?? []}
-              />
+              <Fragment key={m.id}>
+                {divider && <DateDivider label={divider} />}
+                <Bubble msg={msg} isMe={isMe} myId={myId}
+                        showSender={showSender} groupedWithNext={groupedWithNext} isDM={isDM}
+                        onIssueClick={onIssueClick}
+                        onJumpTo={jumpToMessage}
+                        onReply={msg => { setReplyTo(msg); setEditTarget(null); }}
+                        onEdit={msg => { setEditTarget(msg); setReplyTo(null); }}
+                        onDelete={msg => deleteMsg.mutate(msg.id)}
+                        onReact={(msgId, emoji, remove) => react.mutate({ messageId: msgId, reaction: emoji, remove })}
+                        seenBy={seenByMap.get(m.id) ?? []}
+                />
+              </Fragment>
             );
           })}
         </div>

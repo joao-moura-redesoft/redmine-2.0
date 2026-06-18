@@ -42,6 +42,39 @@ export function useIssueDetail(id: number | null) {
   });
 }
 
+// Transições de workflow permitidas — query separada e sob demanda (não bloqueia
+// o load da tarefa). A chave de cache são os DETERMINANTES do workflow (não o
+// issueId): tarefas no mesmo projeto/tracker/status/papel compartilham o
+// resultado, evitando 1 request por tarefa. `enabled` controla quando dispara.
+export interface WorkflowKey {
+  issueId: number | null;
+  projectId?: number; trackerId?: number; statusId?: number;
+  isAuthor?: boolean; isAssignee?: boolean;
+}
+export function useAllowedStatuses(wf: WorkflowKey, enabled: boolean) {
+  const { issueId, projectId, trackerId, statusId, isAuthor, isAssignee } = wf;
+  return useQuery({
+    queryKey: ['allowedStatuses', projectId, trackerId, statusId, isAuthor, isAssignee],
+    queryFn: () => redmineApi.getAllowedStatuses(issueId!, { projectId, trackerId, statusId, isAuthor, isAssignee }),
+    enabled: enabled && issueId !== null && statusId !== undefined,
+    staleTime: 10 * 60 * 1000, // workflow muda raríssimas vezes
+  });
+}
+
+// Schema dos campos editáveis — só buscado quando um 422 de obrigatório acontece.
+// Cacheado por projeto+tracker (estrutura de campos depende disso).
+export function useEditFields(
+  wf: { issueId: number | null; projectId?: number; trackerId?: number },
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['editFields', wf.projectId, wf.trackerId],
+    queryFn: () => redmineApi.getEditFields(wf.issueId!, { projectId: wf.projectId, trackerId: wf.trackerId }),
+    enabled: enabled && wf.issueId !== null,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useUpdateIssueStatus() {
   const qc = useQueryClient();
   return useMutation({

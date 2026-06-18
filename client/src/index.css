@@ -17,6 +17,19 @@
    ─────────────────────────────────────────────── */
 html.dark body { background-color: #0f172a; color: #f1f5f9; }
 
+/* Destaque ao pular para uma mensagem citada (Talk) */
+@keyframes talk-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+  25%      { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); }
+}
+.talk-flash { animation: talk-flash 1.2s ease-out; }
+
+/* Citação de resposta (Talk): contraste explícito nos dois modos */
+.talk-quote { background-color: #e2e8f0; color: #475569; }   /* claro: slate-200 / slate-600 */
+.talk-quote:hover { background-color: #cbd5e1; }
+html.dark .talk-quote { background-color: #334155; color: #cbd5e1; }  /* escuro: slate-700 / slate-300 */
+html.dark .talk-quote:hover { background-color: #475569; }
+
 /* Fundos */
 html.dark .bg-white { background-color: #1e293b !important; }      /* slate-800 */
 html.dark .bg-slate-50 { background-color: #0f172a !important; }   /* slate-900 */
@@ -142,9 +155,12 @@ html.dark .prose-redmine h1, html.dark .prose-redmine h2, html.dark .prose-redmi
 }
 .prose-redmine p { @apply mb-2; }
 .prose-redmine p:last-child { @apply mb-0; }
-.prose-redmine h1, .prose-redmine h2, .prose-redmine h3 { @apply font-semibold text-slate-800 mt-3 mb-1; }
-.prose-redmine h1 { @apply text-base; }
-.prose-redmine h2 { @apply text-sm; }
+.prose-redmine h1, .prose-redmine h2, .prose-redmine h3 { @apply font-semibold text-slate-800 mt-4 mb-2; }
+.prose-redmine h1 { @apply text-lg; }
+.prose-redmine h2 { @apply text-base; }
+.prose-redmine h3 { @apply text-sm; }
+/* Primeiro elemento sem margem no topo, pra não abrir um vão no início da nota/descrição */
+.prose-redmine > :first-child { @apply mt-0; }
 .prose-redmine ul { @apply list-disc pl-5 mb-2; }
 .prose-redmine ol { @apply list-decimal pl-5 mb-2; }
 .prose-redmine li { @apply mb-0.5; }
@@ -188,6 +204,13 @@ html.dark .note-doc .note-issue-link { color: #93c5fd; }
 .note-doc ul[data-type="taskList"] li > div > p { margin: 0; }
 .note-doc ul[data-type="taskList"] input[type="checkbox"] { cursor: pointer; accent-color: #2563eb; width: 0.95rem; height: 0.95rem; }
 .note-doc ul[data-type="taskList"] li[data-checked="true"] > div { color: #94a3b8; text-decoration: line-through; }
+/* Tabelas (coladas de Markdown GFM ou via /tabela) */
+.note-doc table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 14px; table-layout: fixed; overflow: hidden; }
+.note-doc table td, .note-doc table th { border: 1px solid #e2e8f0; padding: 0.375rem 0.625rem; vertical-align: top; text-align: left; position: relative; min-width: 3rem; }
+.note-doc table th { background: #f8fafc; font-weight: 600; color: #1e293b; }
+.note-doc table td > p, .note-doc table th > p { margin: 0; }
+.note-doc table .selectedCell:after { content: ''; position: absolute; inset: 0; background: rgba(37,99,235,0.08); pointer-events: none; }
+.note-doc table .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: 0; width: 4px; background: #2563eb; cursor: col-resize; }
 /* Placeholder (aparece só quando o doc está vazio) */
 .note-doc p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
@@ -200,6 +223,8 @@ html.dark .note-doc h1, html.dark .note-doc h2, html.dark .note-doc h3, html.dar
 html.dark .note-doc code { background: #334155; color: #f1f5f9; }
 html.dark .note-doc blockquote { color: #94a3b8; border-color: #475569; }
 html.dark .note-doc p.is-editor-empty:first-child::before { color: #475569; }
+html.dark .note-doc table td, html.dark .note-doc table th { border-color: #334155; }
+html.dark .note-doc table th { background: #1e293b; color: #f1f5f9; }
 
 /* ── Conteúdo renderizado de páginas DokuWiki ───────────────────────────── */
 .wiki-content { font-size: 14px; line-height: 1.7; color: #334155; }

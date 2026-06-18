@@ -4,6 +4,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { redmineApi } from '../api/redmine';
 import { getAIKey } from '../utils/aiConfig';
+import { aiErrorMessage } from '../utils/aiError';
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -81,8 +82,7 @@ export function AssistantView({ onIssueClick }: { onIssueClick?: (id: number) =>
       const { reply, trace } = await redmineApi.aiChat(next.map(m => ({ role: m.role, content: m.content })));
       setMessages(m => [...m, { role: 'assistant', content: reply || '(sem resposta)', trace }]);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg.includes('401') || msg.includes('403') ? 'Chave de IA inválida. Verifique nas Configurações.' : 'Erro ao falar com o assistente. Tente novamente.');
+      setError(aiErrorMessage(e, 'Erro ao falar com o assistente. Tente novamente.'));
       setMessages(m => m.slice(0, -1)); // remove a pergunta que falhou
       setInput(q);
     } finally {

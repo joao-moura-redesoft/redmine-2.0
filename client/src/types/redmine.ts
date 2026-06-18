@@ -9,6 +9,17 @@ export interface CustomField {
   value: string | string[] | null;
 }
 
+// Campo editável extraído do formulário HTML da issue (para o popup de obrigatórios).
+export interface EditField {
+  id: string;
+  label: string;
+  type: 'select' | 'multiselect' | 'date' | 'textarea' | 'text' | 'number' | 'bool';
+  options?: { value: string; label: string }[];
+  kind: 'standard' | 'custom';
+  cfId?: number;   // quando kind === 'custom'
+  name?: string;   // quando kind === 'standard' (ex.: 'estimated_hours')
+}
+
 export interface JournalDetail {
   property: string;
   name: string;

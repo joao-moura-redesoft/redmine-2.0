@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Sparkles, Copy, Check, Loader2, RefreshCw, CalendarRange, Sun } from 'lucide-react';
 import { redmineApi } from '../api/redmine';
 import { getAIKey } from '../utils/aiConfig';
+import { aiErrorMessage } from '../utils/aiError';
 import type { Issue } from '../types/redmine';
 
 type Mode = 'daily' | 'weekly';
@@ -38,10 +39,7 @@ export function StandupModal({ issues, completedIssues = [], onClose }: Props) {
       setStandup(text);
       setGenerated(true);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg.includes('401') || msg.includes('403')
-        ? 'Chave inválida. Verifique nas Configurações.'
-        : 'Erro ao gerar. Tente novamente.');
+      setError(aiErrorMessage(err, 'Erro ao gerar. Tente novamente.'));
     } finally {
       setLoading(false);
     }
