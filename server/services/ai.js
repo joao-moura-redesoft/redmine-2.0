@@ -160,6 +160,16 @@ async function aiComplete(provider, key, { system, user, userContent, maxTokens 
   throw new Error(`provider desconhecido: ${provider}`);
 }
 
+// Transcreve áudio via OpenAI Whisper. Recebe um Buffer e devolve o texto.
+// Só OpenAI por enquanto (Anthropic não transcreve; o endpoint compatível do
+// Gemini não expõe /audio/transcriptions).
+async function transcribeAudio(key, buffer, filename = 'meeting.webm', mime = 'audio/webm') {
+  const client = new OpenAI({ apiKey: key });
+  const file = await OpenAI.toFile(buffer, filename, { type: mime });
+  const resp = await client.audio.transcriptions.create({ file, model: 'whisper-1' });
+  return (resp.text || '').trim();
+}
+
 const PROMPT_SYSTEM = `Você é um assistente especializado no ERP B2click (frontend Delphi, backend Java 21 com sintaxe legada).
 Gere prompts autocontidos em Markdown para serem colados em outra sessão de Claude Code.
 Responda APENAS com o conteúdo Markdown, sem explicações extras.`;
@@ -431,6 +441,7 @@ module.exports = {
   fetchAttachmentBase64,
   imageBlock,
   aiComplete,
+  transcribeAudio,
   PROMPT_SYSTEM,
   PROMPT_TEMPLATE,
   htmlToText,

@@ -64,6 +64,7 @@ export interface TalkParticipant {
   actorType: string;
   displayName: string;
   participantType: number;
+  attendeeId?: number;
   lastReadMessage?: number;
 }
 
@@ -134,6 +135,20 @@ export async function fetchTalkMe(): Promise<{ id: string; displayName: string }
   return data;
 }
 
+export interface TalkUserProfile {
+  id: string;
+  displayName: string;
+  email: string;
+  organisation: string;
+  role: string;
+  phone: string;
+}
+
+export async function fetchTalkUser(userId: string): Promise<TalkUserProfile> {
+  const { data } = await api.get<TalkUserProfile>(`/users/${encodeURIComponent(userId)}`);
+  return data;
+}
+
 export async function markMessagesRead(token: string, lastReadMessage: number): Promise<void> {
   await api.post(`/rooms/${token}/read`, { lastReadMessage });
 }
@@ -155,6 +170,107 @@ export async function createRoom(roomType: number, invite: string, roomName?: st
   if (roomName) body.roomName = roomName;
   const { data } = await api.post<TalkRoom>('/rooms', body);
   return data;
+}
+
+// ─── Presença / User Status ─────────────────────────────────────────────────
+
+export type UserStatusType = 'online' | 'away' | 'dnd' | 'invisible' | 'offline';
+export interface UserStatus {
+  userId: string;
+  status: UserStatusType;
+  icon?: string | null;
+  message?: string | null;
+  clearAt?: number | null;
+}
+
+export async function fetchUserStatuses(): Promise<UserStatus[]> {
+  const { data } = await api.get<UserStatus[]>('/user-statuses');
+  return data;
+}
+
+export async function fetchMyStatus(): Promise<UserStatus | null> {
+  const { data } = await api.get<UserStatus | null>('/my-status');
+  return data;
+}
+
+export async function setMyStatusType(statusType: UserStatusType): Promise<void> {
+  await api.put('/my-status', { statusType });
+}
+
+export async function setMyStatusMessage(message: string, statusIcon?: string | null, clearAt?: number | null): Promise<void> {
+  await api.put('/my-status/message', { message, statusIcon, clearAt });
+}
+
+export async function clearMyStatusMessage(): Promise<void> {
+  await api.delete('/my-status/message');
+}
+
+// Compartilhamentos agrupados por tipo (cada item tem o mesmo formato de mensagem)
+export type TalkShareOverview = Partial<Record<
+  'media' | 'file' | 'voice' | 'audio' | 'location' | 'deckcard' | 'other',
+  TalkMessage[]
+>>;
+
+export async function fetchRoomShares(token: string): Promise<TalkShareOverview> {
+  const { data } = await api.get<TalkShareOverview>(`/rooms/${token}/shares`);
+  return data;
+}
+
+export async function fetchRoomSharesByType(token: string, objectType: string): Promise<TalkMessage[]> {
+  const { data } = await api.get<TalkMessage[]>(`/rooms/${token}/shares/${objectType}`);
+  return data;
+}
+
+export interface TalkSearchResult {
+  id: number;
+  actorDisplayName: string;
+  message: string;
+  timestamp: number;
+}
+
+export async function searchMessages(token: string, term: string): Promise<TalkSearchResult[]> {
+  const { data } = await api.get<TalkSearchResult[]>(`/rooms/${token}/search`, { params: { term } });
+  return data;
+}
+
+// ─── Gestão de grupos ──────────────────────────────────────────────────────────
+
+export async function renameRoom(token: string, roomName: string): Promise<void> {
+  await api.put(`/rooms/${token}`, { roomName });
+}
+
+export async function setRoomDescription(token: string, description: string): Promise<void> {
+  await api.put(`/rooms/${token}/description`, { description });
+}
+
+export async function addParticipant(token: string, userId: string, source = 'users'): Promise<void> {
+  await api.post(`/rooms/${token}/participants`, { newParticipant: userId, source });
+}
+
+export async function removeAttendee(token: string, attendeeId: number): Promise<void> {
+  await api.delete(`/rooms/${token}/attendees`, { params: { attendeeId } });
+}
+
+export async function promoteModerator(token: string, attendeeId: number): Promise<void> {
+  await api.post(`/rooms/${token}/moderators`, { attendeeId });
+}
+
+export async function demoteModerator(token: string, attendeeId: number): Promise<void> {
+  await api.delete(`/rooms/${token}/moderators`, { params: { attendeeId } });
+}
+
+export async function leaveRoom(token: string): Promise<void> {
+  await api.delete(`/rooms/${token}/participants/self`);
+}
+
+export async function uploadRoomAvatar(token: string, file: File): Promise<void> {
+  await api.post(`/rooms/${token}/avatar`, file, {
+    headers: {
+      'x-filename': encodeURIComponent(file.name),
+      'x-content-type': file.type || 'image/png',
+      'Content-Type': file.type || 'image/png',
+    },
+  });
 }
 
 export async function initLoginFlow(ncUrl: string): Promise<{ loginUrl: string; pollEndpoint: string; pollToken: string }> {

@@ -128,8 +128,10 @@ export const mailApi = {
     return data;
   },
 
-  action: async (id: string, op: string): Promise<void> => {
-    await api.post(`/mail/messages/${id}/action`, { op });
+  // op ∈ read|!read|flag|!flag|trash|spam|move|delete. Para 'move', informe
+  // `target` = id da pasta destino (Inbox=2, Trash=3…).
+  action: async (id: string, op: string, target?: string | number): Promise<void> => {
+    await api.post(`/mail/messages/${id}/action`, { op, l: target });
   },
 
   send: async (payload: { to: string[]; cc?: string[]; subject: string; text?: string; html?: string; inReplyTo?: string }): Promise<void> => {

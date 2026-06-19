@@ -33,6 +33,7 @@ import { AssistantView } from './components/AssistantView';
 import { MailView } from './components/MailView';
 import { WikiView } from './components/WikiView';
 import { TotpView } from './components/TotpView';
+import { MeetingsView } from './components/MeetingsView';
 import { MyDayView } from './components/MyDayView';
 import type { NotePatch } from './api/notes';
 import { mailApi } from './api/mail';
@@ -41,15 +42,19 @@ import {
   LayoutGrid, Gem, ChevronDown, ChevronLeft, ChevronRight, Eye, PenLine,
   LogOut, Bell, BellOff, X, BarChart3, Star, Sun, Moon, Users, CalendarDays,
   ClipboardCheck, Inbox, Plus, FlaskConical, GitMerge, Rocket, Settings,
-  Sparkles, NotebookPen, Bot, ShieldCheck, AtSign, Mail, BookOpen,
+  Sparkles, NotebookPen, Bot, ShieldCheck, AtSign, Mail, BookOpen, Video,
 } from 'lucide-react';
+import { useJitsi } from './components/jitsi/JitsiContext';
+import { CallWindow } from './components/jitsi/CallWindow';
+import { MeetingLiveToasts } from './components/jitsi/MeetingLiveToasts';
+import { DAILY_ROOM } from './utils/jitsiConfig';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Routes, Route, Navigate, NavLink, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Issue } from './types/redmine';
 
-type Tab = 'inbox' | 'dashboard' | 'myday' | 'kanban' | 'calendar' | 'review' | 'test' | 'integrate' | 'monitoring' | 'authored' | 'watched' | 'people' | 'team' | 'release' | 'notes' | 'assistant' | 'mail' | 'wiki' | 'totp';
+type Tab = 'inbox' | 'dashboard' | 'myday' | 'kanban' | 'calendar' | 'review' | 'test' | 'integrate' | 'monitoring' | 'authored' | 'watched' | 'people' | 'team' | 'release' | 'meetings' | 'notes' | 'assistant' | 'mail' | 'wiki' | 'totp';
 
 export function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!getStoredAuth());
@@ -70,6 +75,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   useEffect(() => { initSession(); }, []);
 
   const { data: user } = useCurrentUser();
+  const { startCall: startJitsiCall, activeCall: activeJitsiCall } = useJitsi();
   const { data: projects } = useProjects();
   const issuesQuery = useIssues();
   const allIssues = issuesQuery.data;
@@ -209,6 +215,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     { id: 'people',     label: 'Pessoas',            icon: <Users size={15} /> },
     { id: 'team',       label: 'Time',               icon: <Users size={15} /> },
     { id: 'release',    label: 'Release',             icon: <Rocket size={15} /> },
+    { id: 'meetings',   label: 'Reuniões',            icon: <Video size={15} /> },
     { id: 'mail',       label: 'E-mail',              icon: <Mail size={15} />,         count: mailUnread.data?.unread },
     { id: 'wiki',       label: 'Wiki',                icon: <BookOpen size={15} /> },
     { id: 'notes',      label: 'Notas',               icon: <NotebookPen size={15} /> },
@@ -220,7 +227,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     { label: null,           ids: ['inbox', 'dashboard', 'myday', 'kanban', 'calendar'] },
     { label: 'Fila',         ids: ['review', ...(toTest.length ? ['test' as Tab] : []), ...(toIntegrate.length ? ['integrate' as Tab] : []), 'monitoring'] },
     { label: 'Descoberta',   ids: ['authored', 'watched'] },
-    { label: 'Colaboração',  ids: ['people', 'team', 'release'] },
+    { label: 'Colaboração',  ids: ['people', 'team', 'release', 'meetings'] },
     { label: 'Ferramentas',  ids: ['mail', 'wiki', 'notes', 'assistant', 'totp'] },
   ];
 
@@ -408,6 +415,20 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             </div>
           )}
 
+          {/* Reunião Diária (sala fixa de vídeo) */}
+          <button
+            onClick={() => startJitsiCall({ room: DAILY_ROOM, title: 'Reunião Diária', kind: 'daily' })}
+            title="Entrar na sala fixa da daily/standup"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors flex-shrink-0 ${
+              activeJitsiCall?.room === DAILY_ROOM
+                ? 'border-red-300 bg-red-50 text-red-600 dark:bg-red-900/20 dark:border-red-800'
+                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Video size={13} />
+            <span className="hidden sm:inline">Reunião Diária</span>
+          </button>
+
           {/* Notificação permission */}
           {notifPermission !== 'granted' && 'Notification' in window && (
             <button
@@ -516,6 +537,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             <Route path="/people"    element={<PeopleView onIssueClick={openIssue} />} />
             <Route path="/team"      element={<TeamView onIssueClick={openIssue} />} />
             <Route path="/release"   element={<ReleaseView onIssueClick={openIssue} />} />
+            <Route path="/meetings"  element={<MeetingsView onIssueClick={openIssue} />} />
             <Route path="/notes"     element={<NotesView onIssueClick={openIssue} seed={noteSeed} focus={notesFocus} />} />
             <Route path="/assistant" element={<AssistantView onIssueClick={openIssue} />} />
             <Route path="/mail"      element={<MailView />} />
@@ -644,6 +666,12 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         openRoomToken={pendingTalkToken}
         onRoomOpened={() => setPendingTalkToken(null)}
       />
+
+      {/* Janela flutuante de vídeo (Jitsi War Room) */}
+      <CallWindow />
+
+      {/* Avisos de reunião ao vivo nas suas tarefas */}
+      <MeetingLiveToasts />
     </div>
   );
 }

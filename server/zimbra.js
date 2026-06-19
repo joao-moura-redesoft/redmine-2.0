@@ -278,11 +278,12 @@ async function searchMessages(req, q, { limit = 25, offset = 0 } = {}) {
   return { messages: (resp.m || []).map(slimMessage), more: !!resp.more, offset: Number(offset) };
 }
 
-// Marca/desmarca lido, sinaliza, move para lixeira etc.
-async function actOnMessage(req, id, op) {
-  await mailSoap(req, 'urn:zimbraMail', 'MsgActionRequest', {
-    action: { id: String(id), op },
-  });
+// Marca/desmarca lido, sinaliza, move para lixeira/pasta etc.
+// `op: 'move'` exige `target` (id da pasta destino: Inbox=2, Trash=3…).
+async function actOnMessage(req, id, op, target) {
+  const action = { id: String(id), op };
+  if (target != null && target !== '') action.l = String(target);
+  await mailSoap(req, 'urn:zimbraMail', 'MsgActionRequest', { action });
   return { success: true };
 }
 

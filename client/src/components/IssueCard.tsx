@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { CalendarDays, Tag, Copy, Check, ArrowLeftRight, AlertTriangle, Bell, BellRing, Clock, Archive, ListTodo, ChevronDown, Play, Square, Loader2 } from 'lucide-react';
+import { CalendarDays, Tag, Copy, Check, ArrowLeftRight, AlertTriangle, Bell, BellRing, Clock, Archive, ListTodo, ChevronDown, Play, Square, Loader2, Video } from 'lucide-react';
 import { IssueAIPanel } from './IssueAIPanel';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Issue, IssueStatus, IssueChild } from '../types/redmine';
 import { getMissingFields, getReviewAlert, getBranch, getPrevisaoRevisao } from '../utils/alerts';
 import { useAllowedStatuses, useCurrentUser } from '../hooks/useRedmine';
+import { useJitsiPresence } from '../hooks/useJitsiPresence';
+import { useJitsi } from './jitsi/JitsiContext';
+import { makeTaskRoom } from '../utils/jitsiConfig';
 
 const PRIORITY_COLORS: Record<string, string> = {
   Baixa: 'bg-slate-100 text-slate-600',
@@ -184,6 +187,53 @@ function ReviewBadge({ type }: { type: 'today' | 'overdue' }) {
   );
 }
 
+/* ── Badge AO VIVO (sala de vídeo ativa nesta tarefa) ── */
+function LiveBadge({ issue, compact }: { issue: Issue; compact?: boolean }) {
+  const { isLive, liveRoom } = useJitsiPresence();
+  const { startCall } = useJitsi();
+  if (!isLive(issue.id)) return null;
+  const info = liveRoom(issue.id);
+
+  const join = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    startCall({ room: makeTaskRoom(issue.id), title: `#${issue.id} ${issue.subject}`, kind: 'task', issueId: issue.id });
+  };
+
+  const dot = (
+    <span className="relative flex h-2 w-2 flex-shrink-0">
+      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+    </span>
+  );
+
+  if (compact) {
+    return (
+      <button
+        onPointerDown={e => e.stopPropagation()}
+        onClick={join}
+        title={`AO VIVO — ${info?.count} na sala. Clique para entrar.`}
+        className="flex items-center gap-1 text-[10px] font-bold text-red-600 flex-shrink-0"
+      >
+        {dot} AO VIVO
+      </button>
+    );
+  }
+
+  return (
+    <button
+      onPointerDown={e => e.stopPropagation()}
+      onClick={join}
+      title={`Entrar na sala — ${info?.participants.join(', ') || ''}`}
+      className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-bold hover:bg-red-100 transition-colors"
+    >
+      {dot}
+      <Video size={12} />
+      AO VIVO
+      {(info?.count ?? 0) > 1 && <span className="font-medium opacity-70">· {info?.count} pessoas</span>}
+    </button>
+  );
+}
+
 /* ── Subtask list ── */
 function SubtaskList({ children, statuses, onOpen, onDone }: {
   children: IssueChild[];
@@ -338,6 +388,7 @@ export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQ
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOTS[issue.priority.name] ?? 'bg-slate-400'}`} />
         <span className="text-xs text-slate-400 flex-shrink-0">#{issue.id}</span>
         <span className="text-xs font-medium text-slate-800 truncate">{issue.subject}</span>
+        <LiveBadge issue={issue} compact />
         {isTimerRunning && (
           <span className="flex items-center gap-0.5 text-[10px] font-mono text-green-600 bg-green-50 px-1.5 py-0.5 rounded flex-shrink-0 animate-pulse">
             <Square size={8} className="fill-green-600" />{timerFormatted}
@@ -388,6 +439,9 @@ export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQ
           <span className="font-normal opacity-70">em andamento</span>
         </div>
       )}
+
+      {/* Badge AO VIVO — sala de vídeo ativa nesta tarefa */}
+      {!isDragOverlay && <LiveBadge issue={issue} />}
 
       {/* Alertas de revisão e campos faltando */}
       {(reviewAlert || missingFields.length > 0) && (

@@ -1,18 +1,26 @@
 import { useState, useRef, useEffect, useCallback, useMemo, Fragment } from 'react';
 import {
   MessageSquare, X, Minus, Send, Paperclip, Reply, Pencil, Trash2,
-  Plus, Search, Wifi, WifiOff, ChevronUp, SmilePlus, Bell, BellOff,
+  Plus, Search, Wifi, WifiOff, ChevronUp, SmilePlus, Bell, BellOff, Smile,
+  Users, UserPlus, LogOut, Crown, Camera, Check, CheckCheck, UserMinus, Files, Link2, FileText, Download, Video, MoreVertical,
 } from 'lucide-react';
+import { useJitsi } from './jitsi/JitsiContext';
+import { makeTalkRoom, jitsiRoomUrl, callRoomFromText } from '../utils/jitsiConfig';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useTalkRooms, useTalkMessages, useSendMessage, useTalkCurrentUser,
   useEditMessage, useDeleteMessage, useReaction, useCreateRoom,
-  useSearchNCUsers, useTypingSender, useTalkSSE,
+  useSearchNCUsers, useTypingSender, useTalkSSE, useUserStatuses,
 } from '../hooks/useTalk';
 import {
   getTalkAuth, resolveMessageText, fetchParticipants, markMessagesRead,
-  uploadFileToTalk, fetchMessages,
+  uploadFileToTalk, fetchMessages, fetchTalkUser, createRoom,
+  renameRoom, setRoomDescription, addParticipant, removeAttendee,
+  promoteModerator, demoteModerator, leaveRoom, uploadRoomAvatar, searchNCUsers,
+  searchMessages, fetchRoomShares,
+  fetchMyStatus, setMyStatusType, setMyStatusMessage, clearMyStatusMessage,
 } from '../api/talk';
+import type { UserStatusType } from '../api/talk';
 import { getStoredAuth, authHeaders, redmineApi } from '../api/redmine';
 import { talkBridge } from '../utils/talkBridge';
 import { talkMute } from '../utils/talkMute';
@@ -168,8 +176,23 @@ function RedmineIssueChip({ id, isMe, onIssueClick }: {
 
 // ─── Avatar do usuário ────────────────────────────────────────────────────────
 
-function TalkAvatar({ actorId, displayName, size = 36 }: {
-  actorId: string; displayName: string; size?: number;
+// Cor da bolinha de presença por tipo de status do Nextcloud.
+const PRESENCE_COLOR: Record<string, string> = {
+  online: 'bg-green-500',
+  away: 'bg-amber-400',
+  dnd: 'bg-red-500',
+};
+function PresenceDot({ status, size = 10 }: { status?: UserStatusType; size?: number }) {
+  if (!status || status === 'offline' || status === 'invisible') return null;
+  const color = PRESENCE_COLOR[status] ?? 'bg-slate-300';
+  return (
+    <span className={`absolute -bottom-0.5 -right-0.5 rounded-full ring-2 ring-white ${color}`}
+          style={{ width: size, height: size }} />
+  );
+}
+
+function TalkAvatar({ actorId, displayName, size = 36, onClick, status }: {
+  actorId: string; displayName: string; size?: number; onClick?: () => void; status?: UserStatusType;
 }) {
   const auth = getTalkAuth();
   const { data: src } = useQuery({
@@ -189,9 +212,13 @@ function TalkAvatar({ actorId, displayName, size = 36 }: {
     staleTime: 10 * 60 * 1000,
   });
   const initials = displayName.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const dotSize = Math.max(7, Math.round(size * 0.3));
   return (
-    <div className="rounded-full overflow-hidden flex-shrink-0 bg-gradient-to-br from-blue-400 to-blue-600"
-         style={{ width: size, height: size }}>
+    <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
+    <div onClick={onClick ? (e => { e.stopPropagation(); onClick(); }) : undefined}
+         className={`rounded-full overflow-hidden w-full h-full bg-gradient-to-br from-blue-400 to-blue-600 ${
+           onClick ? 'cursor-pointer hover:ring-2 hover:ring-blue-300 transition-all' : ''
+         }`}>
       {src
         ? <img src={src} alt={displayName} className="w-full h-full object-cover" />
         : <div className="w-full h-full flex items-center justify-center text-white font-bold"
@@ -200,12 +227,84 @@ function TalkAvatar({ actorId, displayName, size = 36 }: {
           </div>
       }
     </div>
+      <PresenceDot status={status} size={dotSize} />
+    </div>
+  );
+}
+
+// ─── Pop-up de perfil de usuário ──────────────────────────────────────────────
+
+function UserProfilePopup({ actorId, displayName, myId, onClose, onOpenDM }: {
+  actorId: string;
+  displayName: string;
+  myId: string;
+  onClose: () => void;
+  onOpenDM: (userId: string) => void;
+}) {
+  const { data: profile, isLoading } = useQuery({
+    queryKey: ['talk-user-profile', actorId],
+    queryFn: () => fetchTalkUser(actorId),
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: statuses } = useUserStatuses();
+  const userStatus = statuses?.get(actorId);
+  const isSelf = actorId === myId;
+  const name = profile?.displayName || displayName;
+  // Alguns Nextcloud usam UUID como user id (LDAP/SAML) — não faz sentido exibir.
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actorId);
+  const STATUS_LABEL: Record<string, string> = { online: 'Online', away: 'Ausente', dnd: 'Não perturbe', offline: 'Offline', invisible: 'Offline' };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="w-72 bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="relative flex flex-col items-center pt-6 pb-4 px-5 bg-gradient-to-b from-blue-50 to-white">
+          <button onClick={onClose}
+                  className="absolute top-2 right-2 p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+            <X size={14} />
+          </button>
+          <TalkAvatar actorId={actorId} displayName={name} size={72} status={userStatus?.status} />
+          <p className="mt-3 text-base font-semibold text-slate-800 text-center">{name}</p>
+          {!isUuid && <p className="text-xs text-slate-400">@{actorId}</p>}
+          {userStatus && (userStatus.message || (userStatus.status && userStatus.status !== 'offline')) && (
+            <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
+              {userStatus.icon && <span>{userStatus.icon}</span>}
+              {userStatus.message || STATUS_LABEL[userStatus.status]}
+            </p>
+          )}
+        </div>
+
+        <div className="px-5 pb-4 space-y-1.5">
+          {isLoading && <p className="text-xs text-slate-400 text-center py-2">Carregando…</p>}
+          {!isLoading && profile?.role && (
+            <p className="text-xs text-slate-600"><span className="text-slate-400">Cargo:</span> {profile.role}</p>
+          )}
+          {!isLoading && profile?.organisation && (
+            <p className="text-xs text-slate-600"><span className="text-slate-400">Equipe:</span> {profile.organisation}</p>
+          )}
+          {!isLoading && profile?.email && (
+            <a href={`mailto:${profile.email}`} className="block text-xs text-blue-600 hover:underline break-all">
+              {profile.email}
+            </a>
+          )}
+          {!isLoading && profile?.phone && (
+            <p className="text-xs text-slate-600">{profile.phone}</p>
+          )}
+
+          {!isSelf && (
+            <button onClick={() => { onOpenDM(actorId); onClose(); }}
+                    className="mt-3 w-full flex items-center justify-center gap-2 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors">
+              <MessageSquare size={14} /> Mensagem Direta
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
 // ─── Avatar de sala (grupos usam avatar dedicado do Talk) ─────────────────────
 
-function RoomAvatar({ room, size = 36 }: { room: TalkRoom; size?: number }) {
+function RoomAvatar({ room, size = 36, status }: { room: TalkRoom; size?: number; status?: UserStatusType }) {
   const auth = getTalkAuth();
   const { data: src } = useQuery({
     queryKey: ['talk-room-avatar', room.token, size],
@@ -225,7 +324,7 @@ function RoomAvatar({ room, size = 36 }: { room: TalkRoom; size?: number }) {
   });
 
   if (room.type === 1) {
-    return <TalkAvatar actorId={room.name} displayName={room.displayName} size={size} />;
+    return <TalkAvatar actorId={room.name} displayName={room.displayName} size={size} status={status} />;
   }
 
   const initials = room.displayName.charAt(0).toUpperCase();
@@ -311,6 +410,41 @@ function TalkImage({ fileId, path, name, actorId }: {
   );
 }
 
+// Baixa um arquivo compartilhado no Talk via proxy autenticado. Recorre a abrir
+// no Nextcloud caso o download direto falhe.
+async function downloadTalkFile(
+  file: { id?: string; name?: string; path?: string },
+  actorId?: string,
+) {
+  const auth = getTalkAuth();
+  if (!auth || !file.id) return;
+  const params = new URLSearchParams({ fileId: file.id });
+  if (file.path) params.set('path', file.path);
+  if (actorId) params.set('actorId', actorId);
+  if (file.name) params.set('name', file.name);
+  try {
+    const r = await fetch(`/api/talk/file-download?${params}`, {
+      headers: {
+        'x-nextcloud-url': auth.url,
+        'x-nextcloud-user': auth.user,
+        'x-nextcloud-token': auth.token,
+      },
+    });
+    if (!r.ok) throw new Error('download failed');
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name || `arquivo_${file.id}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch {
+    window.open(`${auth.url}/index.php/f/${file.id}`, '_blank', 'noopener');
+  }
+}
+
 // ─── Mensagem citada (reply) ──────────────────────────────────────────────────
 
 function QuotedMessage({ parent, isMe, onJump }: {
@@ -343,20 +477,99 @@ function QuotedMessage({ parent, isMe, onJump }: {
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🔥'];
 
+// Seletor completo (emoji-mart) — usado tanto para reações quanto no input.
+// Renderiza em posição absoluta; `align` controla de que lado ancora.
+function FullEmojiPicker({ onPick, onClose, align = 'right', position = 'bottom' }: {
+  onPick: (e: string) => void;
+  onClose: () => void;
+  align?: 'left' | 'right';
+  position?: 'top' | 'bottom';
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  // Carrega o emoji-mart (componente + dados ~1.4MB) sob demanda, mantendo-o fora
+  // do bundle principal. Só baixa quando o usuário abre o seletor completo.
+  const [mart, setMart] = useState<{ Picker: React.ComponentType<Record<string, unknown>>; data: unknown } | null>(null);
+  useEffect(() => {
+    let active = true;
+    Promise.all([import('@emoji-mart/react'), import('@emoji-mart/data')])
+      .then(([mod, data]) => { if (active) setMart({ Picker: mod.default, data: (data as { default: unknown }).default }); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  // Fecha ao clicar fora
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [onClose]);
+
+  const Picker = mart?.Picker;
+  return (
+    <div ref={ref}
+         className={`talk-emoji-picker absolute z-[60] ${position === 'bottom' ? 'bottom-full mb-1' : 'top-full mt-1'} ${align === 'right' ? 'right-0' : 'left-0'} shadow-2xl rounded-xl overflow-hidden`}>
+      {Picker ? (
+        <Picker
+          data={mart!.data}
+          locale="pt"
+          theme={isDark ? 'dark' : 'light'}
+          previewPosition="none"
+          skinTonePosition="search"
+          perLine={7}
+          emojiButtonSize={28}
+          emojiSize={20}
+          maxFrequentRows={1}
+          navPosition="bottom"
+          onEmojiSelect={(e: { native: string }) => { onPick(e.native); onClose(); }}
+        />
+      ) : (
+        <div className="w-[240px] h-[120px] flex items-center justify-center bg-white border border-slate-200 rounded-xl">
+          <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EmojiPicker({ onPick, onClose, align = 'right' }: {
   onPick: (e: string) => void; onClose: () => void; align?: 'left' | 'right';
 }) {
+  const [full, setFull] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Fecha apenas ao clicar fora (não ao tirar o mouse) — assim a transição para o
+  // seletor completo não some quando o mouse fica fora da área do picker antigo.
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [onClose]);
+
+  if (full) {
+    return <FullEmojiPicker onPick={onPick} onClose={onClose} align={align} position="bottom" />;
+  }
+
   return (
     // Ancorada no lado de origem (right p/ minhas msgs, left p/ recebidas).
     // Emojis compactos em linha única — cabem na janela estreita sem quebrar.
-    <div className={`absolute z-50 bottom-full mb-1 ${align === 'right' ? 'right-0' : 'left-0'} bg-white border border-slate-200 rounded-xl shadow-xl p-1.5 flex gap-1`}
-         onMouseLeave={onClose}>
+    <div ref={ref}
+         className={`absolute z-50 bottom-full mb-1 ${align === 'right' ? 'right-0' : 'left-0'} bg-white border border-slate-200 rounded-xl shadow-xl p-1.5 flex gap-1 items-center`}>
       {QUICK_EMOJIS.map(e => (
         <button key={e} onClick={() => { onPick(e); onClose(); }}
                 className="text-base hover:scale-125 transition-transform leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100">
           {e}
         </button>
       ))}
+      <span className="w-px h-4 bg-slate-200 mx-0.5" />
+      <button onClick={() => setFull(true)} title="Mais emojis"
+              className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+        <Plus size={14} />
+      </button>
     </div>
   );
 }
@@ -492,21 +705,35 @@ function OGPreview({ url }: { url: string }) {
   );
 }
 
-function SeenBy({ names }: { names: string[] }) {
-  if (names.length === 0) return null;
+// Card de chamada de vídeo dentro da bolha (mensagem "iniciei uma chamada").
+function CallCard({ room, isMe }: { room: string; isMe: boolean }) {
+  const { startCall, activeCall, poppedOut } = useJitsi();
+  const here = activeCall?.room === room || poppedOut?.room === room;
   return (
-    <div className="flex items-center gap-0.5 mt-0.5 justify-end" title={`Visto por: ${names.join(', ')}`}>
-      {names.slice(0, 4).map((n, i) => (
-        <div key={i} className="w-3 h-3 rounded-full bg-slate-300 flex items-center justify-center text-[7px] text-slate-600 font-bold leading-none flex-shrink-0">
-          {n[0]?.toUpperCase()}
-        </div>
-      ))}
-      {names.length > 4 && <span className="text-[9px] text-slate-400">+{names.length - 4}</span>}
+    <div className={`flex items-center gap-2.5 ${isMe ? 'text-white' : 'text-slate-700'}`}>
+      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+        isMe ? 'bg-white/20' : 'bg-blue-100 text-blue-600'
+      }`}>
+        <Video size={16} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold leading-tight">Chamada de vídeo</p>
+        <p className={`text-[10px] ${isMe ? 'text-white/70' : 'text-slate-400'}`}>Toque para entrar</p>
+      </div>
+      <button onClick={() => startCall({ room, title: 'Chamada', kind: 'adhoc' })}
+              disabled={here}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors flex-shrink-0 ${
+                here
+                  ? (isMe ? 'bg-white/20 text-white/70' : 'bg-slate-100 text-slate-400')
+                  : (isMe ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-blue-600 text-white hover:bg-blue-700')
+              }`}>
+        <Video size={12} /> {here ? 'Na chamada' : 'Entrar'}
+      </button>
     </div>
   );
 }
 
-function Bubble({ msg, isMe, onIssueClick, onJumpTo, onReply, onEdit, onDelete, onReact, myId, seenBy, showSender, groupedWithNext, isDM }: {
+function Bubble({ msg, isMe, onIssueClick, onJumpTo, onReply, onEdit, onDelete, onReact, onAvatarClick, myId, readers, numActiveParticipants, showSender, grouped, groupedWithNext, isDM }: {
   msg: TalkMessage;
   isMe: boolean;
   myId: string;
@@ -516,8 +743,11 @@ function Bubble({ msg, isMe, onIssueClick, onJumpTo, onReply, onEdit, onDelete, 
   onEdit: (msg: TalkMessage) => void;
   onDelete: (msg: TalkMessage) => void;
   onReact: (msgId: number, emoji: string, remove: boolean) => void;
-  seenBy: string[];
+  onAvatarClick?: (actorId: string, displayName: string) => void;
+  readers: string[];
+  numActiveParticipants: number;
   showSender: boolean;
+  grouped: boolean;
   groupedWithNext: boolean;
   isDM: boolean;
 }) {
@@ -538,28 +768,34 @@ function Bubble({ msg, isMe, onIssueClick, onJumpTo, onReply, onEdit, onDelete, 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const reactions = msg.reactions ?? {};
   const reactionsSelf = msg.reactionsSelf ?? [];
+  // Mensagem de chamada de vídeo do Talk → renderiza card "Entrar na chamada".
+  const callRoom = !file ? callRoomFromText(resolveMessageText(msg)) : null;
 
   return (
     <div className={`relative flex ${groupedWithNext ? 'mb-0.5' : 'mb-2'} gap-1.5 group ${isMe ? 'flex-row-reverse' : 'flex-row'} items-end ${
            showMenu || showEmoji ? 'z-30' : ''
          }`}
-         onMouseLeave={() => { setShowMenu(false); setShowEmoji(false); setConfirmDelete(false); }}>
+         onMouseLeave={() => { if (!showEmoji && !showMenu) setConfirmDelete(false); }}>
       {!isMe && !isDM && (
         showSender
-          ? <TalkAvatar actorId={msg.actorId} displayName={msg.actorDisplayName} size={24} />
+          ? <TalkAvatar actorId={msg.actorId} displayName={msg.actorDisplayName} size={24}
+                        onClick={onAvatarClick ? () => onAvatarClick(msg.actorId, msg.actorDisplayName) : undefined} />
           : <div style={{ width: 24, flexShrink: 0 }} />
       )}
       <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[80%] min-w-0 relative`}>
         {!isMe && showSender && (
-          <span className="text-[10px] text-slate-400 mb-0.5 px-1">
+          <button onClick={() => onAvatarClick?.(msg.actorId, msg.actorDisplayName)}
+                  className="text-[10px] text-slate-400 mb-0.5 px-1 hover:text-blue-500 hover:underline transition-colors">
             {msg.actorDisplayName.split(' ')[0]}
-          </span>
+          </button>
         )}
         {msg.parent && <QuotedMessage parent={msg.parent} isMe={isMe} onJump={onJumpTo} />}
         <div id={`talk-msg-${msg.id}`} className="relative rounded-2xl">
         {/* Barra de ações (hover) — sobreposta à borda superior da bolha, ancorada
             para dentro, p/ nunca ser cortada em janelas estreitas */}
-        <div className={`absolute top-0 z-20 -translate-y-1/2 ${isMe ? 'right-1' : 'left-1'} flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity`}>
+        <div className={`absolute top-0 z-20 -translate-y-1/2 ${isMe ? 'right-1' : 'left-1'} flex items-center gap-0.5 transition-opacity ${
+          showEmoji || showMenu ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}>
           <button onClick={() => setShowEmoji(v => !v)}
                   className="p-1 rounded-lg bg-white border border-slate-200 text-slate-400 hover:text-slate-600 shadow-sm"
                   title="Reagir">
@@ -622,44 +858,70 @@ function Bubble({ msg, isMe, onIssueClick, onJumpTo, onReply, onEdit, onDelete, 
           )}
         </div>
 
-        <div className={`rounded-2xl text-xs leading-relaxed break-words overflow-hidden ${
+        <div className={`rounded-2xl text-xs leading-relaxed break-words [overflow-wrap:anywhere] overflow-hidden ${
           isImage ? 'p-1' : 'px-3 py-1.5'
         } ${
           isMe
-            ? 'bg-blue-600 text-white rounded-br-sm'
-            : 'talk-bubble-in bg-slate-100 text-slate-800 rounded-bl-sm'
+            ? `bg-blue-600 text-white ${!grouped ? 'rounded-br-sm' : ''}`
+            : `talk-bubble-in bg-slate-100 text-slate-800 ${!grouped ? 'rounded-bl-sm' : ''}`
         }`}>
           {file ? (
             <>
               {isImage
                 ? <TalkImage fileId={file.id!} path={file.path} name={file.name ?? 'imagem'} actorId={msg.actorId} />
-                : <span className="flex items-center gap-1.5">📎 {file.name}</span>}
+                : <button onClick={() => downloadTalkFile(file, msg.actorId)}
+                          title="Baixar arquivo"
+                          className={`flex items-center gap-1.5 text-left hover:underline ${isMe ? 'text-white' : 'text-blue-700'}`}>
+                    <Download size={13} className="flex-shrink-0 opacity-80" />
+                    <span className="break-all">{file.name}</span>
+                  </button>}
               {caption && (
                 <div className={isImage ? 'px-2 pb-1 pt-1.5' : 'mt-1'}>
                   {renderBubbleContent(caption, isMe, onIssueClick)}
                 </div>
               )}
             </>
+          ) : callRoom ? (
+            <CallCard room={callRoom} isMe={isMe} />
           ) : (
             renderBubbleContent(resolveMessageText(msg), isMe, onIssueClick)
           )}
         </div>
         </div>
-        {/* OG preview — só para mensagens de texto com URL externa */}
-        {!file && (() => {
+        {/* OG preview — só para mensagens de texto com URL externa (não em chamadas) */}
+        {!file && !callRoom && (() => {
           const text = resolveMessageText(msg);
           const url = findPreviewUrl(text);
           return url ? <OGPreview url={url} /> : null;
         })()}
         <ReactionBar reactions={reactions} reactionsSelf={reactionsSelf}
                      onToggle={(e, remove) => onReact(msg.id, e, remove)} />
-        <span className={`text-[9px] text-slate-300 mt-0.5 px-1 transition-opacity ${
+        <div className={`flex items-center gap-1 mt-0.5 px-1 justify-end transition-opacity ${
           groupedWithNext ? 'opacity-0 group-hover:opacity-100' : 'opacity-100'
-        }`}
-              title={format(new Date(msg.timestamp * 1000), "d 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR })}>
-          {format(new Date(msg.timestamp * 1000), 'HH:mm')}
-        </span>
-        {isMe && <SeenBy names={seenBy} />}
+        }`}>
+          <span className="text-[9px] text-slate-400"
+                title={format(new Date(msg.timestamp * 1000), "d 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR })}>
+            {format(new Date(msg.timestamp * 1000), 'HH:mm')}
+          </span>
+          {isMe && (
+            <div className="relative group/receipt flex items-center justify-center">
+              {readers.length > 0 ? (
+                <CheckCheck 
+                  size={12} 
+                  strokeWidth={2.5}
+                  className={readers.length >= numActiveParticipants && numActiveParticipants > 0 ? "text-blue-500" : "text-slate-400"} 
+                />
+              ) : (
+                <Check size={11} strokeWidth={2.5} className="text-slate-400" />
+              )}
+              {readers.length > 0 && (
+                <div className="absolute bottom-full mb-1 right-0 hidden group-hover/receipt:block z-50 w-max max-w-[200px] bg-slate-800 text-white text-[10px] py-1 px-2 rounded shadow-lg text-left">
+                  Lido por: {readers.join(', ')}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -708,8 +970,31 @@ function MessageInput({ token, onSend, isPending, replyTo, onCancelReply, editVa
   const [uploadError, setUploadError] = useState('');
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingPreview, setPendingPreview] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Insere o emoji na posição atual do cursor (ou no fim).
+  const insertEmoji = (emoji: string) => {
+    const el = inputRef.current;
+    const start = el?.selectionStart ?? input.length;
+    const end = el?.selectionEnd ?? input.length;
+    const next = input.slice(0, start) + emoji + input.slice(end);
+    setInput(next);
+    setTimeout(() => {
+      el?.focus();
+      const pos = start + emoji.length;
+      el?.setSelectionRange(pos, pos);
+    }, 0);
+  };
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = '0px';
+      const scrollH = inputRef.current.scrollHeight;
+      inputRef.current.style.height = `${Math.ceil(scrollH) + 2}px`;
+    }
+  }, [input]);
   const qc = useQueryClient();
   const { onType, stopTyping } = useTypingSender(token);
 
@@ -746,7 +1031,7 @@ function MessageInput({ token, onSend, isPending, replyTo, onCancelReply, editVa
     if (fileRef.current) fileRef.current.value = '';
   };
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(e.clipboardData.files);
     if (files.length === 0) return;
     e.preventDefault();
@@ -777,7 +1062,7 @@ function MessageInput({ token, onSend, isPending, replyTo, onCancelReply, editVa
       ]
     : [];
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInput(val);
     onType();
@@ -951,7 +1236,18 @@ function MessageInput({ token, onSend, isPending, replyTo, onCancelReply, editVa
                 className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors flex-shrink-0 disabled:opacity-40">
           <Paperclip size={14} />
         </button>
-        <input ref={inputRef} value={input} onChange={handleChange}
+        <div className="relative flex-shrink-0">
+          <button onClick={() => setShowEmoji(v => !v)} disabled={uploading}
+                  title="Emoji"
+                  className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${showEmoji ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}>
+            <Smile size={14} />
+          </button>
+          {showEmoji && (
+            <FullEmojiPicker onPick={insertEmoji} onClose={() => setShowEmoji(false)} align="left" position="bottom" />
+          )}
+        </div>
+        <textarea ref={inputRef} value={input} onChange={handleChange}
+               rows={1}
                onKeyDown={e => {
                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
                  if (e.key === 'Escape') { setMentionQuery(null); setIssueQuery(null); clearPendingFile(); onCancelReply(); onCancelEdit?.(); }
@@ -962,7 +1258,8 @@ function MessageInput({ token, onSend, isPending, replyTo, onCancelReply, editVa
                  : pendingFile ? 'Adicione uma descrição… (opcional)'
                  : 'Mensagem… (@nome para mencionar)'
                }
-               className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-full px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent placeholder-slate-400" />
+               className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent placeholder-slate-400 resize-none max-h-32 overflow-y-auto scrollbar-thin leading-relaxed" 
+        />
         <button onClick={submit} disabled={(!input.trim() && !pendingFile) || isPending || uploading}
                 className="p-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-full transition-colors flex-shrink-0">
           <Send size={12} />
@@ -974,13 +1271,14 @@ function MessageInput({ token, onSend, isPending, replyTo, onCancelReply, editVa
 
 // ─── Janela de chat ───────────────────────────────────────────────────────────
 
-function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }: {
+function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg, onOpenRoom }: {
   room: TalkRoom;
   onClose: () => void;
   onMinimize: () => void;
   myId: string;
   onIssueClick?: (id: number) => void;
   hasNewMsg: boolean;
+  onOpenRoom: (room: TalkRoom) => void;
 }) {
   const qc = useQueryClient();
   const { data: messages = [], isLoading } = useTalkMessages(room.token);
@@ -988,6 +1286,14 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
   const editMsg = useEditMessage(room.token);
   const deleteMsg = useDeleteMessage(room.token);
   const react = useReaction(room.token);
+  const { startCall } = useJitsi();
+
+  // Inicia uma chamada de vídeo na sala da conversa e avisa no chat com um card.
+  const startVideoCall = useCallback(() => {
+    const jitsiRoom = makeTalkRoom(room.token);
+    startCall({ room: jitsiRoom, title: room.displayName, kind: 'adhoc' });
+    send.mutate({ message: `📞 Iniciei uma chamada de vídeo — entre: ${jitsiRoomUrl(jitsiRoom)}` });
+  }, [room.token, room.displayName, startCall, send]);
 
   // Participantes — para "visto por" e @todos
   const { data: participants = [] } = useQuery({
@@ -998,21 +1304,21 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
     enabled: !!getTalkAuth(),
   });
 
-  // Map messageId → nomes de quem leu até aquela mensagem
-  const seenByMap = useMemo(() => {
-    const map = new Map<number, string[]>();
-    participants
-      .filter(p => p.actorId !== myId && p.actorType === 'users' && (p.lastReadMessage ?? 0) > 0)
-      .forEach(p => {
-        const id = p.lastReadMessage!;
-        const name = p.displayName.split(' ')[0];
-        map.set(id, [...(map.get(id) ?? []), name]);
-      });
-    return map;
-  }, [participants, myId]);
+  // Participantes ativos (exceto eu mesmo)
+  const activeParticipants = useMemo(() => 
+    participants.filter(p => p.actorId !== myId && p.actorType === 'users'),
+  [participants, myId]);
+  const numActiveParticipants = activeParticipants.length;
+
+  const getReadersForMessage = useCallback((msgId: number) => {
+    return activeParticipants
+      .filter(p => (p.lastReadMessage ?? 0) >= msgId)
+      .map(p => p.displayName.split(' ')[0]);
+  }, [activeParticipants]);
 
   // Mute por sala
   const [muted, setMuted] = useState(() => talkMute.isMuted(room.token));
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Drag-and-drop de arquivo
   const [isDragging, setIsDragging] = useState(false);
@@ -1081,6 +1387,65 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
   // Search
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // Busca global (servidor) — debounce p/ não disparar a cada tecla
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+  const { data: serverResults = [], isFetching: searching } = useQuery({
+    queryKey: ['talk-search', room.token, debouncedSearch],
+    queryFn: () => searchMessages(room.token, debouncedSearch),
+    enabled: searchOpen && debouncedSearch.length >= 2,
+    staleTime: 30_000,
+  });
+
+  // Pula até um resultado da busca: carrega o contexto se a mensagem não estiver
+  // na tela, fecha a busca e rola até o ponto no histórico.
+  const [jumpingTo, setJumpingTo] = useState<number | null>(null);
+  const jumpToSearchResult = useCallback(async (messageId: number) => {
+    const present = !!document.getElementById(`talk-msg-${messageId}`);
+    if (!present) {
+      setJumpingTo(messageId);
+      try {
+        // lastKnownMessageId = id+1 → retorna as 50 mensagens até (e incluindo) a alvo
+        const ctx = await fetchMessages(room.token, { lastKnownMessageId: messageId + 1 });
+        setOlderMessages(prev => {
+          const ids = new Set(prev.map(m => m.id));
+          return [...prev, ...ctx.filter(m => !ids.has(m.id))];
+        });
+        setHasMore(true);
+      } catch { /* ignora — pode não ter permissão de contexto */ }
+      finally { setJumpingTo(null); }
+    }
+    setSearchOpen(false);
+    setSearchQuery('');
+    // aguarda o render do contexto antes de rolar
+    setTimeout(() => jumpToMessage(messageId), present ? 0 : 350);
+  }, [room.token, jumpToMessage]);
+
+  // Pop-up de perfil de usuário
+  const [profileUser, setProfileUser] = useState<{ actorId: string; displayName: string } | null>(null);
+
+  // Painel de informações do grupo
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const isGroup = room.type !== 1;
+
+  // Painel de arquivos e links compartilhados
+  const [showMedia, setShowMedia] = useState(false);
+
+  // Presença (DM)
+  const { data: statuses } = useUserStatuses();
+  const dmStatus = room.type === 1 ? statuses?.get(room.name)?.status : undefined;
+
+  // Abre (ou cria) uma DM com o usuário e a traz para frente.
+  const openDM = useCallback(async (userId: string) => {
+    try {
+      const dm = await createRoom(1, userId);
+      qc.invalidateQueries({ queryKey: ['talk-rooms'] });
+      onOpenRoom(dm);
+    } catch { /* falha silenciosa — usuário pode tentar pela lista */ }
+  }, [qc, onOpenRoom]);
 
   // Conexão
   const [connected, setConnected] = useState(true);
@@ -1100,17 +1465,13 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
 
   const visibleMessages = useMemo(() => {
     // reverse() converte newest-first → oldest-first para renderização top→bottom
-    const msgs = [...allMessages]
+    // Busca agora é global (painel de resultados + pular), então não filtramos a
+    // lista inline — a conversa permanece visível durante a pesquisa.
+    return [...allMessages]
       .reverse()
       // file_shared é um systemMessage legítimo de arquivo — nunca excluir
       .filter(m => m.messageType === 'comment' && (!m.systemMessage || m.message === '{file}' || !!Object.values(m.messageParameters ?? {}).find(p => p.type === 'file')));
-    if (!searchQuery.trim()) return msgs;
-    const q = searchQuery.toLowerCase();
-    return msgs.filter(m =>
-      resolveMessageText(m).toLowerCase().includes(q) ||
-      m.actorDisplayName.toLowerCase().includes(q)
-    );
-  }, [allMessages, searchQuery]);
+  }, [allMessages]);
 
   const loadMore = async () => {
     if (loadingMore || !hasMore || allMessages.length === 0) return;
@@ -1231,13 +1592,13 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
 
       {/* Overlay drag-and-drop */}
       {isDragging && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-blue-50/90 border-2 border-dashed border-blue-400 rounded-xl pointer-events-none">
-          <Paperclip size={28} className="text-blue-400 mb-2" />
+        <div className="talk-drag-overlay absolute inset-0 z-50 flex flex-col items-center justify-center bg-blue-50/90 border-2 border-dashed border-blue-400 rounded-xl pointer-events-none">
+          <Paperclip size={28} className="text-blue-500 mb-2" />
           <p className="text-sm font-semibold text-blue-600">Soltar para enviar</p>
         </div>
       )}
       {dropUploading && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/70 rounded-xl">
+        <div className="talk-upload-overlay absolute inset-0 z-50 flex items-center justify-center bg-white/70 rounded-xl">
           <div className="flex flex-col items-center gap-2">
             <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             <span className="text-xs text-slate-500">Enviando…</span>
@@ -1265,8 +1626,19 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
 
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 bg-white border-b border-slate-100 flex-shrink-0">
-        <RoomAvatar room={room} size={28} />
-        <span className="flex-1 text-xs font-semibold text-slate-800 truncate">{room.displayName}</span>
+        {isGroup ? (
+          <button onClick={() => setShowGroupInfo(true)}
+                  className="flex items-center gap-2 flex-1 min-w-0 group/hdr text-left"
+                  title="Informações do grupo">
+            <RoomAvatar room={room} size={28} />
+            <span className="flex-1 text-xs font-semibold text-slate-800 truncate group-hover/hdr:text-blue-600 transition-colors">{room.displayName}</span>
+          </button>
+        ) : (
+          <>
+            <RoomAvatar room={room} size={28} status={dmStatus} />
+            <span className="flex-1 text-xs font-semibold text-slate-800 truncate">{room.displayName}</span>
+          </>
+        )}
         {hasNewMsg && (
           <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse flex-shrink-0" title="Nova mensagem" />
         )}
@@ -1277,15 +1649,32 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
             : <WifiOff size={11} className="text-red-400 flex-shrink-0" />
           }
         </span>
-        <button onClick={() => setSearchOpen(v => !v)}
-                className={`p-1 rounded text-slate-400 hover:text-slate-600 transition-colors ${searchOpen ? 'bg-slate-100' : 'hover:bg-slate-100'}`}>
-          <Search size={12} />
-        </button>
-        <button onClick={() => setMuted(talkMute.toggle(room.token))}
-                title={muted ? 'Ativar notificações' : 'Silenciar sala'}
-                className={`p-1 rounded transition-colors ${muted ? 'text-amber-500 hover:bg-amber-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}>
-          {muted ? <BellOff size={12} /> : <Bell size={12} />}
-        </button>
+        <div className="relative">
+          <button onClick={() => setMenuOpen(v => !v)}
+                  className={`p-1 rounded transition-colors ${menuOpen ? 'bg-slate-200 text-slate-700' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+                  title="Mais ações">
+            <MoreVertical size={13} />
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-xl z-50 py-1 overflow-hidden" onClick={() => setMenuOpen(false)}>
+                <button onClick={() => setSearchOpen(v => !v)} className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                  <Search size={13} className="text-slate-400" /> Buscar
+                </button>
+                <button onClick={() => setShowMedia(true)} className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                  <Files size={13} className="text-slate-400" /> Arquivos e Links
+                </button>
+                <button onClick={startVideoCall} className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                  <Video size={13} className="text-slate-400" /> Iniciar Chamada
+                </button>
+                <button onClick={() => setMuted(talkMute.toggle(room.token))} className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                  {muted ? <BellOff size={13} className="text-amber-500" /> : <Bell size={13} className="text-slate-400" />} {muted ? 'Ativar Notificações' : 'Silenciar Sala'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         <button onClick={onMinimize} className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors">
           <Minus size={12} />
         </button>
@@ -1296,20 +1685,52 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
 
       {/* Busca */}
       {searchOpen && (
-        <div className="px-3 py-2 border-b border-slate-100 bg-slate-50 flex items-center gap-2">
-          <Search size={12} className="text-slate-400 flex-shrink-0" />
-          <input
-            autoFocus
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Escape') { setSearchOpen(false); setSearchQuery(''); }}}
-            placeholder="Buscar mensagens…"
-            className="flex-1 text-xs bg-transparent focus:outline-none placeholder-slate-400"
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-slate-600">
-              <X size={11} />
-            </button>
+        <div className="border-b border-slate-100 bg-slate-50 flex-shrink-0">
+          <div className="px-3 py-2 flex items-center gap-2">
+            <Search size={12} className="text-slate-400 flex-shrink-0" />
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape') { setSearchOpen(false); setSearchQuery(''); }}}
+              placeholder="Buscar em todo o histórico…"
+              className="flex-1 text-xs bg-transparent focus:outline-none placeholder-slate-400"
+            />
+            {searching && <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />}
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-slate-600">
+                <X size={11} />
+              </button>
+            )}
+          </div>
+
+          {/* Resultados no histórico (servidor) */}
+          {debouncedSearch.length >= 2 && (
+            <div className="max-h-48 overflow-y-auto border-t border-slate-100 scrollbar-thin">
+              {jumpingTo !== null && (
+                <p className="text-[11px] text-blue-500 text-center py-2 flex items-center justify-center gap-1.5">
+                  <span className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  Carregando contexto…
+                </p>
+              )}
+              {!searching && serverResults.length === 0 && (
+                <p className="text-[11px] text-slate-400 text-center py-3">Nenhum resultado no histórico</p>
+              )}
+              {serverResults.map(r => (
+                <button key={r.id} onClick={() => jumpToSearchResult(r.id)}
+                        className="w-full flex flex-col gap-0.5 px-3 py-2 hover:bg-blue-50 text-left border-b border-slate-100 last:border-0 transition-colors">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-semibold text-slate-600 truncate">{r.actorDisplayName}</span>
+                    {r.timestamp > 0 && (
+                      <span className="text-[9px] text-slate-400 flex-shrink-0">
+                        {format(new Date(r.timestamp * 1000), "d MMM yyyy", { locale: ptBR })}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-slate-500 line-clamp-2">{r.message}</span>
+                </button>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -1336,7 +1757,7 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
            }}>
         <div ref={contentRef}>
           {/* Carregar mais */}
-          {hasMore && !searchQuery && (
+          {hasMore && (
             <div className="flex justify-center mb-3">
               <button onClick={loadMore} disabled={loadingMore}
                       className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-full px-3 py-1 transition-colors disabled:opacity-50">
@@ -1349,25 +1770,20 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
           {isLoading && (
             <div className="flex items-center justify-center h-20 text-slate-400 text-xs">Carregando…</div>
           )}
-          {!isLoading && visibleMessages.length === 0 && !searchQuery && (
+          {!isLoading && visibleMessages.length === 0 && (
             <div className="flex items-center justify-center h-20 text-slate-400 text-xs">Nenhuma mensagem ainda</div>
-          )}
-          {!isLoading && visibleMessages.length === 0 && searchQuery && (
-            <div className="flex items-center justify-center h-20 text-slate-400 text-xs">Nenhuma mensagem encontrada</div>
           )}
           {visibleMessages.map((m, idx) => {
             const isMe = m.actorId === myId;
             const prev = visibleMessages[idx - 1];
             const next = visibleMessages[idx + 1];
-            const noDividers = !searchQuery.trim();
-            // Divisor de data/hora não se aplica durante a busca (resultados não-contíguos)
-            const divider = noDividers ? dividerLabel(prev, m) : null;
+            const divider = dividerLabel(prev, m);
             const grouped = !divider && !!prev && prev.actorId === m.actorId && (m.timestamp - prev.timestamp) < 5 * 60;
             // Agrupada com a próxima? (mesmo autor, <5min e sem divisor entre elas)
             // Controla a margem inferior e a exibição do horário (sempre visível na última do bloco).
             const groupedWithNext = !!next && next.actorId === m.actorId
               && (next.timestamp - m.timestamp) < 5 * 60
-              && !(noDividers && dividerLabel(m, next));
+              && !dividerLabel(m, next);
             const isDM = room.type === 1;
             const showSender = !isMe && !grouped && !isDM;
             // Completa a citação caso o servidor não tenha mandado o parent (msgs próprias)
@@ -1376,14 +1792,16 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
               <Fragment key={m.id}>
                 {divider && <DateDivider label={divider} />}
                 <Bubble msg={msg} isMe={isMe} myId={myId}
-                        showSender={showSender} groupedWithNext={groupedWithNext} isDM={isDM}
+                        showSender={showSender} grouped={grouped} groupedWithNext={groupedWithNext} isDM={isDM}
                         onIssueClick={onIssueClick}
                         onJumpTo={jumpToMessage}
                         onReply={msg => { setReplyTo(msg); setEditTarget(null); }}
                         onEdit={msg => { setEditTarget(msg); setReplyTo(null); }}
                         onDelete={msg => deleteMsg.mutate(msg.id)}
                         onReact={(msgId, emoji, remove) => react.mutate({ messageId: msgId, reaction: emoji, remove })}
-                        seenBy={seenByMap.get(m.id) ?? []}
+                        onAvatarClick={(actorId, displayName) => setProfileUser({ actorId, displayName })}
+                        readers={getReadersForMessage(m.id)}
+                        numActiveParticipants={numActiveParticipants}
                 />
               </Fragment>
             );
@@ -1414,6 +1832,448 @@ function ChatWindow({ room, onClose, onMinimize, myId, onIssueClick, hasNewMsg }
         editValue={editTarget ? resolveMessageText(editTarget) : undefined}
         onCancelEdit={() => setEditTarget(null)}
       />
+
+      {profileUser && (
+        <UserProfilePopup
+          actorId={profileUser.actorId}
+          displayName={profileUser.displayName}
+          myId={myId}
+          onClose={() => setProfileUser(null)}
+          onOpenDM={openDM}
+        />
+      )}
+
+      {showGroupInfo && (
+        <GroupInfoPanel
+          room={room}
+          myId={myId}
+          onClose={() => setShowGroupInfo(false)}
+          onLeft={() => { setShowGroupInfo(false); onClose(); }}
+        />
+      )}
+
+      {showMedia && (
+        <MediaPanel token={room.token} messages={allMessages} onClose={() => setShowMedia(false)} />
+      )}
+    </div>
+  );
+}
+
+// ─── Painel de informações do grupo (self-service) ───────────────────────────
+
+// participantType: 1=dono 2=moderador 3=usuário 4=convidado 5=auto-entrou 6=conv.mod
+function roleLabel(type: number): string | null {
+  if (type === 1) return 'Dono';
+  if (type === 2 || type === 6) return 'Moderador';
+  return null;
+}
+
+function GroupInfoPanel({ room, myId, onClose, onLeft }: {
+  room: TalkRoom;
+  myId: string;
+  onClose: () => void;
+  onLeft: () => void;
+}) {
+  const qc = useQueryClient();
+  const canModerate = room.participantType === 1 || room.participantType === 2;
+
+  const { data: participants = [] } = useQuery({
+    queryKey: ['talk-participants', room.token],
+    queryFn: () => fetchParticipants(room.token),
+    staleTime: 10_000,
+  });
+  const { data: statuses } = useUserStatuses();
+
+  const [name, setName] = useState(room.displayName);
+  const [editingName, setEditingName] = useState(false);
+  const [desc, setDesc] = useState((room as unknown as { description?: string }).description ?? '');
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addQuery, setAddQuery] = useState('');
+  const avatarRef = useRef<HTMLInputElement>(null);
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['talk-participants', room.token] });
+    qc.invalidateQueries({ queryKey: ['talk-rooms'] });
+    qc.invalidateQueries({ queryKey: ['talk-room-avatar', room.token] });
+  };
+
+  const { data: searchResults = [] } = useQuery({
+    queryKey: ['talk-search-users', addQuery],
+    queryFn: () => searchNCUsers(addQuery),
+    enabled: addOpen && addQuery.length >= 2,
+    staleTime: 30_000,
+  });
+
+  const existingIds = new Set(participants.map(p => p.actorId));
+
+  const saveName = async () => {
+    const v = name.trim();
+    if (!v || v === room.displayName) { setEditingName(false); return; }
+    setBusy(true);
+    try { await renameRoom(room.token, v); refresh(); } finally { setBusy(false); setEditingName(false); }
+  };
+  const saveDesc = async () => {
+    setBusy(true);
+    try { await setRoomDescription(room.token, desc.trim()); refresh(); } finally { setBusy(false); setEditingDesc(false); }
+  };
+  const handleAdd = async (userId: string) => {
+    setBusy(true);
+    try { await addParticipant(room.token, userId); refresh(); setAddQuery(''); } finally { setBusy(false); }
+  };
+  const handleRemove = async (attendeeId?: number) => {
+    if (!attendeeId) return;
+    setBusy(true);
+    try { await removeAttendee(room.token, attendeeId); refresh(); } finally { setBusy(false); }
+  };
+  const handleToggleMod = async (p: TalkParticipant) => {
+    if (!p.attendeeId) return;
+    setBusy(true);
+    const isMod = p.participantType === 2 || p.participantType === 6;
+    try {
+      isMod ? await demoteModerator(room.token, p.attendeeId) : await promoteModerator(room.token, p.attendeeId);
+      refresh();
+    } finally { setBusy(false); }
+  };
+  const handleAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    try { await uploadRoomAvatar(room.token, file); refresh(); } finally { setBusy(false); if (avatarRef.current) avatarRef.current.value = ''; }
+  };
+  const handleLeave = async () => {
+    setBusy(true);
+    try { await leaveRoom(room.token); qc.invalidateQueries({ queryKey: ['talk-rooms'] }); onLeft(); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="w-80 max-h-[85vh] flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        {/* Cabeçalho com avatar e nome */}
+        <div className="relative flex flex-col items-center pt-6 pb-4 px-5 bg-gradient-to-b from-indigo-50 to-white flex-shrink-0">
+          <button onClick={onClose}
+                  className="absolute top-2 right-2 p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+            <X size={14} />
+          </button>
+          <div className="relative">
+            <RoomAvatar room={room} size={72} />
+            {canModerate && (
+              <>
+                <input type="file" accept="image/*" ref={avatarRef} onChange={handleAvatar} className="hidden" />
+                <button onClick={() => avatarRef.current?.click()} disabled={busy}
+                        title="Trocar imagem do grupo"
+                        className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-md">
+                  <Camera size={13} />
+                </button>
+              </>
+            )}
+          </div>
+
+          {editingName ? (
+            <div className="mt-3 flex items-center gap-1 w-full">
+              <input autoFocus value={name} onChange={e => setName(e.target.value)}
+                     onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setName(room.displayName); setEditingName(false); } }}
+                     className="flex-1 text-sm font-semibold text-center bg-white border border-blue-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              <button onClick={saveName} disabled={busy} className="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+                <Check size={13} />
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => canModerate && setEditingName(true)}
+                    className={`mt-3 text-base font-semibold text-slate-800 text-center flex items-center gap-1.5 ${canModerate ? 'hover:text-blue-600' : 'cursor-default'}`}>
+              {room.displayName}
+              {canModerate && <Pencil size={11} className="text-slate-300" />}
+            </button>
+          )}
+          <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
+            <Users size={11} /> {participants.length} participante{participants.length !== 1 ? 's' : ''}
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto scrollbar-thin px-5 py-3 space-y-4">
+          {/* Descrição / tópico */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Descrição</span>
+              {canModerate && !editingDesc && (
+                <button onClick={() => setEditingDesc(true)} className="text-slate-300 hover:text-blue-500">
+                  <Pencil size={11} />
+                </button>
+              )}
+            </div>
+            {editingDesc ? (
+              <div className="space-y-1.5">
+                <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={3}
+                          placeholder="Tópico do grupo…"
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none" />
+                <div className="flex gap-1.5 justify-end">
+                  <button onClick={() => { setDesc((room as unknown as { description?: string }).description ?? ''); setEditingDesc(false); }}
+                          className="px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                  <button onClick={saveDesc} disabled={busy}
+                          className="px-2 py-1 text-[11px] bg-blue-600 text-white rounded-lg hover:bg-blue-700">Salvar</button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 whitespace-pre-wrap">{desc || <span className="text-slate-300 italic">Sem descrição</span>}</p>
+            )}
+          </div>
+
+          {/* Participantes */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Participantes</span>
+              {canModerate && (
+                <button onClick={() => setAddOpen(v => !v)}
+                        className="flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-700 font-medium">
+                  <UserPlus size={12} /> Adicionar
+                </button>
+              )}
+            </div>
+
+            {/* Busca para adicionar */}
+            {addOpen && canModerate && (
+              <div className="mb-2 border border-slate-200 rounded-lg overflow-hidden">
+                <div className="flex items-center gap-2 px-2.5 py-1.5 bg-slate-50 border-b border-slate-100">
+                  <Search size={12} className="text-slate-400" />
+                  <input autoFocus value={addQuery} onChange={e => setAddQuery(e.target.value)}
+                         placeholder="Buscar usuário…"
+                         className="flex-1 text-xs bg-transparent focus:outline-none placeholder-slate-400" />
+                </div>
+                <div className="max-h-32 overflow-y-auto">
+                  {addQuery.length < 2 && <p className="text-[11px] text-slate-400 text-center py-2">Digite 2+ caracteres</p>}
+                  {searchResults.filter(u => !existingIds.has(u.id)).map(u => (
+                    <button key={u.id} onClick={() => handleAdd(u.id)} disabled={busy}
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 text-left">
+                      <TalkAvatar actorId={u.id} displayName={u.label} size={22} />
+                      <span className="text-xs text-slate-700 truncate">{u.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-0.5">
+              {participants.filter(p => p.actorType === 'users').map(p => {
+                const isMe = p.actorId === myId;
+                const role = roleLabel(p.participantType);
+                const isMod = p.participantType === 2 || p.participantType === 6;
+                return (
+                  <div key={p.actorId} className="flex items-center gap-2 py-1 group">
+                    <TalkAvatar actorId={p.actorId} displayName={p.displayName} size={28} status={statuses?.get(p.actorId)?.status} />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs text-slate-700 truncate block">
+                        {p.displayName}{isMe && <span className="text-slate-400"> (você)</span>}
+                      </span>
+                      {role && <span className="text-[9px] text-amber-600 flex items-center gap-0.5"><Crown size={9} /> {role}</span>}
+                    </div>
+                    {canModerate && !isMe && p.participantType !== 1 && (
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => handleToggleMod(p)} disabled={busy}
+                                title={isMod ? 'Remover moderador' : 'Tornar moderador'}
+                                className={`p-1 rounded-lg ${isMod ? 'text-amber-500 hover:bg-amber-50' : 'text-slate-400 hover:bg-slate-100'}`}>
+                          <Crown size={12} />
+                        </button>
+                        <button onClick={() => handleRemove(p.attendeeId)} disabled={busy}
+                                title="Remover do grupo"
+                                className="p-1 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50">
+                          <UserMinus size={12} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Sair do grupo */}
+        <div className="flex-shrink-0 px-5 py-3 border-t border-slate-100">
+          {confirmLeave ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-600 flex-1">Sair deste grupo?</span>
+              <button onClick={() => setConfirmLeave(false)} className="px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-100 rounded-lg">Cancelar</button>
+              <button onClick={handleLeave} disabled={busy} className="px-2 py-1 text-[11px] bg-red-600 text-white rounded-lg hover:bg-red-700">Sair</button>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmLeave(true)}
+                    className="w-full flex items-center justify-center gap-2 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors">
+              <LogOut size={14} /> Sair do grupo
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Painel de Arquivos e Links ───────────────────────────────────────────────
+
+function fileParamOf(m: TalkMessage) {
+  return m.messageParameters?.file
+    ?? Object.values(m.messageParameters ?? {}).find(p => p.type === 'file')
+    ?? null;
+}
+
+// Miniatura de um arquivo compartilhado (imagem com preview; senão ícone).
+function ShareThumb({ msg }: { msg: TalkMessage }) {
+  const auth = getTalkAuth();
+  const file = fileParamOf(msg);
+  const isImage = !!file?.mimetype?.startsWith('image/');
+  const [src, setSrc] = useState<string | null>(null);
+  const urlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!auth || !isImage || !file?.id) return;
+    let active = true;
+    const params = new URLSearchParams({ fileId: file.id });
+    if (file.path) params.set('path', file.path);
+    if (msg.actorId) params.set('actorId', msg.actorId);
+    fetch(`/api/talk/file-preview?${params}`, {
+      headers: { 'x-nextcloud-url': auth.url, 'x-nextcloud-user': auth.user, 'x-nextcloud-token': auth.token },
+    })
+      .then(r => r.ok ? r.blob() : Promise.reject())
+      .then(blob => { if (!active) return; const u = URL.createObjectURL(blob); urlRef.current = u; setSrc(u); })
+      .catch(() => {});
+    return () => { active = false; if (urlRef.current) URL.revokeObjectURL(urlRef.current); };
+  }, [file?.id, isImage]);
+
+  const handleClick = () => {
+    if (!file) return;
+    // Imagem: abre no Nextcloud (visualização); outros: baixa direto.
+    if (isImage && auth && file.id) window.open(`${auth.url}/index.php/f/${file.id}`, '_blank', 'noopener');
+    else downloadTalkFile(file, msg.actorId);
+  };
+
+  return (
+    <button onClick={handleClick} title={file?.name}
+            className="group/sh flex flex-col gap-1 text-left">
+      <div className="relative aspect-square w-full rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center border border-slate-200 group-hover/sh:border-blue-300 transition-colors">
+        {src
+          ? <img src={src} alt={file?.name} className="w-full h-full object-cover" />
+          : <FileText size={22} className="text-slate-400" />}
+        {!isImage && (
+          <span className="absolute bottom-1 right-1 text-slate-400 group-hover/sh:text-blue-500">
+            <Download size={12} />
+          </span>
+        )}
+      </div>
+      <span className="text-[10px] text-slate-500 truncate">{file?.name}</span>
+    </button>
+  );
+}
+
+function MediaPanel({ token, messages, onClose }: {
+  token: string;
+  messages: TalkMessage[];
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<'files' | 'links'>('files');
+
+  const { data: shares = {}, isLoading } = useQuery({
+    queryKey: ['talk-shares', token],
+    queryFn: () => fetchRoomShares(token),
+    staleTime: 30_000,
+  });
+
+  // Combina todos os tipos de arquivo em uma única lista (mais recente primeiro).
+  // Fonte 1: overview do servidor (todo o histórico). Fonte 2: mensagens já
+  // carregadas — garante que arquivos visíveis no chat apareçam mesmo se o
+  // overview não os retornar (ex.: versão/permissão do Talk).
+  const files = useMemo(() => {
+    const fromShares = [
+      ...(shares.media ?? []), ...(shares.file ?? []),
+      ...(shares.voice ?? []), ...(shares.audio ?? []), ...(shares.other ?? []),
+    ];
+    const fromMessages = messages.filter(m => m.messageType === 'comment' && !!fileParamOf(m));
+    const all = [...fromShares, ...fromMessages].filter(m => !!fileParamOf(m));
+    const byId = new Map(all.map(m => [m.id, m]));
+    return [...byId.values()].sort((a, b) => b.timestamp - a.timestamp);
+  }, [shares, messages]);
+
+  // Links extraídos das mensagens carregadas (texto, ignorando anexos).
+  const links = useMemo(() => {
+    const re = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
+    const seen = new Set<string>();
+    const out: Array<{ url: string; actor: string; timestamp: number }> = [];
+    for (const m of messages) {
+      if (m.messageType !== 'comment' || fileParamOf(m)) continue;
+      const text = resolveMessageText(m);
+      let mt: RegExpExecArray | null;
+      re.lastIndex = 0;
+      while ((mt = re.exec(text)) !== null) {
+        const url = mt[0].replace(/[.,;!?)]+$/, '');
+        if (seen.has(url)) continue;
+        seen.add(url);
+        out.push({ url, actor: m.actorDisplayName.split(' ')[0], timestamp: m.timestamp });
+      }
+    }
+    return out.sort((a, b) => b.timestamp - a.timestamp);
+  }, [messages]);
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="w-80 max-h-[85vh] flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0">
+          <span className="text-sm font-semibold text-slate-800">Compartilhados</span>
+          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+            <X size={14} />
+          </button>
+        </div>
+
+        {/* Abas */}
+        <div className="flex border-b border-slate-100 flex-shrink-0">
+          <button onClick={() => setTab('files')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors ${
+                    tab === 'files' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'
+                  }`}>
+            <Files size={13} /> Arquivos {files.length > 0 && `(${files.length})`}
+          </button>
+          <button onClick={() => setTab('links')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors ${
+                    tab === 'links' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'
+                  }`}>
+            <Link2 size={13} /> Links {links.length > 0 && `(${links.length})`}
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-3">
+          {tab === 'files' && (
+            <>
+              {isLoading && <p className="text-xs text-slate-400 text-center py-6">Carregando…</p>}
+              {!isLoading && files.length === 0 && (
+                <p className="text-xs text-slate-400 text-center py-6">Nenhum arquivo compartilhado</p>
+              )}
+              {files.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {files.map(m => <ShareThumb key={m.id} msg={m} />)}
+                </div>
+              )}
+            </>
+          )}
+
+          {tab === 'links' && (
+            <>
+              {links.length === 0 && (
+                <p className="text-xs text-slate-400 text-center py-6">Nenhum link nas mensagens carregadas</p>
+              )}
+              <div className="space-y-1">
+                {links.map((l, i) => (
+                  <a key={i} href={l.url} target="_blank" rel="noopener noreferrer"
+                     className="block px-2.5 py-2 rounded-lg hover:bg-blue-50 transition-colors border border-slate-100">
+                    <span className="text-[11px] text-blue-600 truncate block break-all">{l.url}</span>
+                    <span className="text-[9px] text-slate-400">
+                      {l.actor} · {format(new Date(l.timestamp * 1000), "d MMM yyyy", { locale: ptBR })}
+                    </span>
+                  </a>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1479,16 +2339,101 @@ function NewConversationDialog({ onClose, onCreate }: {
   );
 }
 
+// ─── Menu do meu status (presença + mensagem personalizada) ───────────────────
+
+const STATUS_TYPES: Array<{ type: UserStatusType; label: string; color: string }> = [
+  { type: 'online',    label: 'Online',       color: 'bg-green-500' },
+  { type: 'away',      label: 'Ausente',      color: 'bg-amber-400' },
+  { type: 'dnd',       label: 'Não perturbe', color: 'bg-red-500' },
+  { type: 'invisible', label: 'Invisível',    color: 'bg-slate-300' },
+];
+
+function MyStatusMenu({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const ref = useRef<HTMLDivElement>(null);
+  const { data: my } = useQuery({ queryKey: ['talk-my-status'], queryFn: fetchMyStatus, staleTime: 30_000 });
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { setMessage(my?.message ?? ''); }, [my?.message]);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [onClose]);
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['talk-my-status'] });
+    qc.invalidateQueries({ queryKey: ['talk-user-statuses'] });
+  };
+  const pickType = async (type: UserStatusType) => {
+    setBusy(true);
+    try { await setMyStatusType(type); refresh(); onClose(); } finally { setBusy(false); }
+  };
+  const saveMsg = async () => {
+    if (!message.trim()) return;
+    setBusy(true);
+    try { await setMyStatusMessage(message.trim()); refresh(); onClose(); } finally { setBusy(false); }
+  };
+  const clearMsg = async () => {
+    setBusy(true);
+    try { await clearMyStatusMessage(); setMessage(''); refresh(); onClose(); } finally { setBusy(false); }
+  };
+
+  return (
+    <div ref={ref} className="absolute top-full left-0 mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-2xl z-[70] overflow-hidden">
+      <div className="px-3 py-2 border-b border-slate-100">
+        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Disponibilidade</p>
+        <div className="grid grid-cols-2 gap-1">
+          {STATUS_TYPES.map(s => (
+            <button key={s.type} onClick={() => pickType(s.type)} disabled={busy}
+                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs transition-colors ${
+                      my?.status === s.type ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-slate-50 text-slate-600'
+                    }`}>
+              <span className={`w-2.5 h-2.5 rounded-full ${s.color}`} />
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="px-3 py-2">
+        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Status personalizado</p>
+        <input value={message} onChange={e => setMessage(e.target.value)}
+               onKeyDown={e => { if (e.key === 'Enter') saveMsg(); }}
+               placeholder="Em reunião, Focado 🎧…"
+               className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-slate-400" />
+        <div className="flex gap-1.5 mt-1.5">
+          <button onClick={saveMsg} disabled={busy}
+                  className="flex-1 py-1.5 text-[11px] bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">
+            Salvar
+          </button>
+          {my?.message && (
+            <button onClick={clearMsg} disabled={busy}
+                    className="px-2.5 py-1.5 text-[11px] text-slate-500 hover:bg-slate-100 rounded-lg transition-colors">
+              Limpar
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Painel de conversas ──────────────────────────────────────────────────────
 
-function ConversationsPanel({ onSelect, openTokens, onClose, newAlerts }: {
+function ConversationsPanel({ onSelect, openTokens, onClose, newAlerts, myId }: {
   onSelect: (room: TalkRoom) => void;
   openTokens: string[];
   onClose: () => void;
   newAlerts: Set<string>;
+  myId: string;
 }) {
   const { data: rooms = [], isLoading, isError } = useTalkRooms();
+  const { data: statuses } = useUserStatuses();
+  const { data: me } = useTalkCurrentUser();
   const [showNewConv, setShowNewConv] = useState(false);
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const myStatus = statuses?.get(myId)?.status;
 
   const sorted = rooms.filter(r => r.type !== 6).sort((a, b) => b.lastActivity - a.lastActivity);
 
@@ -1502,7 +2447,7 @@ function ConversationsPanel({ onSelect, openTokens, onClose, newAlerts }: {
       )}
       <div className="flex flex-col bg-white border border-slate-200 rounded-t-xl shadow-2xl overflow-hidden"
            style={{ width: 300, height: 420 }}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0 relative">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-slate-800">Mensagens</span>
             <span title={isError ? 'Nextcloud inacessível' : 'Conectado'}>
@@ -1513,6 +2458,13 @@ function ConversationsPanel({ onSelect, openTokens, onClose, newAlerts }: {
             </span>
           </div>
           <div className="flex items-center gap-1">
+            {myId && (
+              <button onClick={() => setShowStatusMenu(v => !v)} title="Meu status"
+                      className="mr-0.5">
+                <TalkAvatar actorId={myId} displayName={me?.displayName ?? myId} size={24} status={myStatus} />
+              </button>
+            )}
+            {showStatusMenu && <MyStatusMenu onClose={() => setShowStatusMenu(false)} />}
             <button onClick={() => setShowNewConv(true)}
                     className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-blue-600 transition-colors" title="Nova conversa">
               <Plus size={14} />
@@ -1544,7 +2496,7 @@ function ConversationsPanel({ onSelect, openTokens, onClose, newAlerts }: {
                         isOpen ? 'bg-blue-50' : ''
                       }`}>
                 <div className="relative">
-                  <RoomAvatar room={room} size={36} />
+                  <RoomAvatar room={room} size={36} status={room.type === 1 ? statuses?.get(room.name)?.status : undefined} />
                   {hasAlert && (
                     <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full border border-white animate-pulse" />
                   )}
@@ -1718,6 +2670,7 @@ export function TalkChat({ onIssueClick, openRoomToken, onRoomOpened }: {
                 myId={myId}
                 onIssueClick={onIssueClick}
                 hasNewMsg={hasNewMsg}
+                onOpenRoom={openChat}
               />
             )}
           </div>
@@ -1725,28 +2678,30 @@ export function TalkChat({ onIssueClick, openRoomToken, onRoomOpened }: {
       })}
 
       <div className="flex flex-col items-stretch">
-        {panelOpen && (
+        {panelOpen ? (
           <ConversationsPanel
             onSelect={openChat}
             openTokens={openChats.map(r => r.token)}
             onClose={() => setPanelOpen(false)}
             newAlerts={newAlerts}
+            myId={myId}
           />
+        ) : (
+          <button
+            onClick={() => setPanelOpen(v => !v)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-b-0 border-slate-200 rounded-t-xl shadow-lg hover:bg-slate-50 transition-colors"
+          >
+            <MessageSquare size={15} className="text-blue-600 flex-shrink-0" />
+            <span className="text-sm font-semibold text-slate-700">Mensagens</span>
+            {(totalUnread > 0 || totalAlerts > 0) && (
+              <span className={`min-w-[18px] h-[18px] text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 ${
+                totalAlerts > 0 ? 'bg-blue-500 animate-pulse' : 'bg-red-500'
+              }`}>
+                {totalUnread > 9 ? '9+' : totalUnread || '•'}
+              </span>
+            )}
+          </button>
         )}
-        <button
-          onClick={() => setPanelOpen(v => !v)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-b-0 border-slate-200 rounded-t-xl shadow-lg hover:bg-slate-50 transition-colors"
-        >
-          <MessageSquare size={15} className="text-blue-600 flex-shrink-0" />
-          <span className="text-sm font-semibold text-slate-700">Mensagens</span>
-          {(totalUnread > 0 || totalAlerts > 0) && (
-            <span className={`min-w-[18px] h-[18px] text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 ${
-              totalAlerts > 0 ? 'bg-blue-500 animate-pulse' : 'bg-red-500'
-            }`}>
-              {totalUnread > 9 ? '9+' : totalUnread || '•'}
-            </span>
-          )}
-        </button>
       </div>
     </div>
   );

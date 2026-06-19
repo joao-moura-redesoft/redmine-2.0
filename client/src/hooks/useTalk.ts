@@ -2,8 +2,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fetchRooms, fetchMessages, sendMessage, fetchTalkMe, getTalkAuth,
   editMessage, deleteMessage, addReaction, removeReaction, createRoom, searchNCUsers,
+  fetchUserStatuses,
 } from '../api/talk';
-import type { TalkMessage } from '../api/talk';
+import type { TalkMessage, UserStatus } from '../api/talk';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 function talkEnabled() { return !!getTalkAuth(); }
@@ -83,6 +84,20 @@ export function useCreateRoom() {
     mutationFn: ({ roomType, invite, roomName }: { roomType: number; invite: string; roomName?: string }) =>
       createRoom(roomType, invite, roomName),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['talk-rooms'] }),
+  });
+}
+
+// Mapa userId → status de presença. Quem não estiver no mapa é tratado como offline.
+export function useUserStatuses() {
+  return useQuery({
+    queryKey: ['talk-user-statuses'],
+    queryFn: async () => {
+      const list = await fetchUserStatuses();
+      return new Map<string, UserStatus>(list.map(s => [s.userId, s]));
+    },
+    enabled: talkEnabled(),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
 }
 
@@ -208,11 +223,47 @@ export function useTalkSSE(token: string | null, initialMessageId: number) {
           return [...toAdd, ...old];
         });
         // invalidateQueries fora do updater para evitar efeito colateral em função pura
-        if (hadNew) qc.invalidateQueries({ queryKey: ['talk-rooms'] });
+        if (hadNew) {
+          qc.invalidateQueries({ queryKey: ['talk-rooms'] });
+          // Atualiza o lastReadMessage otimisticamente (quem enviou a msg com certeza já leu tudo até ali)
+          qc.setQueryData(['talk-participants', token], (old: any) => {
+            if (!old) return old;
+            const maxIds = new Map<string, number>();
+            for (const m of msgs) {
+              const current = maxIds.get(m.actorId) ?? 0;
+              if (m.id > current) maxIds.set(m.actorId, m.id);
+            }
+            return old.map((p: any) => {
+              const maxId = maxIds.get(p.actorId);
+              if (maxId && maxId > (p.lastReadMessage ?? 0)) {
+                return { ...p, lastReadMessage: maxId };
+              }
+              return p;
+            });
+          });
+          // Atrasa a invalidação para não correr contra o request POST /read do cliente da outra pessoa
+          setTimeout(() => qc.invalidateQueries({ queryKey: ['talk-participants', token] }), 1500);
+        }
       }
 
       if (event.type === 'typing') {
         const users = event.data as Array<{ actorId: string; actorDisplayName: string }>;
+        
+        // Se está digitando, com certeza viu a última mensagem enviada!
+        const msgs = qc.getQueryData<TalkMessage[]>(['talk-messages', token]);
+        const latestId = msgs && msgs.length > 0 ? msgs[0].id : 0;
+        if (latestId > 0) {
+          qc.setQueryData(['talk-participants', token], (old: any) => {
+            if (!old) return old;
+            return old.map((p: any) => {
+              if (users.some(u => u.actorId === p.actorId) && latestId > (p.lastReadMessage ?? 0)) {
+                return { ...p, lastReadMessage: latestId };
+              }
+              return p;
+            });
+          });
+        }
+        setTimeout(() => qc.invalidateQueries({ queryKey: ['talk-participants', token] }), 1500);
         setTypingUsers(prev => {
           const map = new Map(prev.map(u => [u.actorId, u]));
           users.forEach(u => map.set(u.actorId, u));

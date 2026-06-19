@@ -24,6 +24,18 @@ html.dark body { background-color: #0f172a; color: #f1f5f9; }
 }
 .talk-flash { animation: talk-flash 1.2s ease-out; }
 
+/* Seletor de emoji (emoji-mart): compacto p/ caber na janela estreita do Talk.
+   A área de rolagem interna é flex:1, então fixar a altura do host a encolhe. */
+.talk-emoji-picker em-emoji-picker {
+  height: 280px;
+}
+
+/* Overlays de arrastar/enviar arquivo (Talk) no modo escuro */
+html.dark .talk-drag-overlay { background-color: rgba(30,41,59,0.92) !important; border-color: #3b82f6 !important; }
+html.dark .talk-drag-overlay .text-blue-600 { color: #93c5fd !important; }
+html.dark .talk-upload-overlay { background-color: rgba(15,23,42,0.75) !important; }
+html.dark .talk-upload-overlay .text-slate-500 { color: #cbd5e1 !important; }
+
 /* Citação de resposta (Talk): contraste explícito nos dois modos */
 .talk-quote { background-color: #e2e8f0; color: #475569; }   /* claro: slate-200 / slate-600 */
 .talk-quote:hover { background-color: #cbd5e1; }
@@ -135,15 +147,27 @@ html.dark .prose-redmine h1, html.dark .prose-redmine h2, html.dark .prose-redmi
     scrollbar-width: thin;
     scrollbar-color: #cbd5e1 transparent;
   }
+  html.dark .scrollbar-thin {
+    scrollbar-color: #475569 transparent;
+  }
   .scrollbar-thin::-webkit-scrollbar {
     width: 4px;
+    height: 4px;
   }
   .scrollbar-thin::-webkit-scrollbar-track {
     background: transparent;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
     background: #cbd5e1;
-    border-radius: 2px;
+    border-radius: 4px;
+  }
+  html.dark .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #475569;
+  }
+  .scrollbar-thin::-webkit-scrollbar-button {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
   }
 }
 

@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Mail, Inbox, Send, Trash2, FileEdit, AlertOctagon, Search, RefreshCw,
-  Paperclip, X, Reply, ReplyAll, MailOpen, Loader2, Circle, ArrowLeft, PenSquare, Star,
+  Paperclip, X, Reply, ReplyAll, MailOpen, Loader2, Circle, ArrowLeft, PenSquare, Star, Undo2,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -201,12 +201,18 @@ function MailViewInner() {
           <div className="flex-1 min-w-0 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
             <MessageReader
               id={selectedId}
+              inTrash={!activeSearch && folder.toLowerCase() === 'trash'}
               onClose={() => setSelectedId(null)}
               onReply={(full, all) => setCompose(buildReply(full, all))}
-              onChanged={() => { qc.invalidateQueries({ queryKey: ['mail', 'list'] }); qc.invalidateQueries({ queryKey: ['mail', 'folders'] }); }}
+              onChanged={() => {
+                qc.invalidateQueries({ queryKey: ['mail', 'list'] });
+                qc.invalidateQueries({ queryKey: ['mail', 'folders'] });
+                qc.invalidateQueries({ queryKey: ['mail', 'unread'] });
+              }}
               onActed={(closeAfter) => {
                 qc.invalidateQueries({ queryKey: ['mail', 'list'] });
                 qc.invalidateQueries({ queryKey: ['mail', 'folders'] });
+                qc.invalidateQueries({ queryKey: ['mail', 'unread'] });
                 if (closeAfter) setSelectedId(null);
               }}
             />
@@ -252,8 +258,9 @@ function MessageRow({ m, selected, onClick }: { m: MailMessageSummary; selected:
   );
 }
 
-function MessageReader({ id, onClose, onReply, onChanged, onActed }: {
+function MessageReader({ id, inTrash, onClose, onReply, onChanged, onActed }: {
   id: string;
+  inTrash: boolean;
   onClose: () => void;
   onReply: (m: MailMessageFull, all: boolean) => void;
   onChanged: () => void;
@@ -266,9 +273,16 @@ function MessageReader({ id, onClose, onReply, onChanged, onActed }: {
   });
 
   const actMut = useMutation({
-    mutationFn: ({ op }: { op: string; close: boolean }) => mailApi.action(id, op),
+    mutationFn: ({ op, target }: { op: string; close: boolean; target?: string | number }) => mailApi.action(id, op, target),
     onSuccess: (_d, v) => onActed(v.close),
   });
+
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
+  useEffect(() => {
+    const observer = new MutationObserver(() => setIsDark(document.documentElement.classList.contains('dark')));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
 
   // Ao abrir (marcado como lido no servidor), atualiza contadores/lista uma vez.
   const loaded = msg && !isLoading;
@@ -281,11 +295,14 @@ function MessageReader({ id, onClose, onReply, onChanged, onActed }: {
     return <div className="flex items-center justify-center h-full text-slate-400"><Loader2 className="animate-spin" size={22} /></div>;
   }
 
-  const act = (op: string, close: boolean) => actMut.mutate({ op, close });
+  const act = (op: string, close: boolean, target?: string | number) => actMut.mutate({ op, close, target });
 
-  const srcDoc = msg.html
-    ? `<!doctype html><html><head><meta charset="utf-8"><base href="${window.location.origin}/" target="_blank"><style>body{font-family:system-ui,sans-serif;color:#0f172a;margin:16px;overflow-wrap:break-word}img{max-width:100%;height:auto}</style></head><body>${msg.html}</body></html>`
-    : `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:system-ui,sans-serif;color:#0f172a;white-space:pre-wrap;margin:16px}</style></head><body>${escapeHtml(msg.text || '(sem conteúdo)')}</body></html>`;
+  // Zimbra substitui src por dfsrc para bloquear imagens externas. Vamos restaurar para exibi-las.
+  const htmlContent = msg.html ? msg.html.replace(/dfsrc=/g, 'src=') : '';
+
+  const srcDoc = htmlContent
+    ? `<!doctype html><html><head><meta charset="utf-8"><base href="${window.location.origin}/" target="_blank"><style>body{background-color:#ffffff;font-family:system-ui,sans-serif;color:#0f172a;margin:16px;overflow-wrap:break-word}img{max-width:100%;height:auto}${isDark ? 'img,video{filter:invert(1) hue-rotate(180deg)}' : ''}</style></head><body>${htmlContent}</body></html>`
+    : `<!doctype html><html><head><meta charset="utf-8"><style>body{background-color:#ffffff;font-family:system-ui,sans-serif;color:#0f172a;white-space:pre-wrap;margin:16px}</style></head><body>${escapeHtml(msg.text || '(sem conteúdo)')}</body></html>`;
 
   return (
     <div className="h-full flex flex-col">
@@ -303,7 +320,16 @@ function MessageReader({ id, onClose, onReply, onChanged, onActed }: {
         <div className="flex-1" />
         <button onClick={() => act('flag', false)} title="Sinalizar" className="p-1.5 text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Star size={15} /></button>
         <button onClick={() => act('!read', true)} title="Marcar como não lida" className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><MailOpen size={15} /></button>
-        <button onClick={() => act('trash', true)} title="Mover para lixeira" className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Trash2 size={15} /></button>
+        {inTrash ? (
+          <>
+            <button onClick={() => act('move', true, 2)} className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors">
+              <Undo2 size={13} /> Restaurar
+            </button>
+            <button onClick={() => { if (window.confirm('Excluir esta mensagem definitivamente? Esta ação não pode ser desfeita.')) act('delete', true); }} title="Excluir definitivamente" className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Trash2 size={15} /></button>
+          </>
+        ) : (
+          <button onClick={() => act('trash', true)} title="Mover para lixeira" className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Trash2 size={15} /></button>
+        )}
         <button onClick={onClose} className="hidden lg:block p-1 ml-1 text-slate-400 hover:text-slate-600"><X size={16} /></button>
       </div>
 
@@ -339,7 +365,7 @@ function MessageReader({ id, onClose, onReply, onChanged, onActed }: {
         title="conteúdo do e-mail"
         sandbox="allow-popups allow-popups-to-escape-sandbox"
         srcDoc={srcDoc}
-        className="flex-1 w-full bg-white"
+        className="flex-1 w-full bg-white dark:invert dark:hue-rotate-180"
       />
     </div>
   );

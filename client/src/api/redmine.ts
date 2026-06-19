@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type { Issue, IssueStatus, Project, Tracker, Priority, CurrentUser, Version, TimeEntry, TimeEntryActivity, Mention, NamedRef, EditField } from '../types/redmine';
-import { getActiveAI } from '../utils/aiConfig';
+import { getActiveAI, getAIKeys } from '../utils/aiConfig';
 
 export const AUTH_KEY = 'redmine_auth';
 
@@ -430,6 +430,27 @@ export const redmineApi = {
       headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
     });
     return data.standup as string;
+  },
+
+  transcribeSummarize: async (audioBlob: Blob, filename: string, title: string, participants: string): Promise<{ transcript: string, summary: string }> => {
+    const ai = getActiveAI();
+    if (!ai) throw new Error('AI_NOT_CONFIGURED');
+    const keys = getAIKeys();
+    if (!keys.openai) throw new Error('A transcrição exige uma chave da OpenAI (Whisper) configurada nas configurações de IA.');
+
+    const { data } = await api.post('/ai/transcribe-summarize', audioBlob, {
+      headers: {
+        'x-ai-provider': ai.provider,
+        'x-ai-key': ai.key,
+        'x-openai-key': keys.openai,
+        'x-filename': encodeURIComponent(filename),
+        'x-meeting-title': encodeURIComponent(title),
+        'x-meeting-participants': encodeURIComponent(participants),
+        'Content-Type': audioBlob.type || 'audio/webm',
+      },
+      timeout: 300000, // 5 minutes for large audio processing
+    });
+    return data;
   },
 
   // ── Web Push ──────────────────────────────────────────────────────────

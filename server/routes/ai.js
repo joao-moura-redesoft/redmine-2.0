@@ -7,9 +7,62 @@ const handle = require('../lib/handle');
 const {
   Anthropic, makeOpenAIClient, chatModel,
   resolveUserName, buildIssueContext, getAICredentials, MAX_ATTACH_BYTES,
-  fetchAttachmentBase64, imageBlock, aiComplete, PROMPT_SYSTEM, PROMPT_TEMPLATE,
+  fetchAttachmentBase64, imageBlock, aiComplete, transcribeAudio, PROMPT_SYSTEM, PROMPT_TEMPLATE,
   CHAT_TOOLS, CHAT_SYSTEM, execChatTool,
 } = require('../services/ai');
+
+// Transcreve o áudio de uma reunião (Whisper/OpenAI) e gera um resumo estruturado
+// com o provider de IA preferido. Recebe o áudio como corpo binário (express.raw).
+//   x-openai-key   → key da OpenAI (obrigatória; Whisper)
+//   x-ai-provider/x-ai-key → provider do resumo (qualquer um)
+//   x-meeting-title, x-meeting-participants → contexto opcional
+router.post('/ai/transcribe-summarize', express.raw({ type: () => true, limit: '80mb' }), handle(async (req, res) => {
+  const openaiKey = req.headers['x-openai-key'] || '';
+  if (!openaiKey) return res.status(400).json({ error: 'Transcrição requer uma chave da OpenAI (Whisper). Configure-a em Configurações → IA.' });
+  if (!req.body || !req.body.length) return res.status(400).json({ error: 'áudio vazio' });
+
+  const filename = decodeURIComponent(req.headers['x-filename'] || 'meeting.webm');
+  const mime = req.headers['x-content-type'] || req.headers['content-type'] || 'audio/webm';
+  const title = decodeURIComponent(req.headers['x-meeting-title'] || 'Reunião');
+  const participants = decodeURIComponent(req.headers['x-meeting-participants'] || '');
+
+  const transcript = await transcribeAudio(openaiKey, req.body, filename, mime);
+  if (!transcript) return res.json({ transcript: '', summary: 'Não foi possível extrair fala do áudio (silêncio ou áudio não compartilhado).' });
+
+  // Resumo com o provider preferido (Claude por padrão).
+  const { provider, key } = getAICredentials(req);
+  let summary = '';
+  if (key) {
+    summary = await aiComplete(provider, key, {
+      system: 'Você é um assistente que resume reuniões de um time de desenvolvimento de software. Responda em português do Brasil, em markdown, de forma objetiva.',
+      user: `Resuma a transcrição da reunião abaixo. Use exatamente estas seções (omita uma seção se não houver conteúdo):
+
+## 📋 Resumo
+[2-4 frases do que foi discutido]
+
+## ✅ Decisões
+[bullets das decisões tomadas]
+
+## 📌 Ações / Pendências
+[bullets no formato "- [responsável, se citado] ação"]
+
+## ⚠️ Pontos de atenção
+[riscos, dúvidas em aberto — ou omita]
+
+Não invente nada que não esteja na transcrição. Se a transcrição for curta/ruidosa, diga isso.
+
+Reunião: ${title}
+${participants ? `Participantes: ${participants}` : ''}
+
+Transcrição:
+${transcript.slice(0, 24000)}`,
+      maxTokens: 900,
+      fast: false,
+    });
+  }
+
+  res.json({ transcript, summary });
+}));
 
 // Gera o prompt completo seguindo o template da skill gerar-prompt-tarefa.
 router.post('/ai/generate-prompt', handle(async (req, res) => {

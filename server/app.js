@@ -23,6 +23,7 @@ function buildApp() {
   app.use('/api', require('./routes/notes'));
   app.use('/api', require('./routes/mail'));
   app.use('/api', require('./routes/wiki'));
+  app.use('/api', require('./routes/jitsi'));
 
   // =========================================================================
   // Injeta o frontend compilado dentro do executável do backend.

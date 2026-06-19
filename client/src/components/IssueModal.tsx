@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, ExternalLink, ChevronDown, ChevronRight, ChevronLeft, Check, Pencil, Play, GitBranch, ArrowRight, Loader2, AlertCircle, RotateCcw, FileText, File, Star, Link2, GitMerge, Copy, Plus, CheckSquare, User, Clock, Tag, Calendar, Search, CircleDot, Image as ImageIcon, Paperclip, Download, NotebookPen, StickyNote, BookOpen, History } from 'lucide-react';
+import { X, ExternalLink, ChevronDown, ChevronRight, ChevronLeft, Check, Pencil, Play, GitBranch, ArrowRight, Loader2, AlertCircle, RotateCcw, FileText, File, Star, Link2, GitMerge, Copy, Plus, CheckSquare, User, Clock, Tag, Calendar, Search, CircleDot, Image as ImageIcon, Paperclip, Download, NotebookPen, StickyNote, BookOpen, History, Video } from 'lucide-react';
 import type { Attachment, EditField } from '../types/redmine';
 import { RequiredFieldsModal } from './RequiredFieldsModal';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
@@ -16,6 +16,9 @@ import { useIssueDetail, useAddNote, useStatuses, useUpdateIssue, useProjectMemb
 import { useNotes } from '../hooks/useNotes';
 import { talkBridge } from '../utils/talkBridge';
 import { localWatches, useLocalWatches } from '../utils/localWatches';
+import { useJitsi } from './jitsi/JitsiContext';
+import { useJitsiPresence } from '../hooks/useJitsiPresence';
+import { makeTaskRoom } from '../utils/jitsiConfig';
 import { wikiLinks, type WikiLink } from '../utils/wikiLinks';
 import { WikiLinkSearch } from './WikiView';
 import { Markdown } from './Markdown';
@@ -1133,6 +1136,8 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
   const { data: issue, isLoading } = useIssueDetail(issueId);
   const { data: statuses } = useStatuses();
   const { data: currentUser } = useCurrentUser();
+  const { startCall: startJitsiCall, activeCall: activeJitsiCall } = useJitsi();
+  const { isLive: isRoomLive, liveRoom } = useJitsiPresence();
   // Transições permitidas: nativo (Redmine 5+) tem prioridade; senão busca sob
   // demanda, cacheado por workflow (projeto/tracker/status/papel) e não por tarefa.
   const { data: lazyAllowed, isFetching: allowedLoading } = useAllowedStatuses(
@@ -1347,6 +1352,48 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
             )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Sala da Tarefa (vídeo Jitsi dedicado a esta issue) */}
+            {issue && (() => {
+              const id = Number(issueId);
+              const room = makeTaskRoom(id);
+              const inThisRoom = activeJitsiCall?.room === room;   // eu estou na sala
+              const live = isRoomLive(id);                         // tem gente na sala
+              const info = liveRoom(id);
+              const label = inThisRoom ? 'Na sala' : live ? 'AO VIVO' : 'Sala da Tarefa';
+              const cls = inThisRoom
+                ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/20 dark:text-red-400'
+                : live
+                  ? 'bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 border border-red-200'
+                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400';
+              return (
+                <button
+                  onClick={() => startJitsiCall({
+                    room,
+                    title: `#${id} ${issue.subject}`,
+                    kind: 'task',
+                    issueId: id,
+                  })}
+                  title={live && !inThisRoom
+                    ? `Na sala agora: ${info?.participants.join(', ') || ''}`
+                    : 'Abrir sala de vídeo desta tarefa'}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${cls}`}
+                >
+                  {(live || inThisRoom) ? (
+                    <span className="relative flex h-2 w-2 flex-shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                    </span>
+                  ) : (
+                    <Video size={13} />
+                  )}
+                  {label}
+                  {live && !inThisRoom && (info?.count ?? 0) > 0 && (
+                    <span className="font-normal opacity-70">· {info?.count}</span>
+                  )}
+                </button>
+              );
+            })()}
+
             {/* Ver notas vinculadas a esta tarefa */}
             {issue && onViewNotes && linkedNotesCount > 0 && (
               <button

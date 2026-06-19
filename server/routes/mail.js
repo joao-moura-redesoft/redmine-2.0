@@ -43,11 +43,12 @@ router.get('/mail/messages/:id', handle(async (req, res) => {
   res.json(await zimbra.getMessage(req, req.params.id, { markRead }));
 }));
 
-// Ações: marcar lido/não-lido, sinalizar, lixeira… op ∈ read|!read|flag|!flag|trash|spam
+// Ações: marcar lido/não-lido, sinalizar, lixeira, mover, excluir…
+// op ∈ read|!read|flag|!flag|trash|spam|move|delete (move exige l=pasta destino)
 router.post('/mail/messages/:id/action', handle(async (req, res) => {
   const op = String(req.body?.op || '').trim();
   if (!op) return res.status(400).json({ error: 'op obrigatório' });
-  res.json(await zimbra.actOnMessage(req, req.params.id, op));
+  res.json(await zimbra.actOnMessage(req, req.params.id, op, req.body?.l));
 }));
 
 // Enviar e-mail (novo ou resposta).

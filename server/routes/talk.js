@@ -55,6 +55,43 @@ router.get('/talk/me', handle(async (req, res) => {
   res.json({ id: data.ocs.data.id, displayName: data.ocs.data.display_name });
 }));
 
+// Perfil de um usuário Nextcloud (para o pop-up de perfil no chat).
+// Em servidores onde a conta não é admin, /cloud/users/{id} pode dar 403/997;
+// nesse caso devolvemos o mínimo (id + displayName via autocomplete) p/ o pop-up
+// ainda ser útil (avatar + botão de DM).
+router.get('/talk/users/:userId', handle(async (req, res) => {
+  const userId = req.params.userId;
+  const talk = makeTalk(req);
+  const out = { id: userId, displayName: '', email: '', organisation: '', role: '', phone: '' };
+
+  // 1. Metadados completos (requer admin ou mesmo grupo, conforme config do NC)
+  try {
+    const { data } = await talk.get(
+      `/ocs/v2.php/cloud/users/${encodeURIComponent(userId)}?format=json`
+    );
+    const d = data?.ocs?.data ?? {};
+    out.displayName  = d.displayname || d['display-name'] || '';
+    out.email        = d.email || '';
+    out.organisation = d.organisation || '';
+    out.role         = d.role || '';
+    out.phone        = d.phone || '';
+  } catch { /* 403/997: cai no fallback abaixo */ }
+
+  // 2. Fallback de nome via autocomplete (sempre acessível ao usuário logado)
+  if (!out.displayName) {
+    try {
+      const { data } = await talk.get(`/ocs/v2.php/core/autocomplete/get?format=json`, {
+        params: { search: userId, itemType: 'call', itemId: 'new', 'shareTypes[]': '0', limit: 20 },
+      });
+      const match = (data?.ocs?.data || []).find(u => u.id === userId);
+      if (match) out.displayName = match.label || userId;
+    } catch { /* ignora */ }
+  }
+  if (!out.displayName) out.displayName = userId;
+
+  res.json(out);
+}));
+
 router.get('/talk/rooms', handle(async (req, res) => {
   const { data } = await makeTalk(req).get('/ocs/v2.php/apps/spreed/api/v4/room?format=json');
   res.json(data.ocs.data);
@@ -237,6 +274,54 @@ router.get('/talk/file-preview', handle(async (req, res) => {
   res.send(result.data);
 }));
 
+// Download de arquivo compartilhado (qualquer tipo). Diferente do file-preview,
+// não cai para thumbnail — busca os bytes reais e força attachment.
+router.get('/talk/file-download', handle(async (req, res) => {
+  const { fileId, path: filePath, actorId } = req.query;
+  const user = req.headers['x-nextcloud-user'];
+  const talk = makeTalk(req);
+  const filename = req.query.name
+    ? decodeURIComponent(req.query.name)
+    : ((filePath || '').split('/').pop() || `arquivo_${fileId}`);
+
+  const tryDownload = async (url, useAuth = true) => {
+    try {
+      const client = useAuth ? talk : axios;
+      const r = await client.get(url, { responseType: 'arraybuffer', maxRedirects: 5 });
+      const ct = String(r.headers['content-type'] || '');
+      if (r.data?.byteLength > 0 && !ct.includes('text/html')) {
+        return { data: r.data, ct: ct || 'application/octet-stream' };
+      }
+    } catch {}
+    return null;
+  };
+
+  let result = null;
+  // 1. OCS Direct Download (URL temporária, funciona p/ qualquer arquivo acessível)
+  try {
+    const { data: ocsData } = await talk.post(
+      `/ocs/v2.php/apps/dav/api/v1/direct?format=json`, { fileId: parseInt(fileId) }
+    );
+    const directUrl = ocsData?.ocs?.data?.url;
+    if (directUrl) result = await tryDownload(directUrl, false);
+  } catch {}
+
+  // 2/3/4. WebDAV (usuário logado / remetente)
+  if (!result && filePath) {
+    result =
+      (await tryDownload(`/remote.php/webdav/${filePath}`)) ||
+      (await tryDownload(`/remote.php/dav/files/${encodeURIComponent(user)}/${filePath}`)) ||
+      (actorId && actorId !== user
+        ? await tryDownload(`/remote.php/dav/files/${encodeURIComponent(actorId)}/${filePath}`)
+        : null);
+  }
+
+  if (!result) return res.status(404).json({ error: 'not accessible' });
+  res.set('Content-Type', result.ct);
+  res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  res.send(Buffer.from(result.data));
+}));
+
 // ─── Endpoints Talk extras ────────────────────────────────────────────────────
 
 // Indicador de digitação
@@ -313,6 +398,218 @@ router.post('/talk/rooms', handle(async (req, res) => {
   );
   res.json(data.ocs.data);
 }));
+
+// Visão geral dos compartilhamentos da conversa (arquivos/mídia de todo o histórico).
+// Retorna objeto agrupado por tipo: { media, file, voice, audio, location, deckcard, other }.
+router.get('/talk/rooms/:token/shares', handle(async (req, res) => {
+  try {
+    const { data } = await makeTalk(req).get(
+      `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/share/overview?format=json`,
+      { params: { limit: 7 } }
+    );
+    res.json(data?.ocs?.data ?? {});
+  } catch (e) {
+    if (e.response?.status === 404) return res.json({});
+    throw e;
+  }
+}));
+
+// Compartilhamentos de um tipo específico (paginação por lastKnownMessageId).
+// objectType: media | file | voice | audio | location | deckcard | other
+router.get('/talk/rooms/:token/shares/:objectType', handle(async (req, res) => {
+  try {
+    const params = { objectType: req.params.objectType, limit: 50 };
+    if (req.query.lastKnownMessageId) params.lastKnownMessageId = req.query.lastKnownMessageId;
+    const { data } = await makeTalk(req).get(
+      `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/share?format=json`,
+      { params }
+    );
+    res.json(data?.ocs?.data ?? []);
+  } catch (e) {
+    if (e.response?.status === 404) return res.json([]);
+    throw e;
+  }
+}));
+
+// Busca no histórico de mensagens (provider talk-message da busca unificada).
+// Escopa à conversa atual via `from=/call/{token}`. Retorna mensagens com id +
+// timestamp para o cliente "pular" até o ponto no chat.
+router.get('/talk/rooms/:token/search', handle(async (req, res) => {
+  const term = (req.query.term || '').toString().trim();
+  if (term.length < 2) return res.json([]);
+  try {
+    const { data } = await makeTalk(req).get(
+      `/ocs/v2.php/search/providers/talk-message/search?format=json`,
+      { params: { term, from: `/call/${req.params.token}`, limit: 20 } }
+    );
+    const entries = data?.ocs?.data?.entries || [];
+    const results = entries
+      .map(e => {
+        const a = e.attributes || {};
+        const id = parseInt(a.messageId || a.id || '0', 10);
+        // só mantém resultados desta conversa
+        if (a.conversation && a.conversation !== req.params.token) return null;
+        return id ? {
+          id,
+          actorDisplayName: e.title || a.actorDisplayName || '',
+          message: e.subline || '',
+          timestamp: parseInt(a.timestamp || '0', 10) || 0,
+        } : null;
+      })
+      .filter(Boolean);
+    res.json(results);
+  } catch (e) {
+    // provider pode estar desativado em servidores antigos — devolve vazio
+    if (e.response?.status === 404) return res.json([]);
+    throw e;
+  }
+}));
+
+// ─── Presença / User Status ───────────────────────────────────────────────────
+
+// Lista de status (presença) — só retorna quem tem status ativo/recente.
+router.get('/talk/user-statuses', handle(async (req, res) => {
+  try {
+    const { data } = await makeTalk(req).get(
+      `/ocs/v2.php/apps/user_status/api/v1/statuses?format=json`, { params: { limit: 200 } }
+    );
+    res.json(data?.ocs?.data ?? []);
+  } catch (e) {
+    if (e.response?.status === 404) return res.json([]); // app desativado
+    throw e;
+  }
+}));
+
+// Meu status
+router.get('/talk/my-status', handle(async (req, res) => {
+  try {
+    const { data } = await makeTalk(req).get(
+      `/ocs/v2.php/apps/user_status/api/v1/user_status?format=json`
+    );
+    res.json(data?.ocs?.data ?? null);
+  } catch (e) {
+    if (e.response?.status === 404) return res.json(null);
+    throw e;
+  }
+}));
+
+// Definir tipo de status: online | away | dnd | invisible
+router.put('/talk/my-status', handle(async (req, res) => {
+  const { data } = await makeTalk(req).put(
+    `/ocs/v2.php/apps/user_status/api/v1/user_status/status?format=json`,
+    { statusType: req.body.statusType }
+  );
+  if (data?.ocs?.meta?.status === 'failure') throw new Error(data.ocs.meta.message || 'Erro ao definir status');
+  res.json(data?.ocs?.data ?? {});
+}));
+
+// Definir mensagem de status personalizada
+router.put('/talk/my-status/message', handle(async (req, res) => {
+  const body = { message: req.body.message ?? '', statusIcon: req.body.statusIcon ?? null };
+  if (req.body.clearAt) body.clearAt = req.body.clearAt;
+  const { data } = await makeTalk(req).put(
+    `/ocs/v2.php/apps/user_status/api/v1/user_status/message/custom?format=json`, body
+  );
+  if (data?.ocs?.meta?.status === 'failure') throw new Error(data.ocs.meta.message || 'Erro ao definir mensagem de status');
+  res.json(data?.ocs?.data ?? {});
+}));
+
+// Limpar mensagem de status
+router.delete('/talk/my-status/message', handle(async (req, res) => {
+  const { data } = await makeTalk(req).delete(
+    `/ocs/v2.php/apps/user_status/api/v1/user_status/message?format=json`
+  );
+  res.json(data?.ocs?.data ?? {});
+}));
+
+// ─── Gestão de grupos (self-service) ──────────────────────────────────────────
+
+// Renomear sala
+router.put('/talk/rooms/:token', handle(async (req, res) => {
+  const { data } = await makeTalk(req).put(
+    `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}?format=json`,
+    { roomName: req.body.roomName }
+  );
+  res.json(data.ocs.data ?? {});
+}));
+
+// Definir descrição/tópico
+router.put('/talk/rooms/:token/description', handle(async (req, res) => {
+  const { data } = await makeTalk(req).put(
+    `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/description?format=json`,
+    { description: req.body.description }
+  );
+  res.json(data.ocs.data ?? {});
+}));
+
+// Adicionar participante (source: 'users' por padrão)
+router.post('/talk/rooms/:token/participants', handle(async (req, res) => {
+  const { data } = await makeTalk(req).post(
+    `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/participants?format=json`,
+    { newParticipant: req.body.newParticipant, source: req.body.source || 'users' }
+  );
+  res.json(data.ocs.data ?? {});
+}));
+
+// Remover participante (por attendeeId)
+router.delete('/talk/rooms/:token/attendees', handle(async (req, res) => {
+  const { data } = await makeTalk(req).delete(
+    `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/attendees?format=json`,
+    { params: { attendeeId: req.query.attendeeId } }
+  );
+  res.json(data.ocs.data ?? {});
+}));
+
+// Promover / rebaixar moderador (por attendeeId)
+router.post('/talk/rooms/:token/moderators', handle(async (req, res) => {
+  const { data } = await makeTalk(req).post(
+    `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/moderators?format=json`,
+    { attendeeId: req.body.attendeeId }
+  );
+  res.json(data.ocs.data ?? {});
+}));
+
+router.delete('/talk/rooms/:token/moderators', handle(async (req, res) => {
+  const { data } = await makeTalk(req).delete(
+    `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/moderators?format=json`,
+    { params: { attendeeId: req.query.attendeeId } }
+  );
+  res.json(data.ocs.data ?? {});
+}));
+
+// Sair do grupo
+router.delete('/talk/rooms/:token/participants/self', handle(async (req, res) => {
+  const { data } = await makeTalk(req).delete(
+    `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/participants/self?format=json`
+  );
+  res.json(data.ocs.data ?? { success: true });
+}));
+
+// Upload de avatar do grupo (multipart)
+router.post('/talk/rooms/:token/avatar',
+  express.raw({ type: '*/*', limit: '10mb' }),
+  handle(async (req, res) => {
+    const ct = req.headers['x-content-type'] || 'image/png';
+    const filename = decodeURIComponent(req.headers['x-filename'] || 'avatar.png');
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
+    if (!body.length) return res.status(400).json({ error: 'Arquivo vazio' });
+
+    // OCS espera multipart/form-data com campo "file"
+    const boundary = `----talkavatar${Date.now()}`;
+    const pre = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${ct}\r\n\r\n`
+    );
+    const post = Buffer.from(`\r\n--${boundary}--\r\n`);
+    const multipart = Buffer.concat([pre, body, post]);
+
+    const { data } = await makeTalk(req).post(
+      `/ocs/v2.php/apps/spreed/api/v1/room/${req.params.token}/avatar?format=json`,
+      multipart,
+      { headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` } }
+    );
+    res.json(data.ocs.data ?? { success: true });
+  })
+);
 
 // Buscar usuários Nextcloud para iniciar conversa
 router.get('/talk/search/users', handle(async (req, res) => {

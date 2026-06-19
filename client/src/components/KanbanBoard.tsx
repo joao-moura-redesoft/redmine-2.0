@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DndContext,
   DragEndEvent,
@@ -9,7 +10,7 @@ import {
   useSensors,
   useDroppable,
 } from '@dnd-kit/core';
-import { Plus, RefreshCw, EyeOff, Search, AlertTriangle, Bell, BellRing, X, ArrowUpDown, Columns, ChevronDown, Archive, CheckSquare, Rows3, Flag, Milestone, CalendarClock, Play, Square, GripHorizontal, Palette } from 'lucide-react';
+import { Plus, RefreshCw, EyeOff, Search, AlertTriangle, Bell, BellRing, X, ArrowUpDown, Columns, ChevronDown, Archive, CheckSquare, Rows3, Flag, Milestone, CalendarClock, Play, Square, GripHorizontal, Palette, Layers, Gauge, User } from 'lucide-react';
 import { SortableContext, horizontalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useIssues, useStatuses, useUpdateIssueStatus, useProjectVersions, useVersionIssues } from '../hooks/useRedmine';
@@ -25,6 +26,13 @@ import { getMissingFields, getReviewAlert } from '../utils/alerts';
 import { loadArchived, saveArchived } from '../utils/archive';
 
 type SortBy = 'priority' | 'due_date' | 'updated';
+type GroupBy = 'none' | 'assignee' | 'priority';
+
+const GROUP_LABELS: Record<GroupBy, string> = {
+  none: 'Não agrupar',
+  assignee: 'Responsável',
+  priority: 'Prioridade',
+};
 
 const PRIORITY_ORDER: Record<string, number> = {
   Imediata: 0, Urgente: 1, Alta: 2, Normal: 3, Baixa: 4,
@@ -226,6 +234,10 @@ interface ColumnProps {
   onTimerStop?: () => void;
   customColorKey?: string;
   onColorChange?: (statusId: number, colorKey: string | null) => void;
+  wipLimit?: number;
+  onWipChange?: (statusId: number, limit: number | null) => void;
+  dndId?: string;
+  draggableColumn?: boolean;
 }
 
 const CUSTOM_COLORS: Record<string, { borderT: string, bg: string, border: string, dot: string, hex: string }> = {
@@ -255,7 +267,7 @@ const COL_COLORS: Record<string, string> = {
   'Impedido': 'border-t-red-500',
 };
 
-function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, onQuickStatusChange, onArchive, onUnarchive, selectedIds, selectionMode, onToggleSelect, pinned, onUnpin, focusedIssueId, compactMode, onSubtaskOpen, onSubtaskDone, activeTimerIssueId, timerFormatted, onTimerStart, onTimerStop, customColorKey, onColorChange }: ColumnProps) {
+function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, onQuickStatusChange, onArchive, onUnarchive, selectedIds, selectionMode, onToggleSelect, pinned, onUnpin, focusedIssueId, compactMode, onSubtaskOpen, onSubtaskDone, activeTimerIssueId, timerFormatted, onTimerStart, onTimerStop, customColorKey, onColorChange, wipLimit, onWipChange, dndId, draggableColumn = true }: ColumnProps) {
   const {
     isOver,
     setNodeRef,
@@ -265,9 +277,25 @@ function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, 
     transition,
     isDragging,
   } = useSortable({
-    id: `col-${status.id}`,
+    id: dndId ?? `col-${status.id}`,
     data: { type: 'Column', status },
   });
+
+  // WIP: conta só os cards ativos (não arquivados) desta coluna.
+  const wipCount = issues.length;
+  const overWip = wipLimit != null && wipCount > wipLimit;
+  const atWip = wipLimit != null && wipCount === wipLimit;
+  const [wipOpen, setWipOpen] = useState(false);
+  const wipBtnRef = useRef<HTMLButtonElement>(null);
+  const [wipCoords, setWipCoords] = useState({ top: 0, left: 0 });
+
+  const toggleWip = () => {
+    if (!wipOpen && wipBtnRef.current) {
+      const r = wipBtnRef.current.getBoundingClientRect();
+      setWipCoords({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 184) });
+    }
+    setWipOpen(v => !v);
+  };
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -281,6 +309,17 @@ function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, 
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(status.is_closed);
   const [colorOpen, setColorOpen] = useState(false);
+  const colorBtnRef = useRef<HTMLButtonElement>(null);
+  const [colorCoords, setColorCoords] = useState({ top: 0, left: 0 });
+
+  const toggleColor = () => {
+    if (!colorOpen && colorBtnRef.current) {
+      const r = colorBtnRef.current.getBoundingClientRect();
+      // Popover de 192px (w-48), alinhado à direita do botão.
+      setColorCoords({ top: r.bottom + 4, left: Math.min(r.right - 192, window.innerWidth - 200) });
+    }
+    setColorOpen(v => !v);
+  };
 
   const headerStyle = customTheme ? {
     borderTop: `4px solid ${customTheme.hex}`,
@@ -294,7 +333,7 @@ function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, 
   } : {};
 
   return (
-    <div ref={setNodeRef} style={style} className={`flex flex-col w-72 flex-shrink-0 ${customTheme ? `theme-${customColorKey}` : ''} ${isOver ? 'is-over' : ''}`}>
+    <div ref={setNodeRef} style={style} className={`flex flex-col w-72 flex-shrink-0 rounded-xl ${customTheme ? `theme-${customColorKey}` : ''} ${isOver ? 'is-over' : ''} ${overWip ? 'ring-2 ring-red-400 ring-offset-2 dark:ring-offset-slate-950' : ''}`}>
       {/* Header */}
       <div 
         className={`col-header px-4 py-3 border-x border-b transition-colors duration-150
@@ -304,34 +343,103 @@ function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, 
         style={headerStyle}
       >
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div
-              {...attributes}
-              {...listeners}
-              className="cursor-grab hover:bg-slate-100 p-1 rounded transition-colors text-slate-400 hover:text-slate-600"
-              title="Arrastar coluna"
-            >
-              <GripHorizontal size={14} />
+          <div className="flex items-center gap-2 min-w-0">
+            {draggableColumn && (
+              <div
+                {...attributes}
+                {...listeners}
+                className="cursor-grab hover:bg-slate-100 p-1 rounded transition-colors text-slate-400 hover:text-slate-600"
+                title="Arrastar coluna"
+              >
+                <GripHorizontal size={14} />
+              </div>
+            )}
+            <h3 className="text-sm font-semibold text-slate-700 truncate">{status.name}</h3>
+
+            {/* Contador / limite WIP — clique para definir o limite */}
+            <div className="flex-shrink-0">
+              <button
+                ref={wipBtnRef}
+                onClick={onWipChange ? toggleWip : undefined}
+                title={onWipChange ? 'Definir limite WIP' : undefined}
+                className={`text-xs font-medium px-2 py-0.5 rounded-full transition-colors ${
+                  overWip
+                    ? 'bg-red-100 text-red-700'
+                    : atWip
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'text-slate-400 bg-slate-100'
+                } ${onWipChange ? 'hover:bg-slate-200 cursor-pointer' : 'cursor-default'}`}
+              >
+                {wipLimit != null ? `${wipCount}/${wipLimit}` : issues.length + archivedIssues.length}
+              </button>
+              {wipOpen && onWipChange && createPortal(
+                <>
+                  <div className="fixed inset-0 z-[100]" onClick={() => setWipOpen(false)} />
+                  <div
+                    className="fixed z-[101] bg-white border border-slate-200 rounded-lg shadow-xl p-2 w-44"
+                    style={{ top: wipCoords.top, left: wipCoords.left }}
+                    onPointerDown={e => e.stopPropagation()}
+                  >
+                    <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Limite WIP — {status.name}</label>
+                    <div className="flex items-center gap-1.5">
+                      <Gauge size={13} className="text-slate-400 flex-shrink-0" />
+                      <input
+                        type="number"
+                        min={0}
+                        autoFocus
+                        defaultValue={wipLimit ?? ''}
+                        placeholder="—"
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            const v = parseInt((e.target as HTMLInputElement).value);
+                            onWipChange(status.id, isNaN(v) ? null : v);
+                            setWipOpen(false);
+                          }
+                          if (e.key === 'Escape') setWipOpen(false);
+                        }}
+                        className="w-full text-sm border border-slate-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between mt-1.5">
+                      <button
+                        onClick={() => { onWipChange(status.id, null); setWipOpen(false); }}
+                        className="text-[11px] text-slate-400 hover:text-red-600"
+                      >
+                        Remover
+                      </button>
+                      <span className="text-[10px] text-slate-400">Enter p/ salvar</span>
+                    </div>
+                  </div>
+                </>,
+                document.body,
+              )}
             </div>
-            <h3 className="text-sm font-semibold text-slate-700">{status.name}</h3>
-            <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-              {issues.length + archivedIssues.length}
-            </span>
+
+            {overWip && (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-red-600 flex-shrink-0" title={`Acima do limite WIP (${wipLimit})`}>
+                <AlertTriangle size={11} /> Gargalo
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {onColorChange && (
-              <div className="relative">
+              <div>
                 <button
-                  onClick={() => setColorOpen(v => !v)}
+                  ref={colorBtnRef}
+                  onClick={toggleColor}
                   title="Mudar cor da coluna"
                   className="text-slate-300 hover:text-slate-500 transition-colors p-0.5 rounded"
                 >
                   <Palette size={13} />
                 </button>
-                {colorOpen && (
+                {colorOpen && createPortal(
                   <>
-                    <div className="fixed inset-0 z-30" onClick={() => setColorOpen(false)} />
-                    <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-40 p-2 w-48 flex flex-wrap gap-1.5 cursor-default">
+                    <div className="fixed inset-0 z-[100]" onClick={() => setColorOpen(false)} />
+                    <div
+                      className="fixed z-[101] bg-white border border-slate-200 rounded-lg shadow-xl p-2 w-48 flex flex-wrap gap-1.5 cursor-default"
+                      style={{ top: colorCoords.top, left: colorCoords.left }}
+                      onPointerDown={e => e.stopPropagation()}
+                    >
                       {Object.entries(CUSTOM_COLORS).map(([key, c]) => (
                         <button
                           key={key}
@@ -363,7 +471,8 @@ function KanbanColumn({ status, issues, archivedIssues, onIssueClick, statuses, 
                         <X size={12} className="text-slate-400" />
                       </button>
                     </div>
-                  </>
+                  </>,
+                  document.body,
                 )}
               </div>
             )}
@@ -532,6 +641,12 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
   const [selectionMode, setSelectionMode] = useState(false);
   const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
   const [compactMode, setCompactMode] = useState(() => localStorage.getItem('kanban-compact') === 'true');
+  const [wipLimits, setWipLimits] = useState<Record<number, number>>(() => {
+    try { const s = localStorage.getItem('kanban-wip-limits'); if (s) return JSON.parse(s); } catch (e) {}
+    return {};
+  });
+  const [groupBy, setGroupBy] = useState<GroupBy>(() => (localStorage.getItem('kanban-group-by') as GroupBy) || 'none');
+  const [groupOpen, setGroupOpen] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState('');
   const [priorityOpen, setPriorityOpen] = useState(false);
   const [selectedVersionId, setSelectedVersionId] = useState<number | undefined>(undefined);
@@ -605,6 +720,25 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
   const handleSubtaskDone = useCallback((subtaskId: number, statusId: number) => {
     updateStatus.mutate({ id: subtaskId, statusId });
   }, [updateStatus]);
+
+  useEffect(() => {
+    localStorage.setItem('kanban-wip-limits', JSON.stringify(wipLimits));
+  }, [wipLimits]);
+
+  const handleWipChange = useCallback((statusId: number, limit: number | null) => {
+    setWipLimits(prev => {
+      const next = { ...prev };
+      if (limit && limit > 0) next[statusId] = limit;
+      else delete next[statusId];
+      return next;
+    });
+  }, []);
+
+  const changeGroupBy = useCallback((g: GroupBy) => {
+    setGroupBy(g);
+    localStorage.setItem('kanban-group-by', g);
+    setGroupOpen(false);
+  }, []);
 
   const handleColorChange = useCallback((statusId: number, colorKey: string | null) => {
     setColumnColors(prev => {
@@ -761,6 +895,39 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
     return map;
   }, [filteredIssues, visibleStatuses, localIssueStatuses, sortBy, archivedIds]);
 
+  // Swimlanes: agrupa as tarefas ativas por responsável ou prioridade, mantendo
+  // as mesmas colunas de status dentro de cada raia. null = visão normal.
+  const laneKeyOf = useCallback((i: Issue) => {
+    if (groupBy === 'assignee') return i.assigned_to?.name ?? 'Sem responsável';
+    if (groupBy === 'priority') return i.priority.name;
+    return '';
+  }, [groupBy]);
+
+  const lanes = useMemo(() => {
+    if (groupBy === 'none') return null;
+    const active = filteredIssues.filter(i => !archivedIds.has(i.id));
+    const keys = Array.from(new Set(active.map(laneKeyOf)));
+    if (groupBy === 'priority') {
+      keys.sort((a, b) => (PRIORITY_ORDER[a] ?? 5) - (PRIORITY_ORDER[b] ?? 5));
+    } else {
+      keys.sort((a, b) =>
+        a === 'Sem responsável' ? 1 : b === 'Sem responsável' ? -1 : a.localeCompare(b));
+    }
+    return keys.map(key => {
+      const byStatus = new Map<number, Issue[]>();
+      visibleStatuses.forEach(s => byStatus.set(s.id, []));
+      let count = 0;
+      active.forEach(i => {
+        if (laneKeyOf(i) !== key) return;
+        count++;
+        const sid = localIssueStatuses.get(i.id) ?? i.status.id;
+        if (byStatus.has(sid)) byStatus.get(sid)!.push(i);
+      });
+      byStatus.forEach((list, k) => byStatus.set(k, sortIssues(list, sortBy)));
+      return { key, label: key, byStatus, count };
+    });
+  }, [groupBy, filteredIssues, archivedIds, visibleStatuses, localIssueStatuses, sortBy, laneKeyOf]);
+
   // Issues arquivadas agrupadas por status (para mostrar no rodapé de cada coluna)
   const archivedByStatus = useMemo(() => {
     const map = new Map<number, Issue[]>();
@@ -802,8 +969,9 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
     setActiveIssue(null);
     if (!over) return;
 
-    // Se estiver arrastando uma COLUNA
-    if (active.data.current?.type === 'Column' && over.data.current?.type === 'Column') {
+    // Se estiver arrastando uma COLUNA (só na visão normal; em swimlanes as
+    // colunas não são reordenáveis)
+    if (groupBy === 'none' && active.data.current?.type === 'Column' && over.data.current?.type === 'Column') {
       if (active.id !== over.id) {
         const oldIndex = visibleStatuses.findIndex(s => `col-${s.id}` === active.id);
         const newIndex = visibleStatuses.findIndex(s => `col-${s.id}` === over.id);
@@ -819,8 +987,9 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
     const issueId = parseInt(String(active.id).replace('issue-', ''));
     const overId = String(over.id);
     if (!overId.startsWith('col-')) return;
-    
-    const targetStatusId = parseInt(overId.replace('col-', ''));
+
+    // Em swimlanes o id da coluna é "col-<statusId>__<laneKey>"; extrai o status.
+    const targetStatusId = parseInt(overId.replace('col-', '').split('__')[0]);
     const issue = issues?.find(i => i.id === issueId);
     if (!issue) return;
     
@@ -1122,6 +1291,48 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
             )}
           </div>
 
+          {/* Agrupar por (swimlanes) */}
+          <div className="relative">
+            <button
+              onClick={() => setGroupOpen(v => !v)}
+              title="Agrupar tarefas em raias (swimlanes)"
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                groupBy !== 'none'
+                  ? 'bg-violet-50 border-violet-300 text-violet-700'
+                  : 'border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Layers size={13} />
+              {groupBy === 'none' ? 'Agrupar' : `Agrupar: ${GROUP_LABELS[groupBy]}`}
+              {groupBy !== 'none' && (
+                <span
+                  role="button"
+                  onClick={e => { e.stopPropagation(); changeGroupBy('none'); }}
+                  className="text-violet-400 hover:text-violet-700"
+                >
+                  <X size={11} />
+                </span>
+              )}
+            </button>
+            {groupOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setGroupOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 py-1 w-48">
+                  {(['none', 'assignee', 'priority'] as GroupBy[]).map(g => (
+                    <button
+                      key={g}
+                      onClick={() => changeGroupBy(g)}
+                      className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-blue-50 transition-colors ${groupBy === g ? 'text-blue-600 font-semibold' : 'text-slate-700'}`}
+                    >
+                      {g === 'assignee' ? <User size={13} /> : g === 'priority' ? <Flag size={13} /> : <Rows3 size={13} />}
+                      {GROUP_LABELS[g]}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
           <button
             onClick={toggleCompact}
             title={compactMode ? 'Desativar modo compacto' : 'Ativar modo compacto'}
@@ -1186,41 +1397,94 @@ export function KanbanBoard({ projectId, userName, onIssueClick, focusedIssueId,
 
       {/* Board */}
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div
-          ref={boardRef}
-          className="flex gap-4 overflow-x-auto pb-4 flex-1 items-start scrollbar-thin"
-        >
-          <SortableContext items={visibleStatuses.map(s => `col-${s.id}`)} strategy={horizontalListSortingStrategy}>
-            {visibleStatuses.map(status => (
-              <KanbanColumn
-                key={status.id}
-                status={status}
-                issues={issuesByStatus.get(status.id) ?? []}
-                archivedIssues={archivedByStatus.get(status.id) ?? []}
-                onIssueClick={issue => onIssueClick(issue.id)}
-                statuses={allStatuses ?? []}
-                onQuickStatusChange={handleQuickStatusChange}
-                onArchive={archiveIssue}
-                onUnarchive={unarchiveIssue}
-                selectedIds={selectedIds}
-                selectionMode={selectionMode}
-                onToggleSelect={toggleSelect}
-                pinned={pinnedStatuses.has(status.id)}
-                onUnpin={() => togglePinnedStatus(status.id)}
-                focusedIssueId={focusedIssueId}
-                compactMode={compactMode}
-                onSubtaskOpen={onIssueClick}
-                onSubtaskDone={handleSubtaskDone}
-                activeTimerIssueId={timer.activeIssueId}
-                timerFormatted={timer.formatted}
-                onTimerStart={timer.start}
-                onTimerStop={() => timer.stop()}
-                customColorKey={columnColors[status.id]}
-                onColorChange={handleColorChange}
-              />
+        {lanes ? (
+          /* ── Visão em swimlanes (raias) ── */
+          <div ref={boardRef} className="flex flex-col gap-5 overflow-auto pb-4 flex-1 scrollbar-thin">
+            {lanes.map(lane => (
+              <div key={lane.key} className="flex-shrink-0">
+                <div className="flex items-center gap-2 mb-2 sticky left-0">
+                  {groupBy === 'assignee'
+                    ? <User size={14} className="text-violet-500" />
+                    : <Flag size={14} className="text-violet-500" />}
+                  <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{lane.label}</h3>
+                  <span className="text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                    {lane.count}
+                  </span>
+                </div>
+                <SortableContext items={visibleStatuses.map(s => `col-${s.id}__${lane.key}`)} strategy={horizontalListSortingStrategy}>
+                  <div className="flex gap-4 items-start overflow-x-auto pb-2 scrollbar-thin">
+                    {visibleStatuses.map(status => (
+                      <KanbanColumn
+                        key={`${status.id}__${lane.key}`}
+                        dndId={`col-${status.id}__${lane.key}`}
+                        draggableColumn={false}
+                        status={status}
+                        issues={lane.byStatus.get(status.id) ?? []}
+                        archivedIssues={[]}
+                        onIssueClick={issue => onIssueClick(issue.id)}
+                        statuses={allStatuses ?? []}
+                        onQuickStatusChange={handleQuickStatusChange}
+                        onArchive={archiveIssue}
+                        onUnarchive={unarchiveIssue}
+                        selectedIds={selectedIds}
+                        selectionMode={selectionMode}
+                        onToggleSelect={toggleSelect}
+                        focusedIssueId={focusedIssueId}
+                        compactMode={compactMode}
+                        onSubtaskOpen={onIssueClick}
+                        onSubtaskDone={handleSubtaskDone}
+                        activeTimerIssueId={timer.activeIssueId}
+                        timerFormatted={timer.formatted}
+                        onTimerStart={timer.start}
+                        onTimerStop={() => timer.stop()}
+                        customColorKey={columnColors[status.id]}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </div>
             ))}
-          </SortableContext>
-        </div>
+          </div>
+        ) : (
+          /* ── Visão normal (colunas) ── */
+          <div
+            ref={boardRef}
+            className="flex gap-4 overflow-x-auto pb-4 flex-1 items-start scrollbar-thin"
+          >
+            <SortableContext items={visibleStatuses.map(s => `col-${s.id}`)} strategy={horizontalListSortingStrategy}>
+              {visibleStatuses.map(status => (
+                <KanbanColumn
+                  key={status.id}
+                  status={status}
+                  issues={issuesByStatus.get(status.id) ?? []}
+                  archivedIssues={archivedByStatus.get(status.id) ?? []}
+                  onIssueClick={issue => onIssueClick(issue.id)}
+                  statuses={allStatuses ?? []}
+                  onQuickStatusChange={handleQuickStatusChange}
+                  onArchive={archiveIssue}
+                  onUnarchive={unarchiveIssue}
+                  selectedIds={selectedIds}
+                  selectionMode={selectionMode}
+                  onToggleSelect={toggleSelect}
+                  pinned={pinnedStatuses.has(status.id)}
+                  onUnpin={() => togglePinnedStatus(status.id)}
+                  focusedIssueId={focusedIssueId}
+                  compactMode={compactMode}
+                  onSubtaskOpen={onIssueClick}
+                  onSubtaskDone={handleSubtaskDone}
+                  activeTimerIssueId={timer.activeIssueId}
+                  timerFormatted={timer.formatted}
+                  onTimerStart={timer.start}
+                  onTimerStop={() => timer.stop()}
+                  customColorKey={columnColors[status.id]}
+                  onColorChange={handleColorChange}
+                  wipLimit={wipLimits[status.id]}
+                  onWipChange={handleWipChange}
+                />
+              ))}
+            </SortableContext>
+          </div>
+        )}
 
         <DragOverlay dropAnimation={{ duration: 150, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
           {activeIssue && <IssueCard issue={activeIssue} onClick={() => {}} isDragOverlay navigable={false} />}
