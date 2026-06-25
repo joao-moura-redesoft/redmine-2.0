@@ -36,6 +36,10 @@ html.dark .talk-drag-overlay .text-blue-600 { color: #93c5fd !important; }
 html.dark .talk-upload-overlay { background-color: rgba(15,23,42,0.75) !important; }
 html.dark .talk-upload-overlay .text-slate-500 { color: #cbd5e1 !important; }
 
+/* Bolha que menciona você (Talk): leve tom âmbar, legível nos dois modos */
+html.dark .talk-mention { background-color: #3f2d10 !important; }
+html.dark .talk-mention.text-slate-800 { color: #fde68a !important; }
+
 /* Citação de resposta (Talk): contraste explícito nos dois modos */
 .talk-quote { background-color: #e2e8f0; color: #475569; }   /* claro: slate-200 / slate-600 */
 .talk-quote:hover { background-color: #cbd5e1; }

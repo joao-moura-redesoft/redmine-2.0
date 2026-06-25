@@ -459,8 +459,12 @@ export const redmineApi = {
     return data.publicKey;
   },
 
-  subscribePush: async (subscription: PushSubscriptionJSON, talkAuth?: { url: string; user: string; token: string } | null): Promise<void> => {
-    await api.post('/push/subscribe', { subscription, talkAuth: talkAuth ?? null });
+  subscribePush: async (
+    subscription: PushSubscriptionJSON,
+    talkAuth?: { url: string; user: string; token: string } | null,
+    talkPrefs?: { groupMentionsOnly: boolean; realtime: boolean } | null,
+  ): Promise<void> => {
+    await api.post('/push/subscribe', { subscription, talkAuth: talkAuth ?? null, talkPrefs: talkPrefs ?? null });
   },
 
   unsubscribePush: async (endpoint: string): Promise<void> => {

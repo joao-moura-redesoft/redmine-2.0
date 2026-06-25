@@ -375,6 +375,61 @@ async function replyToInvite(req, { id, verb, compNum = 0 }) {
   return { success: true, verb: v };
 }
 
+// Normaliza um convidado (<at>) do convite. ptst = participação de CADA pessoa
+// (a busca de agenda só traz a SUA; os demais só vêm no convite completo).
+//   role: REQ=obrigatório OPT=opcional NON=informativo CHA=presidente
+//   ptst: NE=sem resposta AC=aceitou DE=recusou TE=talvez DG=delegou
+// Casa o endereço do convidado com o usuário logado. O login no Zimbra costuma
+// ser "pelado" (joao.moura) e o convidado é o e-mail (joao.moura@redesoft.org);
+// comparamos a parte local, e também o e-mail inteiro caso o login já seja um.
+function attendeeIsMe(address, me) {
+  if (!address || !me) return false;
+  const a = String(address).toLowerCase();
+  const m = String(me).toLowerCase();
+  return a === m || a.split('@')[0] === m.split('@')[0];
+}
+
+function slimAttendee(at, me) {
+  return {
+    address: at.a || '',
+    name: at.d || at.cn || at.a || '',
+    role: at.role || 'REQ',
+    ptst: at.ptst || 'NE',
+    rsvp: at.rsvp === 1 || at.rsvp === '1' || at.rsvp === true,
+    isMe: attendeeIsMe(at.a, me),
+  };
+}
+
+// Lista os participantes de um compromisso e a resposta de cada um. A agenda
+// (SearchRequest) não traz isso; é preciso buscar o convite via
+// GetAppointmentRequest, cujo <inv><comp> contém os <at> (attendees) e o <or>.
+// `id` é o id do item de calendário (CalendarEvent.id). `raw` devolve o JSON cru.
+async function getAppointmentAttendees(req, id, { raw = false } = {}) {
+  const { user: me } = resolveMailCreds(req);
+  const resp = await mailSoap(req, 'urn:zimbraMail', 'GetAppointmentRequest', {
+    id: String(id),
+    includeContent: 0, // só metadados; não precisamos do corpo do convite
+  });
+  if (raw) return resp;
+  const appt = Array.isArray(resp.appt) ? resp.appt[0] : resp.appt;
+  if (!appt) return { organizer: null, attendees: [] };
+  // Recorrências geram vários <inv>; pegamos o 1º componente que tenha convidados.
+  const invs = Array.isArray(appt.inv) ? appt.inv : appt.inv ? [appt.inv] : [];
+  let comp = null;
+  for (const inv of invs) {
+    const comps = Array.isArray(inv.comp) ? inv.comp : inv.comp ? [inv.comp] : [];
+    const withAt = comps.find(c => c.at) || comps[0];
+    if (withAt) { comp = withAt; if (withAt.at) break; }
+  }
+  if (!comp) return { organizer: null, attendees: [] };
+  const ats = Array.isArray(comp.at) ? comp.at : comp.at ? [comp.at] : [];
+  const or = comp.or;
+  return {
+    organizer: or ? { address: or.a, name: or.d || or.a } : null,
+    attendees: ats.map(at => slimAttendee(at, me)),
+  };
+}
+
 // Conta de não-lidos da Inbox — para o sino de notificações.
 async function unreadCount(req) {
   const folders = await listFolders(req);
@@ -418,5 +473,6 @@ module.exports = {
   unreadCount,
   fetchAttachment,
   listAppointments,
+  getAppointmentAttendees,
   replyToInvite,
 };

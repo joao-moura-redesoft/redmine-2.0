@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { X, KeyRound, Eye, EyeOff, Check, Loader2, Trash2, Sparkles, ChevronDown, MessageSquare, LogIn, Mail, BookOpen, Shield } from 'lucide-react';
 import { getAIKeys, saveAIKey, clearAIKey, getActiveAI, type AIProvider } from '../utils/aiConfig';
 import { getTalkAuth, saveTalkAuth, clearTalkAuth, initLoginFlow, pollLoginFlow } from '../api/talk';
+import { getTalkPrefs, saveTalkPrefs, type TalkPrefs } from '../utils/talkPrefs';
 import { getMailConfig, saveMailConfig, clearMailConfig, DEFAULT_HOST, getMailHost } from '../utils/mailConfig';
 import { getStoredAuth } from '../api/redmine';
 import { mailApi } from '../api/mail';
@@ -183,7 +184,19 @@ function NextcloudSection() {
   const [url, setUrl] = useState('');
   const [flowState, setFlowState] = useState<FlowState>('idle');
   const [error, setError] = useState('');
+  const [mode, setMode] = useState<'flow' | 'manual'>('flow');
+  const [mUser, setMUser] = useState('');
+  const [mToken, setMToken] = useState('');
+  const [showToken, setShowToken] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [prefs, setPrefs] = useState<TalkPrefs>(() => getTalkPrefs());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const updatePref = (patch: Partial<TalkPrefs>) => {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    saveTalkPrefs(next); // dispara TALK_PREFS_EVENT → usePushNotifications re-inscreve
+  };
   const pollParamsRef = useRef<{ pollEndpoint: string; pollToken: string } | null>(null);
 
   const stopPolling = () => {
@@ -230,6 +243,33 @@ function NextcloudSection() {
     setError('');
   };
 
+  // Autenticação manual por token (senha de app do Nextcloud). Útil quando o Login Flow
+  // não funciona (proxy reverso, etc.) ou quando já se tem uma senha de app gerada.
+  const saveManual = async () => {
+    const base = url.trim().replace(/\/$/, '');
+    const user = mUser.trim();
+    const token = mToken.trim();
+    if (!base || !user || !token) return;
+    setError('');
+    setSaving(true);
+    try {
+      // Valida as credenciais antes de salvar — evita guardar um token quebrado.
+      const res = await fetch('/api/talk/me', {
+        headers: { 'x-nextcloud-url': base, 'x-nextcloud-user': user, 'x-nextcloud-token': token },
+      });
+      if (!res.ok) throw new Error('auth');
+      const auth = { url: base, user, token };
+      saveTalkAuth(auth);
+      setCurrentAuth(auth);
+      setUrl(''); setMUser(''); setMToken(''); setShowToken(false);
+      setMode('flow');
+    } catch {
+      setError('Credenciais inválidas. Confira a URL, o usuário e o token (senha de app).');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const remove = () => {
     clearTalkAuth();
     setCurrentAuth(null);
@@ -255,15 +295,45 @@ function NextcloudSection() {
       {open && (
         <div className="px-4 py-3 space-y-3 bg-white dark:bg-slate-900">
           {currentAuth ? (
-            <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
-              <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400">
-                <Check size={12} />
-                <span className="font-mono">{currentAuth.user}@{currentAuth.url.replace(/^https?:\/\//, '')}</span>
+            <>
+              <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400">
+                  <Check size={12} />
+                  <span className="font-mono">{currentAuth.user}@{currentAuth.url.replace(/^https?:\/\//, '')}</span>
+                </div>
+                <button onClick={remove} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors">
+                  <Trash2 size={11} /> Remover
+                </button>
               </div>
-              <button onClick={remove} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors">
-                <Trash2 size={11} /> Remover
-              </button>
-            </div>
+
+              <div className="space-y-2 pt-1">
+                <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Notificações</p>
+                <label className="flex items-start justify-between gap-3 cursor-pointer">
+                  <span className="text-xs text-slate-600 dark:text-slate-300">
+                    Em grupos, só notificar quando me mencionarem
+                    <span className="block text-[11px] text-slate-400 dark:text-slate-500">DMs sempre notificam. Reduz o ruído de chats movimentados.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={prefs.groupMentionsOnly}
+                    onChange={e => updatePref({ groupMentionsOnly: e.target.checked })}
+                    className="mt-0.5 h-4 w-4 accent-blue-600 flex-shrink-0"
+                  />
+                </label>
+                <label className="flex items-start justify-between gap-3 cursor-pointer">
+                  <span className="text-xs text-slate-600 dark:text-slate-300">
+                    Modo tempo real
+                    <span className="block text-[11px] text-slate-400 dark:text-slate-500">Notificação quase instantânea com a aba fechada (~3s). Usa mais rede/bateria.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={prefs.realtime}
+                    onChange={e => updatePref({ realtime: e.target.checked })}
+                    className="mt-0.5 h-4 w-4 accent-blue-600 flex-shrink-0"
+                  />
+                </label>
+              </div>
+            </>
           ) : flowState === 'waiting' ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2.5">
@@ -281,27 +351,93 @@ function NextcloudSection() {
             </div>
           ) : (
             <>
-              <div className="flex gap-2">
-                <input
-                  type="url"
-                  value={url}
-                  onChange={e => { setUrl(e.target.value); setError(''); }}
-                  onKeyDown={e => e.key === 'Enter' && startFlow()}
-                  placeholder="https://drive.suaempresa.com"
-                  className="flex-1 text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                />
+              <div className="flex gap-1 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg">
                 <button
-                  onClick={startFlow}
-                  disabled={!url.trim()}
-                  className="flex items-center gap-1.5 px-3 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
+                  onClick={() => { setMode('flow'); setError(''); }}
+                  className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-colors ${mode === 'flow' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                 >
-                  <LogIn size={11} /> Entrar
+                  Login automático
+                </button>
+                <button
+                  onClick={() => { setMode('manual'); setError(''); }}
+                  className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-colors ${mode === 'manual' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                >
+                  Token (senha de app)
                 </button>
               </div>
+
+              {mode === 'flow' ? (
+                <>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={url}
+                      onChange={e => { setUrl(e.target.value); setError(''); }}
+                      onKeyDown={e => e.key === 'Enter' && startFlow()}
+                      placeholder="https://drive.suaempresa.com"
+                      className="flex-1 text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    />
+                    <button
+                      onClick={startFlow}
+                      disabled={!url.trim()}
+                      className="flex items-center gap-1.5 px-3 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
+                    >
+                      <LogIn size={11} /> Entrar
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                    Você será redirecionado para a página de login do Nextcloud — inclusive com 2FA.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="url"
+                    value={url}
+                    onChange={e => { setUrl(e.target.value); setError(''); }}
+                    placeholder="https://drive.suaempresa.com"
+                    className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                  <input
+                    type="text"
+                    value={mUser}
+                    onChange={e => { setMUser(e.target.value); setError(''); }}
+                    placeholder="usuário"
+                    autoComplete="username"
+                    className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                  <div className="relative">
+                    <input
+                      type={showToken ? 'text' : 'password'}
+                      value={mToken}
+                      onChange={e => { setMToken(e.target.value); setError(''); }}
+                      onKeyDown={e => e.key === 'Enter' && saveManual()}
+                      placeholder="token / senha de app"
+                      autoComplete="off"
+                      className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg pl-3 pr-9 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowToken(v => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                    >
+                      {showToken ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
+                  </div>
+                  <button
+                    onClick={saveManual}
+                    disabled={saving || !url.trim() || !mUser.trim() || !mToken.trim()}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors"
+                  >
+                    {saving ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={11} />}
+                    {saving ? 'Validando…' : 'Salvar'}
+                  </button>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                    Gere uma senha de app no Nextcloud em <span className="font-medium">Configurações → Segurança → Dispositivos &amp; sessões</span>. Use seu usuário e a senha gerada.
+                  </p>
+                </>
+              )}
               {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
-              <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                Você será redirecionado para a página de login do Nextcloud — inclusive com 2FA.
-              </p>
             </>
           )}
         </div>

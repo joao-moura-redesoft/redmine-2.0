@@ -23,7 +23,11 @@ export function useTalkRooms() {
     queryKey: ['talk-rooms'],
     queryFn: fetchRooms,
     enabled: talkEnabled(),
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,
+    // Sem isso o TanStack pausa o interval quando a aba perde o foco — e como o SW
+    // suprime o push enquanto existe qualquer janela (mesmo minimizada), ficaríamos
+    // sem notificação de Talk até voltar o foco.
+    refetchIntervalInBackground: true,
     staleTime: 10_000,
   });
 }
@@ -38,12 +42,62 @@ export function useTalkMessages(token: string | null) {
   });
 }
 
-export function useSendMessage(token: string | null) {
+// Sequência para gerar ids temporários (client) que ordenam como "mais recentes":
+// ids reais do Talk são pequenos e sequenciais; Date.now() (ms) é muito maior.
+let tempSeq = 0;
+
+type SendVars = {
+  message: string;
+  replyTo?: number;
+  // Apenas para a bolha otimista — ignorados pelo servidor
+  _parent?: NonNullable<TalkMessage['parent']>;
+  _text?: string;
+};
+
+export function useSendMessage(token: string | null, myId = '', myName = '') {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ message, replyTo }: { message: string; replyTo?: number }) =>
-      sendMessage(token!, message, replyTo),
-    onSuccess: () => {
+    mutationFn: ({ message, replyTo }: SendVars) => sendMessage(token!, message, replyTo),
+    // Insere imediatamente uma bolha "enviando" (otimista)
+    onMutate: async (vars: SendVars) => {
+      const clientId = Date.now() + (tempSeq++);
+      const temp: TalkMessage = {
+        id: clientId,
+        token: token ?? '',
+        actorType: 'users',
+        actorId: myId,
+        actorDisplayName: myName,
+        timestamp: Math.floor(Date.now() / 1000),
+        message: vars.message,
+        messageParameters: {},
+        systemMessage: '',
+        messageType: 'comment',
+        isReplyable: false,
+        parent: vars._parent,
+        reactions: {},
+        reactionsSelf: [],
+        _status: 'sending',
+        _clientText: vars._text ?? vars.message,
+        _clientReplyTo: vars.replyTo,
+      };
+      await qc.cancelQueries({ queryKey: ['talk-messages', token] });
+      qc.setQueryData(['talk-messages', token], (old: TalkMessage[] = []) => [temp, ...old]);
+      return { clientId };
+    },
+    // Falhou: marca a bolha como erro (permanece para reenvio)
+    onError: (_e, _v, ctx) => {
+      if (!ctx) return;
+      qc.setQueryData(['talk-messages', token], (old: TalkMessage[] = []) =>
+        old.map(m => (m.id === ctx.clientId ? { ...m, _status: 'failed' as const } : m)));
+    },
+    // Sucesso: troca a bolha temporária pela mensagem real (sem flicker nem duplicata)
+    onSuccess: (data, _v, ctx) => {
+      if (ctx) {
+        qc.setQueryData(['talk-messages', token], (old: TalkMessage[] = []) =>
+          data?.id
+            ? old.map(m => (m.id === ctx.clientId ? data : m))
+            : old.filter(m => m.id !== ctx.clientId));
+      }
       qc.invalidateQueries({ queryKey: ['talk-messages', token] });
       qc.invalidateQueries({ queryKey: ['talk-rooms'] });
     },

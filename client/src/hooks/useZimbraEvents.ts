@@ -15,12 +15,28 @@ export function useZimbraEvents(start: number, end: number) {
   });
 }
 
+/**
+ * Participantes de um compromisso e a resposta de cada um. Busca sob demanda
+ * (só quando `enabled`, ex.: ao abrir o evento) — não pesa o load da agenda.
+ */
+export function useEventAttendees(id: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['zimbra-attendees', id],
+    queryFn: () => mailApi.getEventAttendees(id!),
+    enabled: enabled && isMailAvailable() && !!id,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
 /** Responde a um convite (aceitar/recusar/talvez) e revalida a agenda. */
 export function useReplyToInvite() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, verb, compNum }: { id: string; verb: InviteVerb; compNum?: number }) =>
       mailApi.replyToInvite(id, verb, compNum),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['zimbra-calendar'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['zimbra-calendar'] });
+      qc.invalidateQueries({ queryKey: ['zimbra-attendees'] });
+    },
   });
 }

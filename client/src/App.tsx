@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   useCurrentUser, useProjects, useMonitoredIssues, useAuthoredIssues,
   useWatchedIssues, useIssues, useToReviewIssues, useMentions, useCompletedIssues,
@@ -23,17 +23,20 @@ import { useActivityNotifications } from './hooks/useActivityNotifications';
 import { useMailNotifications } from './hooks/useMailNotifications';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import { useBrowserNotifications } from './hooks/useBrowserNotifications';
+import { useTalkNotifications } from './hooks/useTalkNotifications';
 import { useTheme } from './hooks/useTheme';
 import { useShortcuts } from './hooks/useShortcuts';
 import { SettingsModal } from './components/SettingsModal';
 import { StandupModal } from './components/StandupModal';
 import { TalkChat } from './components/TalkChat';
 import { NotesView } from './components/NotesView';
+import { SprintsView } from './components/SprintsView';
 import { AssistantView } from './components/AssistantView';
 import { MailView } from './components/MailView';
 import { WikiView } from './components/WikiView';
 import { TotpView } from './components/TotpView';
 import { MeetingsView } from './components/MeetingsView';
+import { DriveView } from './components/drive/DriveView';
 import { MyDayView } from './components/MyDayView';
 import type { NotePatch } from './api/notes';
 import { mailApi } from './api/mail';
@@ -42,7 +45,8 @@ import {
   LayoutGrid, Gem, ChevronDown, ChevronLeft, ChevronRight, Eye, PenLine,
   LogOut, Bell, BellOff, X, BarChart3, Star, Sun, Moon, Users, CalendarDays,
   ClipboardCheck, Inbox, Plus, FlaskConical, GitMerge, Rocket, Settings,
-  Sparkles, NotebookPen, Bot, ShieldCheck, AtSign, Mail, BookOpen, Video,
+  Sparkles, NotebookPen, Bot, ShieldCheck, AtSign, Mail, BookOpen, Video, HardDrive,
+  CalendarRange,
 } from 'lucide-react';
 import { useJitsi } from './components/jitsi/JitsiContext';
 import { CallWindow } from './components/jitsi/CallWindow';
@@ -54,7 +58,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Issue } from './types/redmine';
 
-type Tab = 'inbox' | 'dashboard' | 'myday' | 'kanban' | 'calendar' | 'review' | 'test' | 'integrate' | 'monitoring' | 'authored' | 'watched' | 'people' | 'team' | 'release' | 'meetings' | 'notes' | 'assistant' | 'mail' | 'wiki' | 'totp';
+type Tab = 'inbox' | 'dashboard' | 'myday' | 'kanban' | 'sprints' | 'calendar' | 'review' | 'test' | 'integrate' | 'monitoring' | 'authored' | 'watched' | 'people' | 'team' | 'release' | 'meetings' | 'notes' | 'assistant' | 'mail' | 'wiki' | 'drive' | 'totp';
 
 export function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!getStoredAuth());
@@ -166,6 +170,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   };
 
   usePushNotifications();
+  useTalkNotifications();
 
   const [pendingTalkToken, setPendingTalkToken] = useState<string | null>(null);
 
@@ -205,6 +210,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     { id: 'dashboard',  label: 'Dashboard',        icon: <BarChart3 size={15} /> },
     { id: 'myday',      label: 'Meu Dia',          icon: <Sun size={15} /> },
     { id: 'kanban',     label: 'Minhas Tarefas',   icon: <LayoutGrid size={15} /> },
+    { id: 'sprints',    label: 'Sprints',          icon: <CalendarRange size={15} /> },
     { id: 'calendar',   label: 'Calendário',        icon: <CalendarDays size={15} /> },
     { id: 'review',     label: 'Para revisar',      icon: <ClipboardCheck size={15} />, count: toReview.data?.length },
     ...(toTest.length    ? [{ id: 'test'      as Tab, label: 'Para testar',   icon: <FlaskConical size={15} />, count: toTest.length }]    : []),
@@ -218,17 +224,18 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     { id: 'meetings',   label: 'Reuniões',            icon: <Video size={15} /> },
     { id: 'mail',       label: 'E-mail',              icon: <Mail size={15} />,         count: mailUnread.data?.unread },
     { id: 'wiki',       label: 'Wiki',                icon: <BookOpen size={15} /> },
+    { id: 'drive',      label: 'Arquivos',            icon: <HardDrive size={15} /> },
     { id: 'notes',      label: 'Notas',               icon: <NotebookPen size={15} /> },
     { id: 'assistant',  label: 'Assistente',          icon: <Bot size={15} /> },
     { id: 'totp',       label: 'Autenticação 2FA',    icon: <ShieldCheck size={15} /> },
   ];
 
   const tabGroups: { label: string | null; ids: Tab[] }[] = [
-    { label: null,           ids: ['inbox', 'dashboard', 'myday', 'kanban', 'calendar'] },
+    { label: null,           ids: ['inbox', 'dashboard', 'myday', 'kanban', 'sprints', 'calendar'] },
     { label: 'Fila',         ids: ['review', ...(toTest.length ? ['test' as Tab] : []), ...(toIntegrate.length ? ['integrate' as Tab] : []), 'monitoring'] },
     { label: 'Descoberta',   ids: ['authored', 'watched'] },
     { label: 'Colaboração',  ids: ['people', 'team', 'release', 'meetings'] },
-    { label: 'Ferramentas',  ids: ['mail', 'wiki', 'notes', 'assistant', 'totp'] },
+    { label: 'Ferramentas',  ids: ['mail', 'wiki', 'drive', 'notes', 'assistant', 'totp'] },
   ];
 
   const tabMap = Object.fromEntries(tabs.map(t => [t.id, t])) as Record<Tab, typeof tabs[0]>;
@@ -539,9 +546,11 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             <Route path="/release"   element={<ReleaseView onIssueClick={openIssue} />} />
             <Route path="/meetings"  element={<MeetingsView onIssueClick={openIssue} />} />
             <Route path="/notes"     element={<NotesView onIssueClick={openIssue} seed={noteSeed} focus={notesFocus} />} />
+            <Route path="/sprints"   element={<SprintsView onIssueClick={openIssue} />} />
             <Route path="/assistant" element={<AssistantView onIssueClick={openIssue} />} />
             <Route path="/mail"      element={<MailView />} />
             <Route path="/wiki"      element={<WikiView />} />
+            <Route path="/drive"     element={<DriveView />} />
             <Route path="/totp"      element={<TotpView />} />
 
             <Route path="/kanban" element={
@@ -665,6 +674,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         onIssueClick={openIssue}
         openRoomToken={pendingTalkToken}
         onRoomOpened={() => setPendingTalkToken(null)}
+        onOpenSettings={() => setShowSettings(true)}
       />
 
       {/* Janela flutuante de vídeo (Jitsi War Room) */}

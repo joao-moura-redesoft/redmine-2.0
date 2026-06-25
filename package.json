@@ -18,7 +18,10 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "@resvg/resvg-js": "^2.6.2",
+    "concurrently": "^8.2.2",
+    "png-to-ico": "^3.0.1",
+    "rcedit": "^5.0.2"
   },
   "pkg": {
     "assets": [

@@ -73,6 +73,17 @@ router.get('/mail/calendar/_debug', handle(async (req, res) => {
   res.json(await zimbra.listAppointments(req, { start, end, raw: true }));
 }));
 
+// Participantes de um compromisso e a resposta de cada um (aceitou/recusou/…).
+// Exige uma chamada extra ao Zimbra; o front busca sob demanda ao abrir o evento.
+router.get('/mail/calendar/:id/attendees', handle(async (req, res) => {
+  res.json(await zimbra.getAppointmentAttendees(req, req.params.id));
+}));
+
+// Debug: JSON cru do GetAppointmentRequest para conferir os campos do <at>.
+router.get('/mail/calendar/:id/attendees/_debug', handle(async (req, res) => {
+  res.json(await zimbra.getAppointmentAttendees(req, req.params.id, { raw: true }));
+}));
+
 // Responder convite: aceitar / recusar / talvez.
 router.post('/mail/calendar/:id/reply', handle(async (req, res) => {
   const { verb, compNum } = req.body || {};

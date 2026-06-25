@@ -21,9 +21,12 @@ function buildApp() {
   app.use('/api', require('./routes/push'));
   app.use('/api', require('./routes/talk'));
   app.use('/api', require('./routes/notes'));
+  app.use('/api', require('./routes/sprints'));
+  app.use('/api', require('./routes/boards'));
   app.use('/api', require('./routes/mail'));
   app.use('/api', require('./routes/wiki'));
   app.use('/api', require('./routes/jitsi'));
+  app.use('/api', require('./routes/drive'));
 
   // =========================================================================
   // Injeta o frontend compilado dentro do executável do backend.

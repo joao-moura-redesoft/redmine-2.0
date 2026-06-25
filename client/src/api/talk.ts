@@ -57,6 +57,10 @@ export interface TalkMessage {
   };
   reactions?: Record<string, number>;
   reactionsSelf?: string[];
+  // Campos client-only (envio otimista) — nunca vêm do servidor
+  _status?: 'sending' | 'failed';
+  _clientText?: string;
+  _clientReplyTo?: number;
 }
 
 export interface TalkParticipant {
@@ -98,6 +102,21 @@ api.interceptors.request.use(cfg => {
   }
   return cfg;
 });
+
+// Disparado quando o servidor responde 401 a uma chamada do Talk — sinal de que o token
+// (senha de app) foi revogado/expirou. 403 é "sem permissão" (conta não-admin, esperado)
+// e NÃO conta. Quem ouve isso (TalkChat) mostra o aviso de reconexão.
+export const TALK_AUTH_EXPIRED_EVENT = 'rk-talk-auth-expired';
+
+api.interceptors.response.use(
+  r => r,
+  err => {
+    if (err?.response?.status === 401 && getTalkAuth()) {
+      window.dispatchEvent(new CustomEvent(TALK_AUTH_EXPIRED_EVENT));
+    }
+    return Promise.reject(err);
+  },
+);
 
 export async function fetchRooms(): Promise<TalkRoom[]> {
   const { data } = await api.get<TalkRoom[]>('/rooms');
@@ -304,6 +323,7 @@ export async function uploadFileToTalk(
   file: File,
   caption?: string,
   onProgress?: (pct: number) => void,
+  opts?: { voiceMessage?: boolean },
 ): Promise<UploadResult> {
   const { data } = await api.post<UploadResult>(`/rooms/${token}/upload`, file, {
     headers: {
@@ -311,6 +331,7 @@ export async function uploadFileToTalk(
       'x-content-type': file.type || 'application/octet-stream',
       'Content-Type': file.type || 'application/octet-stream',
       ...(caption?.trim() ? { 'x-caption': encodeURIComponent(caption.trim()) } : {}),
+      ...(opts?.voiceMessage ? { 'x-voice-message': '1' } : {}),
     },
     onUploadProgress: (e: { loaded: number; total?: number }) => {
       if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100));

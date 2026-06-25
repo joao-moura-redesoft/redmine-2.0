@@ -67,6 +67,7 @@ async function subscribe(req) {
   const password = req.headers['x-redmine-pass'] || '';
   const subscription = req.body?.subscription;
   const talkAuth = req.body?.talkAuth || null; // { url, user, token } — opcional
+  const talkPrefs = req.body?.talkPrefs || null; // { groupMentionsOnly, realtime } — opcional
   const hasAuth = !!(key || (username && password));
   if (!url || !hasAuth || !subscription?.endpoint) {
     console.warn('[push] subscribe rejeitado — faltando:', { url: !!url, hasAuth, endpoint: !!subscription?.endpoint });
@@ -94,7 +95,7 @@ async function subscribe(req) {
     } catch (e) { console.warn('[push] não inicializei estado Talk:', e.response?.status || e.message); }
   }
 
-  const rec = { endpoint: subscription.endpoint, subscription, url, key, username, password, seen, talkAuth, talkSeen, updatedAt: Date.now() };
+  const rec = { endpoint: subscription.endpoint, subscription, url, key, username, password, seen, talkAuth, talkPrefs, talkSeen, updatedAt: Date.now() };
   const idx = subscriptions.findIndex(s => s.endpoint === subscription.endpoint);
   if (idx >= 0) subscriptions[idx] = rec; else subscriptions.push(rec);
   saveSubs();
@@ -180,38 +181,8 @@ async function pollPush() {
             issueId: issue.id,
           });
         }
-
-        // Notificações Talk
-        if (rec.talkAuth?.url && rec.talkAuth?.user && rec.talkAuth?.token) {
-          try {
-            const talkClient = axios.create({
-              baseURL: rec.talkAuth.url,
-              auth: { username: rec.talkAuth.user, password: rec.talkAuth.token },
-              headers: { 'OCS-APIRequest': 'true', 'Accept': 'application/json' },
-            });
-            const { data: tData } = await talkClient.get('/ocs/v2.php/apps/spreed/api/v4/room?format=json');
-            if (!rec.talkSeen) rec.talkSeen = {};
-            for (const room of (tData.ocs.data || [])) {
-              if (room.type === 6) continue; // changelog
-              const lastMsgId = room.lastMessage?.id || 0;
-              const seenId = rec.talkSeen[room.token] || 0;
-              if (lastMsgId > seenId && seenId > 0 && room.unreadMessages > 0) {
-                const body = resolveMessageTextServer(room.lastMessage);
-                const sender = room.lastMessage?.actorDisplayName?.split(' ')[0] || '';
-                await sendPush(rec, {
-                  title: `💬 ${room.displayName}`,
-                  body: sender ? `${sender}: ${body}` : body,
-                  tag: `talk-${room.token}-${lastMsgId}`,
-                  url: `/?talkRoom=${room.token}`,
-                  talkToken: room.token,
-                });
-              }
-              if (lastMsgId) rec.talkSeen[room.token] = lastMsgId;
-            }
-          } catch (err) {
-            console.warn('[push] poll Talk falhou:', err.response?.status || err.message);
-          }
-        }
+        // Talk é tratado num loop próprio e mais rápido (pollTalkPush) — não aqui,
+        // para não ficar atrás da paginação pesada do Redmine.
       } catch (err) {
         console.warn('[push] poll falhou para uma inscrição:', err.response?.status || err.message);
       }
@@ -222,8 +193,132 @@ async function pollPush() {
   }
 }
 
+// Loop dedicado do Talk: a listagem de salas é UM request barato, então pode rodar
+// bem mais frequente que o poll do Redmine (que pagina várias chamadas). Isso derruba
+// a latência das notificações de Talk com a aba fechada de ~60-90s para ~TALK_PUSH_POLL_MS.
+// Configuráveis por env var (ms / nº de requests simultâneos).
+const TALK_PUSH_POLL_MS = Number(process.env.TALK_PUSH_POLL_MS) || 12 * 1000;
+const TALK_REALTIME_POLL_MS = Number(process.env.TALK_REALTIME_POLL_MS) || 3 * 1000;
+const TALK_POLL_CONCURRENCY = Number(process.env.TALK_POLL_CONCURRENCY) || 6;
+
+// Preferências padrão para inscrições antigas (sem talkPrefs). groupMentionsOnly=false
+// preserva o comportamento atual (notifica tudo) até o cliente re-inscrever com as prefs reais.
+function recPrefs(rec) {
+  return {
+    groupMentionsOnly: rec.talkPrefs?.groupMentionsOnly === true,
+    realtime: rec.talkPrefs?.realtime === true,
+  };
+}
+
+// Agrupa as inscrições por conta de Talk (url+user) → 1 request por usuário, não por
+// dispositivo. A carga passa a escalar com pessoas, não aparelhos.
+function buildTalkGroups() {
+  const groups = new Map();
+  for (const rec of subscriptions) {
+    if (!(rec.talkAuth?.url && rec.talkAuth?.user && rec.talkAuth?.token)) continue;
+    const key = `${rec.talkAuth.url}\n${rec.talkAuth.user}`;
+    let g = groups.get(key);
+    if (!g) { g = { auth: rec.talkAuth, recs: [] }; groups.set(key, g); }
+    g.recs.push(rec);
+  }
+  return [...groups.values()];
+}
+
+// Roda fn sobre items com no máximo `limit` execuções simultâneas (pool de concorrência).
+async function mapPool(items, limit, fn) {
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      await fn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
+}
+
+// Polla um grupo (1 usuário) e notifica os dispositivos dele conforme as prefs de cada um.
+// Retorna true se algum talkSeen mudou (precisa persistir).
+async function pollTalkGroup({ auth, recs }) {
+  let changed = false;
+  try {
+    const talkClient = axios.create({
+      baseURL: auth.url,
+      auth: { username: auth.user, password: auth.token },
+      headers: { 'OCS-APIRequest': 'true', 'Accept': 'application/json' },
+    });
+    const { data: tData } = await talkClient.get('/ocs/v2.php/apps/spreed/api/v4/room?format=json');
+    recs.forEach(r => { if (!r.talkSeen) r.talkSeen = {}; });
+
+    for (const room of (tData.ocs.data || [])) {
+      if (room.type === 6) continue; // changelog
+      const isDM = room.type === 1;
+      const lastMsgId = room.lastMessage?.id || 0;
+      // Baseline = maior talkSeen entre os dispositivos do grupo, para não re-notificar
+      // num aparelho que já viu (e não disparar retroativo no primeiro poll de um novo).
+      const seenId = Math.max(0, ...recs.map(r => r.talkSeen[room.token] || 0));
+
+      if (lastMsgId > seenId && seenId > 0 && room.unreadMessages > 0) {
+        const body = resolveMessageTextServer(room.lastMessage);
+        const sender = room.lastMessage?.actorDisplayName?.split(' ')[0] || '';
+        const payload = {
+          title: `💬 ${room.displayName}`,
+          body: sender ? `${sender}: ${body}` : body,
+          tag: `talk-${room.token}-${lastMsgId}`,
+          url: `/?talkRoom=${room.token}`,
+          talkToken: room.token,
+        };
+        for (const rec of recs) {
+          // Filtro de ruído: em grupo, dispositivos com groupMentionsOnly só recebem se
+          // a sala tem menção não lida. DMs sempre passam.
+          if (!isDM && recPrefs(rec).groupMentionsOnly && !room.unreadMention) continue;
+          await sendPush(rec, payload); // fanout p/ todos os dispositivos elegíveis
+        }
+      }
+
+      if (lastMsgId) {
+        for (const rec of recs) {
+          if (rec.talkSeen[room.token] !== lastMsgId) { rec.talkSeen[room.token] = lastMsgId; changed = true; }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[push] poll Talk falhou:', err.response?.status || err.message);
+  }
+  return changed;
+}
+
+const groupIsRealtime = g => g.recs.some(r => recPrefs(r).realtime);
+
+// Loop normal (grupos sem tempo real) e loop rápido (grupos com tempo real ativo).
+// Cada um com seu próprio guard para não se bloquearem.
+let talkPollingNormal = false;
+let talkPollingFast = false;
+async function runTalkPoll(filterFn, getGuard, setGuard) {
+  if (getGuard()) return;
+  const groups = buildTalkGroups().filter(filterFn);
+  if (groups.length === 0) return;
+  setGuard(true);
+  try {
+    let changed = false;
+    await mapPool(groups, TALK_POLL_CONCURRENCY, async g => {
+      if (await pollTalkGroup(g)) changed = true;
+    });
+    if (changed) saveSubs(); // persiste os talkSeen atualizados
+  } finally {
+    setGuard(false);
+  }
+}
+
 function startPushPolling() {
   setInterval(pollPush, PUSH_POLL_MS);
+  setInterval(
+    () => runTalkPoll(g => !groupIsRealtime(g), () => talkPollingNormal, v => { talkPollingNormal = v; }),
+    TALK_PUSH_POLL_MS,
+  );
+  setInterval(
+    () => runTalkPoll(groupIsRealtime, () => talkPollingFast, v => { talkPollingFast = v; }),
+    TALK_REALTIME_POLL_MS,
+  );
 }
 
 module.exports = { getVapidPublicKey, subscribe, unsubscribe, startPushPolling };

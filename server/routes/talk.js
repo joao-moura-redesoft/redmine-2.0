@@ -124,6 +124,7 @@ router.post('/talk/rooms/:token/upload',
     const filename = decodeURIComponent(req.headers['x-filename'] || `upload_${Date.now()}`);
     const ct       = req.headers['x-content-type'] || 'application/octet-stream';
     const caption  = req.headers['x-caption'] ? decodeURIComponent(req.headers['x-caption']) : '';
+    const isVoice  = req.headers['x-voice-message'] === '1';
     const { token } = req.params;
     const talk = makeTalk(req);
 
@@ -152,7 +153,9 @@ router.post('/talk/rooms/:token/upload',
     const shareToRoom = async (filePath) => {
       try {
         const shareBody = { shareType: 10, shareWith: token, path: filePath };
-        if (caption) shareBody.talkMetaData = JSON.stringify({ caption });
+        // Mensagem de voz: metadado próprio do Talk (player nativo); senão, legenda.
+        if (isVoice) shareBody.talkMetaData = JSON.stringify({ messageType: 'voice-message' });
+        else if (caption) shareBody.talkMetaData = JSON.stringify({ caption });
         await talk.post(
           '/ocs/v2.php/apps/files_sharing/api/v1/shares?format=json',
           shareBody,

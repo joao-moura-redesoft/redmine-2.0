@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { X, ExternalLink, ChevronDown, ChevronRight, ChevronLeft, Check, Pencil, Play, GitBranch, ArrowRight, Loader2, AlertCircle, RotateCcw, FileText, File, Star, Link2, GitMerge, Copy, Plus, CheckSquare, User, Clock, Tag, Calendar, Search, CircleDot, Image as ImageIcon, Paperclip, Download, NotebookPen, StickyNote, BookOpen, History, Video } from 'lucide-react';
+import { X, ExternalLink, ChevronDown, ChevronRight, ChevronLeft, Check, Pencil, Play, GitBranch, ArrowRight, Loader2, AlertCircle, RotateCcw, FileText, File, Star, Link2, GitMerge, Copy, Plus, CheckSquare, User, Clock, Tag, Calendar, Search, CircleDot, Image as ImageIcon, Paperclip, Download, NotebookPen, StickyNote, BookOpen, History, Video, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { Attachment, EditField } from '../types/redmine';
 import { RequiredFieldsModal } from './RequiredFieldsModal';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
@@ -1181,6 +1181,9 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
   const [blockingErrors, setBlockingErrors] = useState<string[]>(() => loadIssueBlock(issueId));
   const [savingFields, setSavingFields] = useState<SavingField[]>([]);
   const [showDescription, setShowDescription] = useState(false);
+  // Recolher a coluna de campos (esquerda) para dar mais espaço ao chat. Persistido.
+  const [fieldsCollapsed, setFieldsCollapsed] = useState(() => localStorage.getItem('rk_fields_collapsed') === '1');
+  useEffect(() => { localStorage.setItem('rk_fields_collapsed', fieldsCollapsed ? '1' : '0'); }, [fieldsCollapsed]);
   const [phaseView, setPhaseView] = useState(() => localStorage.getItem('rk_phase_view') === '1');
   const [histView, setHistView] = useState(() => localStorage.getItem('rk_hist_view') === '1');
   const [aiDraftNote, setAiDraftNote] = useState<string | undefined>(undefined);
@@ -1451,8 +1454,27 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
           </div>
         ) : (
           <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-y-auto md:overflow-hidden">
+            {/* Trilho para reabrir a coluna de campos (só desktop, quando recolhida) */}
+            <button
+              onClick={() => setFieldsCollapsed(false)}
+              title="Mostrar campos"
+              className={`${fieldsCollapsed ? 'hidden md:flex' : 'hidden'} flex-shrink-0 w-9 border-r border-slate-100 dark:border-slate-700/50 bg-slate-50/40 dark:bg-slate-900/40 hover:bg-slate-100 dark:hover:bg-slate-800 items-start justify-center pt-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors`}
+            >
+              <PanelLeftOpen size={16} />
+            </button>
+
             {/* ── ESQUERDA: detalhe da tarefa ── */}
-            <div className="w-full md:w-[44%] md:border-r border-slate-100 md:overflow-y-auto scrollbar-thin bg-slate-50/40 flex flex-col pb-6">
+            <div className={`w-full md:w-[44%] md:flex-shrink-0 md:border-r border-slate-100 dark:border-slate-700/50 md:overflow-y-auto scrollbar-thin bg-slate-50/40 dark:bg-slate-900/40 flex flex-col pb-6 ${fieldsCollapsed ? 'md:hidden' : ''}`}>
+                {/* Recolher a coluna de campos (desktop) */}
+                <div className="hidden md:flex justify-end sticky top-0 z-10 px-3 pt-2 pb-1 bg-slate-50/80 dark:bg-slate-900/80 backdrop-blur-sm">
+                  <button
+                    onClick={() => setFieldsCollapsed(true)}
+                    title="Recolher campos"
+                    className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 px-1.5 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    <PanelLeftClose size={13} /> Recolher
+                  </button>
+                </div>
                 {/* Indicador de campos salvando/erro */}
                 {savingFields.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 px-5 pt-3">
@@ -1708,7 +1730,9 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
             </div>
 
             {/* ── DIREITA: descrição + chat ── */}
-            <div className="flex-1 flex flex-col md:min-h-0">
+            {/* min-w-0: sem isso, um token longo sem espaço (ex.: código numa nota)
+                infla a largura mínima do painel e espreme a sidebar de campos. */}
+            <div className="flex-1 min-w-0 flex flex-col md:min-h-0">
               <div className="md:flex-1 md:overflow-y-auto scrollbar-thin">
                 {/* Descrição colapsável + anexos da tarefa */}
                 <DescriptionPanel

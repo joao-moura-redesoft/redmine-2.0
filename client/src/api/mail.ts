@@ -56,6 +56,20 @@ export interface CalendarEvent {
   snippet: string;
 }
 
+export interface EventAttendee {
+  address: string;
+  name: string;
+  role: string;   // REQ (obrigatório) | OPT (opcional) | NON | CHA
+  ptst: string;   // NE (sem resposta) | AC (aceitou) | DE (recusou) | TE (talvez) | DG (delegou)
+  rsvp: boolean;
+  isMe: boolean;  // o convidado é o próprio usuário logado
+}
+
+export interface EventAttendees {
+  organizer: MailAddress | null;
+  attendees: EventAttendee[];
+}
+
 export type InviteVerb = 'ACCEPT' | 'DECLINE' | 'TENTATIVE';
 
 export interface MailMessageFull {
@@ -146,6 +160,11 @@ export const mailApi = {
   getCalendar: async (start: number, end: number): Promise<CalendarEvent[]> => {
     const { data } = await api.get('/mail/calendar', { params: { start, end } });
     return data.events;
+  },
+
+  getEventAttendees: async (id: string): Promise<EventAttendees> => {
+    const { data } = await api.get(`/mail/calendar/${id}/attendees`);
+    return data;
   },
 
   replyToInvite: async (id: string, verb: InviteVerb, compNum = 0): Promise<void> => {
