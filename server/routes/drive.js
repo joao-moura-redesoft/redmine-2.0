@@ -6,22 +6,31 @@ const { XMLParser } = require('fast-xml-parser');
 const router = express.Router();
 const handle = require('../lib/handle');
 const { makeTalk } = require('../services/talk');
+const { getMyUserId } = require('../lib/redmine');
+const { getTalkAuth } = require('../services/talkStore');
 
 const xml = new XMLParser({ removeNSPrefix: true, ignoreAttributes: true, parseTagValue: false });
 
 // Id canônico do usuário no Nextcloud (necessário para os caminhos /dav/files/{id}
 // e /trashbin/{id} — pode diferir do login, ex.: backends que usam UUID).
 async function ncUserId(req) {
+  let fallbackUser = '';
   try {
-    const { data } = await makeTalk(req).get('/ocs/v2.php/cloud/user?format=json');
-    return data?.ocs?.data?.id || req.headers['x-nextcloud-user'];
-  } catch { return req.headers['x-nextcloud-user']; }
+    const uid = await getMyUserId(req);
+    fallbackUser = getTalkAuth(uid)?.user || '';
+    const { data } = await (await makeTalk(req)).get('/ocs/v2.php/cloud/user?format=json');
+    return data?.ocs?.data?.id || fallbackUser;
+  } catch { return fallbackUser; }
 }
 
 // Caminho relativo (vindo do cliente) → URL WebDAV do usuário logado.
 function davUrl(relPath) {
-  const clean = String(relPath || '').replace(/^\/+|\/+$/g, '');
-  const enc = clean ? clean.split('/').map(encodeURIComponent).join('/') : '';
+  // Descarta segmentos vazios e '.'/'..' para impedir path traversal — encodeURIComponent
+  // não neutraliza '..' (ponto é caractere não-reservado).
+  const segments = String(relPath || '')
+    .split('/')
+    .filter(s => s && s !== '.' && s !== '..');
+  const enc = segments.map(encodeURIComponent).join('/');
   return `/remote.php/webdav/${enc}`;
 }
 
@@ -70,7 +79,7 @@ const PROPFIND_BODY = `<?xml version="1.0"?>
 // ─── Listar pasta ──────────────────────────────────────────────────────────────
 router.get('/drive/list', handle(async (req, res) => {
   const reqPath = String(req.query.path || '').replace(/^\/+|\/+$/g, '');
-  const talk = makeTalk(req);
+  const talk = (await makeTalk(req));
   const { data } = await talk.request({
     method: 'PROPFIND',
     url: davUrl(reqPath),
@@ -106,7 +115,7 @@ router.get('/drive/search', handle(async (req, res) => {
  </d:basicsearch>
 </d:searchrequest>`;
   try {
-    const { data } = await makeTalk(req).request({
+    const { data } = await (await makeTalk(req)).request({
       method: 'SEARCH', url: '/remote.php/dav/', data: body,
       headers: { 'Content-Type': 'application/xml' },
       responseType: 'text', transformResponse: r => r,
@@ -124,7 +133,7 @@ router.get('/drive/search', handle(async (req, res) => {
 // ─── Quota ───────────────────────────────────────────────────────────────────
 router.get('/drive/quota', handle(async (req, res) => {
   try {
-    const talk = makeTalk(req);
+    const talk = (await makeTalk(req));
     const body = `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:quota-used-bytes/><d:quota-available-bytes/></d:prop></d:propfind>`;
     const { data } = await talk.request({
       method: 'PROPFIND', url: davUrl(''), data: body,
@@ -144,7 +153,7 @@ router.get('/drive/quota', handle(async (req, res) => {
 router.get('/drive/download', handle(async (req, res) => {
   const reqPath = String(req.query.path || '');
   const name = reqPath.split('/').pop() || 'arquivo';
-  const talk = makeTalk(req);
+  const talk = (await makeTalk(req));
   const r = await talk.get(davUrl(reqPath), { responseType: 'arraybuffer' });
   res.set('Content-Type', r.headers['content-type'] || 'application/octet-stream');
   res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
@@ -154,7 +163,7 @@ router.get('/drive/download', handle(async (req, res) => {
 // ─── Thumbnail ──────────────────────────────────────────────────────────────────
 router.get('/drive/thumb', handle(async (req, res) => {
   const { fileId, path: filePath } = req.query;
-  const talk = makeTalk(req);
+  const talk = (await makeTalk(req));
   const size = Math.min(parseInt(req.query.size) || 128, 1024);
   const tryGet = async (url) => {
     try {
@@ -189,7 +198,7 @@ router.put('/drive/upload',
     const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
     if (!body.length) return res.status(400).json({ error: 'Arquivo vazio.' });
     const full = dir ? `${dir}/${filename}` : filename;
-    await makeTalk(req).put(davUrl(full), body, {
+    await (await makeTalk(req)).put(davUrl(full), body, {
       headers: { 'Content-Type': ct, 'Content-Length': body.length },
       maxBodyLength: 500 * 1024 * 1024, maxContentLength: 500 * 1024 * 1024,
     });
@@ -201,7 +210,7 @@ router.put('/drive/upload',
 router.post('/drive/folder', handle(async (req, res) => {
   const p = String(req.body.path || '').replace(/^\/+|\/+$/g, '');
   if (!p) return res.status(400).json({ error: 'Caminho obrigatório.' });
-  await makeTalk(req).request({ method: 'MKCOL', url: davUrl(p) });
+  await (await makeTalk(req)).request({ method: 'MKCOL', url: davUrl(p) });
   res.json({ success: true, path: p });
 }));
 
@@ -209,7 +218,7 @@ router.post('/drive/folder', handle(async (req, res) => {
 router.delete('/drive/item', handle(async (req, res) => {
   const p = String(req.query.path || '').replace(/^\/+|\/+$/g, '');
   if (!p) return res.status(400).json({ error: 'Caminho obrigatório.' });
-  await makeTalk(req).delete(davUrl(p));
+  await (await makeTalk(req)).delete(davUrl(p));
   res.json({ success: true });
 }));
 
@@ -218,8 +227,9 @@ router.post('/drive/move', handle(async (req, res) => {
   const from = String(req.body.from || '').replace(/^\/+|\/+$/g, '');
   const to = String(req.body.to || '').replace(/^\/+|\/+$/g, '');
   if (!from || !to) return res.status(400).json({ error: 'from e to obrigatórios.' });
-  const ncUrl = (req.headers['x-nextcloud-url'] || '').replace(/\/$/, '');
-  await makeTalk(req).request({
+  const uid = await getMyUserId(req);
+  const ncUrl = (getTalkAuth(uid)?.url || '').replace(/\/$/, '');
+  await (await makeTalk(req)).request({
     method: 'MOVE', url: davUrl(from),
     headers: { Destination: `${ncUrl}${davUrl(to)}`, Overwrite: 'F' },
   });
@@ -237,7 +247,7 @@ router.get('/drive/favorites', handle(async (req, res) => {
  <oc:filter-rules><oc:favorite>1</oc:favorite></oc:filter-rules>
 </oc:filter-files>`;
   try {
-    const { data } = await makeTalk(req).request({
+    const { data } = await (await makeTalk(req)).request({
       method: 'REPORT', url: `/remote.php/dav/files/${encodeURIComponent(user)}/`, data: body,
       headers: { Depth: 'infinity', 'Content-Type': 'application/xml' },
       responseType: 'text', transformResponse: r => r,
@@ -263,7 +273,7 @@ router.get('/drive/recent', handle(async (req, res) => {
  </d:basicsearch>
 </d:searchrequest>`;
   const run = async (withOrder) => {
-    const { data } = await makeTalk(req).request({
+    const { data } = await (await makeTalk(req)).request({
       method: 'SEARCH', url: '/remote.php/dav/', data: buildBody(withOrder),
       headers: { 'Content-Type': 'application/xml' }, responseType: 'text', transformResponse: r => r,
     });
@@ -287,7 +297,7 @@ router.get('/drive/shared-view', handle(async (req, res) => {
   const params = { format: 'json' };
   if (type === 'in') params.shared_with_me = 'true';
   try {
-    const { data } = await makeTalk(req).get(`/ocs/v2.php/apps/files_sharing/api/v1/shares`, { params });
+    const { data } = await (await makeTalk(req)).get(`/ocs/v2.php/apps/files_sharing/api/v1/shares`, { params });
     let list = data?.ocs?.data ?? [];
     if (type === 'link') list = list.filter(s => s.share_type === 3);
     if (type === 'out') list = list.filter(s => s.share_type !== 3 || true); // todos os meus shares
@@ -326,7 +336,7 @@ router.post('/drive/favorite', handle(async (req, res) => {
 <d:propertyupdate xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
  <d:set><d:prop><oc:favorite>${fav}</oc:favorite></d:prop></d:set>
 </d:propertyupdate>`;
-  await makeTalk(req).request({
+  await (await makeTalk(req)).request({
     method: 'PROPPATCH', url: `/remote.php/dav/files/${encodeURIComponent(user)}/${enc}`,
     data: body, headers: { 'Content-Type': 'application/xml' },
   });
@@ -340,7 +350,7 @@ const ocsPath = (p) => '/' + String(p || '').replace(/^\/+/, '');
 // Lista compartilhamentos de um caminho
 router.get('/drive/shares', handle(async (req, res) => {
   try {
-    const { data } = await makeTalk(req).get(`${SHARES}?format=json`, {
+    const { data } = await (await makeTalk(req)).get(`${SHARES}?format=json`, {
       params: { path: ocsPath(req.query.path), reshares: false },
     });
     res.json(data?.ocs?.data ?? []);
@@ -355,7 +365,7 @@ router.post('/drive/share', handle(async (req, res) => {
   const body = { path: ocsPath(req.body.path), shareType: req.body.shareType };
   if (req.body.shareWith) body.shareWith = req.body.shareWith;
   try {
-    const { data } = await makeTalk(req).post(`${SHARES}?format=json`, body);
+    const { data } = await (await makeTalk(req)).post(`${SHARES}?format=json`, body);
     res.json(data?.ocs?.data ?? {});
   } catch (e) {
     const msg = e.response?.data?.ocs?.meta?.message || e.message;
@@ -365,7 +375,7 @@ router.post('/drive/share', handle(async (req, res) => {
 
 // Remove compartilhamento por id
 router.delete('/drive/share/:id', handle(async (req, res) => {
-  await makeTalk(req).delete(`${SHARES}/${req.params.id}?format=json`);
+  await (await makeTalk(req)).delete(`${SHARES}/${req.params.id}?format=json`);
   res.json({ success: true });
 }));
 
@@ -374,8 +384,9 @@ router.post('/drive/copy', handle(async (req, res) => {
   const from = String(req.body.from || '').replace(/^\/+|\/+$/g, '');
   const to = String(req.body.to || '').replace(/^\/+|\/+$/g, '');
   if (!from || !to) return res.status(400).json({ error: 'from e to obrigatórios.' });
-  const ncUrl = (req.headers['x-nextcloud-url'] || '').replace(/\/$/, '');
-  await makeTalk(req).request({
+  const uid = await getMyUserId(req);
+  const ncUrl = (getTalkAuth(uid)?.url || '').replace(/\/$/, '');
+  await (await makeTalk(req)).request({
     method: 'COPY', url: davUrl(from),
     headers: { Destination: `${ncUrl}${davUrl(to)}`, Overwrite: 'F' },
   });
@@ -395,7 +406,7 @@ const TRASH_PROPFIND = `<?xml version="1.0"?>
 router.get('/drive/trash', handle(async (req, res) => {
   const user = await ncUserId(req);
   try {
-    const { data } = await makeTalk(req).request({
+    const { data } = await (await makeTalk(req)).request({
       method: 'PROPFIND', url: trashBase(user), data: TRASH_PROPFIND,
       headers: { Depth: '1', 'Content-Type': 'application/xml' },
       responseType: 'text', transformResponse: r => r,
@@ -433,8 +444,9 @@ router.post('/drive/trash/restore', handle(async (req, res) => {
   const href = String(req.body.href || '');
   const id = href.split('/').filter(Boolean).pop();
   if (!id) return res.status(400).json({ error: 'href obrigatório.' });
-  const ncUrl = (req.headers['x-nextcloud-url'] || '').replace(/\/$/, '');
-  await makeTalk(req).request({
+  const uid = await getMyUserId(req);
+  const ncUrl = (getTalkAuth(uid)?.url || '').replace(/\/$/, '');
+  await (await makeTalk(req)).request({
     method: 'MOVE', url: `/remote.php/dav/trashbin/${encodeURIComponent(user)}/trash/${encodeURIComponent(id)}`,
     headers: { Destination: `${ncUrl}/remote.php/dav/trashbin/${encodeURIComponent(user)}/restore/${encodeURIComponent(id)}` },
   });
@@ -446,14 +458,14 @@ router.delete('/drive/trash/item', handle(async (req, res) => {
   const user = await ncUserId(req);
   const id = String(req.query.id || '');
   if (!id) return res.status(400).json({ error: 'id obrigatório.' });
-  await makeTalk(req).delete(`/remote.php/dav/trashbin/${encodeURIComponent(user)}/trash/${encodeURIComponent(id)}`);
+  await (await makeTalk(req)).delete(`/remote.php/dav/trashbin/${encodeURIComponent(user)}/trash/${encodeURIComponent(id)}`);
   res.json({ success: true });
 }));
 
 // Esvazia a lixeira
 router.delete('/drive/trash', handle(async (req, res) => {
   const user = await ncUserId(req);
-  await makeTalk(req).delete(trashBase(user));
+  await (await makeTalk(req)).delete(trashBase(user));
   res.json({ success: true });
 }));
 

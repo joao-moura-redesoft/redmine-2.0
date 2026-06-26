@@ -1,23 +1,22 @@
 import axios, { type AxiosInstance } from 'axios';
 import { getStoredAuth } from './redmine';
 
-// Cliente axios com baseURL /api e injeção do header de auth do Redmine
-// (chave ou usuário/senha). Centraliza o interceptor antes duplicado em cada
-// módulo de API (notes, sprints, boards…).
+// Cliente axios com baseURL /api configurado para enviar cookies HttpOnly
 export function createAuthedClient(): AxiosInstance {
-  const api = axios.create({ baseURL: '/api' });
-  api.interceptors.request.use(config => {
-    const auth = getStoredAuth();
-    if (auth) {
-      config.headers['X-Redmine-Url'] = auth.url;
-      if (auth.apiKey) {
-        config.headers['X-Redmine-Key'] = auth.apiKey;
-      } else if (auth.username && auth.password) {
-        config.headers['X-Redmine-User'] = auth.username;
-        config.headers['X-Redmine-Pass'] = auth.password;
-      }
-    }
-    return config;
+  const api = axios.create({ 
+    baseURL: '/api',
+    withCredentials: true 
   });
+  
+  api.interceptors.response.use(
+    res => res,
+    err => {
+      if (err.response?.status === 401) {
+        window.dispatchEvent(new Event('auth-expired'));
+      }
+      return Promise.reject(err);
+    }
+  );
+  
   return api;
 }

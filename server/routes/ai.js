@@ -6,18 +6,17 @@ const { makeRedmine, buildAuthHeaders } = require('../lib/redmine');
 const handle = require('../lib/handle');
 const {
   Anthropic, makeOpenAIClient, chatModel,
-  resolveUserName, buildIssueContext, getAICredentials, MAX_ATTACH_BYTES,
+  resolveUserName, buildIssueContext, getAICredentials, getOpenAIKey, MAX_ATTACH_BYTES,
   fetchAttachmentBase64, imageBlock, aiComplete, transcribeAudio, PROMPT_SYSTEM, PROMPT_TEMPLATE,
   CHAT_TOOLS, CHAT_SYSTEM, execChatTool,
 } = require('../services/ai');
 
 // Transcreve o áudio de uma reunião (Whisper/OpenAI) e gera um resumo estruturado
 // com o provider de IA preferido. Recebe o áudio como corpo binário (express.raw).
-//   x-openai-key   → key da OpenAI (obrigatória; Whisper)
-//   x-ai-provider/x-ai-key → provider do resumo (qualquer um)
+// As chaves de IA vêm do cofre cifrado server-side (por usuário), não de headers.
 //   x-meeting-title, x-meeting-participants → contexto opcional
 router.post('/ai/transcribe-summarize', express.raw({ type: () => true, limit: '80mb' }), handle(async (req, res) => {
-  const openaiKey = req.headers['x-openai-key'] || '';
+  const openaiKey = await getOpenAIKey(req);
   if (!openaiKey) return res.status(400).json({ error: 'Transcrição requer uma chave da OpenAI (Whisper). Configure-a em Configurações → IA.' });
   if (!req.body || !req.body.length) return res.status(400).json({ error: 'áudio vazio' });
 
@@ -30,7 +29,7 @@ router.post('/ai/transcribe-summarize', express.raw({ type: () => true, limit: '
   if (!transcript) return res.json({ transcript: '', summary: 'Não foi possível extrair fala do áudio (silêncio ou áudio não compartilhado).' });
 
   // Resumo com o provider preferido (Claude por padrão).
-  const { provider, key } = getAICredentials(req);
+  const { provider, key } = await getAICredentials(req);
   let summary = '';
   if (key) {
     summary = await aiComplete(provider, key, {
@@ -66,8 +65,8 @@ ${transcript.slice(0, 24000)}`,
 
 // Gera o prompt completo seguindo o template da skill gerar-prompt-tarefa.
 router.post('/ai/generate-prompt', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { issue } = req.body;
   if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
@@ -133,8 +132,8 @@ router.post('/ai/generate-prompt', handle(async (req, res) => {
 
 // Resumo dos journals — destila o histórico em bullets.
 router.post('/ai/summarize-history', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { issue } = req.body;
   if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
@@ -164,8 +163,8 @@ ${notes}`,
 
 // Rascunho de nota para postar no journal.
 router.post('/ai/draft-note', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { issue } = req.body;
   if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
@@ -191,8 +190,8 @@ ${lastNote ? `Último comentário (${lastNote.created_on?.slice(0, 10)}): ${last
 
 // Rascunho de resposta ao cliente — tom de suporte, baseado no histórico do chamado.
 router.post('/ai/draft-reply', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { issue, instruction } = req.body;
   if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
@@ -223,8 +222,8 @@ ${history || '(sem mensagens anteriores)'}`,
 // Loop agêntico de tool-use: a IA escolhe ferramentas, o servidor executa no
 // Redmine (via makeRedmine) e devolve os resultados até a IA responder.
 router.post('/ai/chat', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
   const { messages } = req.body;
   if (!Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error: 'messages obrigatório' });
 
@@ -283,8 +282,8 @@ router.post('/ai/chat', handle(async (req, res) => {
 
 // Daily standup — gera texto de standup a partir das tarefas abertas.
 router.post('/ai/standup', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { issues } = req.body;
   if (!Array.isArray(issues) || issues.length === 0) {
@@ -316,8 +315,8 @@ ${list}`,
 
 // Retrospectiva semanal — resumo das entregas da semana + em andamento + riscos.
 router.post('/ai/weekly-digest', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { open = [], completed = [] } = req.body;
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -372,8 +371,8 @@ ${fmt(open) || '(nenhuma)'}`,
 // nos requisitos descritos. Não inventa horas: dá um nível qualitativo + raciocínio
 // + fatores de risco. Muito mais honesto e útil do que um número fabricado.
 router.post('/ai/assess-complexity', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { issue } = req.body;
   if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
@@ -416,8 +415,8 @@ ${(issue.description || '(sem descrição)').slice(0, 1500)}`,
 
 // Checklist de revisão para o revisor (status Pendente Revisão).
 router.post('/ai/review-checklist', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { issue } = req.body;
   if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
@@ -453,8 +452,8 @@ ${lastDevNotes ? `Notas do desenvolvedor:\n${lastDevNotes}` : ''}`,
 
 // Sugestão de campos para nova issue com base no título e descrição.
 router.post('/ai/suggest-fields', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { subject, description, trackers, priorities } = req.body;
   if (!subject) return res.status(400).json({ error: 'subject obrigatório' });
@@ -491,8 +490,8 @@ Descrição: ${(description || '').slice(0, 500)}`,
 
 // Revisão de nota antes de postar no journal.
 router.post('/ai/review-note', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { noteText, issueSubject, issueStatus } = req.body;
   if (!noteText) return res.status(400).json({ error: 'noteText obrigatório' });
@@ -515,8 +514,8 @@ ${noteText.slice(0, 1000)}`,
 // Detector de requisitos ambíguos — aponta o que está incompleto ou contraditório
 // antes do dev começar, evitando retrabalho e ping-pong de revisão.
 router.post('/ai/detect-ambiguities', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { issue } = req.body;
   if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
@@ -635,8 +634,8 @@ ${(issue.description || '(sem descrição)').slice(0, 2000)}`;
 // (MÓDULO OPERACIONAL\ SUBMÓDULO\ TELA) O que foi feito
 // O caminho do menu vem da própria descrição (sempre citada nas issues do ERP).
 router.post('/ai/suggest-version-note', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { issue } = req.body;
   if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
@@ -692,8 +691,8 @@ ${lastNotes ? `Histórico recente:\n${lastNotes}` : ''}`,
 
 // Resumo rápido de 1 linha — para o card do Kanban.
 router.post('/ai/quick', handle(async (req, res) => {
-  const { provider, key } = getAICredentials(req);
-  if (!key) return res.status(400).json({ error: 'header x-ai-key obrigatório' });
+  const { provider, key } = await getAICredentials(req);
+  if (!key) return res.status(400).json({ error: 'Nenhuma chave de IA configurada (Configurações → IA)' });
 
   const { issue } = req.body;
   if (!issue) return res.status(400).json({ error: 'issue obrigatória' });

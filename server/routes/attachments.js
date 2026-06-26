@@ -4,6 +4,7 @@ const axios = require('axios');
 const router = express.Router();
 const { buildAuthHeaders } = require('../lib/redmine');
 const { createSession, getSession } = require('../lib/sessions');
+const { safeAgents } = require('../lib/ssrfGuard');
 const handle = require('../lib/handle');
 
 // Cria sessão de autenticação para o usuário atual. Retorna um token que
@@ -28,8 +29,10 @@ router.get('/og', handle(async (req, res) => {
     const { data: html } = await axios.get(url, {
       timeout: 6000,
       maxContentLength: 400 * 1024,
+      maxRedirects: 3,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BlumineFetch/1.0)' },
       responseType: 'text',
+      ...safeAgents(), // bloqueia SSRF para IPs internos (inclusive em redirects)
     });
     const get = (prop) => {
       const re1 = new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`, 'i');

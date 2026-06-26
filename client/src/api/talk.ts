@@ -5,7 +5,6 @@ const TALK_AUTH_KEY = 'nextcloud_talk_auth';
 export interface TalkAuth {
   url: string;
   user: string;
-  token: string;
 }
 
 export function getTalkAuth(): TalkAuth | null {
@@ -13,7 +12,7 @@ export function getTalkAuth(): TalkAuth | null {
     const raw = localStorage.getItem(TALK_AUTH_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed?.url && parsed?.user && parsed?.token) return parsed;
+    if (parsed?.url && parsed?.user) return parsed;
     return null;
   } catch { return null; }
 }
@@ -22,8 +21,9 @@ export function saveTalkAuth(auth: TalkAuth) {
   localStorage.setItem(TALK_AUTH_KEY, JSON.stringify(auth));
 }
 
-export function clearTalkAuth() {
+export async function clearTalkAuth() {
   localStorage.removeItem(TALK_AUTH_KEY);
+  try { await axios.delete('/api/talk/auth'); } catch { /* ignorar erro */ }
 }
 
 export interface TalkMessageParam {
@@ -92,16 +92,6 @@ export interface NCUser {
 }
 
 const api = axios.create({ baseURL: '/api/talk' });
-
-api.interceptors.request.use(cfg => {
-  const auth = getTalkAuth();
-  if (auth) {
-    cfg.headers['x-nextcloud-url']   = auth.url;
-    cfg.headers['x-nextcloud-user']  = auth.user;
-    cfg.headers['x-nextcloud-token'] = auth.token;
-  }
-  return cfg;
-});
 
 // Disparado quando o servidor responde 401 a uma chamada do Talk — sinal de que o token
 // (senha de app) foi revogado/expirou. 403 é "sem permissão" (conta não-admin, esperado)
@@ -299,7 +289,7 @@ export async function initLoginFlow(ncUrl: string): Promise<{ loginUrl: string; 
 
 export type LoginFlowResult =
   | { done: false }
-  | { done: true; server: string; user: string; token: string };
+  | { done: true; server: string; user: string };
 
 export async function pollLoginFlow(pollEndpoint: string, pollToken: string): Promise<LoginFlowResult> {
   const { data } = await axios.post('/api/talk/login-flow/poll', { pollEndpoint, pollToken });

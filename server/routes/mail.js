@@ -9,7 +9,7 @@ const { getSession } = require('../lib/sessions');
 
 // Testa a conexão/autenticação no Zimbra com as credenciais resolvidas.
 router.get('/mail/ping', handle(async (req, res) => {
-  const { host, user } = zimbra.resolveMailCreds(req);
+  const { host, user } = await zimbra.resolveMailCreds(req);
   await zimbra.tokenFor(req); // lança 401/412 se não autenticar
   res.json({ ok: true, host, user });
 }));

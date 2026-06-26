@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import axios from 'axios';
 import {
   useCurrentUser, useProjects, useMonitoredIssues, useAuthoredIssues,
   useWatchedIssues, useIssues, useToReviewIssues, useMentions, useCompletedIssues,
@@ -18,7 +19,10 @@ import { localWatches, useLocalWatches } from './utils/localWatches';
 import { Login } from './components/Login';
 import { GlobalSearch } from './components/GlobalSearch';
 import { getStoredAuth, clearAuth, initSession } from './api/redmine';
-import { getAIKey } from './utils/aiConfig';
+import { getAIKey, migrateLegacyAIKeys } from './utils/aiConfig';
+import { migrateLegacyADCreds } from './utils/adConfig';
+import { migrateLegacyTotp } from './api/totp';
+import { refreshSecretsStatus, resetSecretsStatus } from './utils/secretsStatus';
 import { useActivityNotifications } from './hooks/useActivityNotifications';
 import { useMailNotifications } from './hooks/useMailNotifications';
 import { usePushNotifications } from './hooks/usePushNotifications';
@@ -69,7 +73,9 @@ export function App() {
   }
 
   return <AuthenticatedApp onLogout={() => {
+    axios.post('/api/auth/logout').catch(() => {});
     clearAuth();
+    resetSecretsStatus();
     qc.clear();
     setIsAuthenticated(false);
   }} />;
@@ -77,6 +83,25 @@ export function App() {
 
 function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   useEffect(() => { initSession(); }, []);
+
+  // Carrega o status do cofre de segredos (AD/IA/TOTP) e migra credenciais
+  // antigas do localStorage para o servidor (uma vez, best-effort).
+  useEffect(() => {
+    (async () => {
+      await refreshSecretsStatus();
+      await migrateLegacyADCreds();
+      await migrateLegacyAIKeys();
+      await migrateLegacyTotp();
+    })();
+  }, []);
+
+  useEffect(() => {
+    const handleExpired = () => {
+      onLogout();
+    };
+    window.addEventListener('auth-expired', handleExpired);
+    return () => window.removeEventListener('auth-expired', handleExpired);
+  }, [onLogout]);
 
   const { data: user } = useCurrentUser();
   const { startCall: startJitsiCall, activeCall: activeJitsiCall } = useJitsi();

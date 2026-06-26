@@ -36,12 +36,19 @@ router.get('/wiki/page', async (req, res) => {
 router.get('/wiki/media', async (req, res) => {
   try {
     const url = String(req.query.url || '').trim();
-    if (!url.startsWith('https://')) return res.status(400).end();
+    // Allowlist: só busca mídia do host configurado do DokuWiki (evita SSRF —
+    // o cliente não controla mais o host, então é sempre o host corporativo).
+    let parsed;
+    try { parsed = new URL(url); } catch { return res.status(400).end(); }
+    if (parsed.protocol !== 'https:' || parsed.hostname !== doku.DEFAULT_HOST) {
+      return res.status(400).end();
+    }
     const { user, pass } = doku.getLastWikiCreds();
     const response = await axios.get(url, {
       headers: { ...doku.basicAuth(user, pass) },
       responseType: 'stream',
       timeout: 10000,
+      maxRedirects: 0, // mídia é direta; não seguir redirect (anti-SSRF)
     });
     const ct = response.headers['content-type'] || 'image/png';
     res.set('Content-Type', ct);

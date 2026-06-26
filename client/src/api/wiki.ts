@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getEffectiveCreds, hasEffectiveCreds } from '../utils/adConfig';
+import { hasEffectiveCreds } from '../utils/adConfig';
 
 export interface WikiSearchResult {
   id: string;
@@ -19,16 +19,9 @@ export function isWikiAvailable(): boolean {
   return hasEffectiveCreds();
 }
 
+// Credenciais AD resolvidas no servidor (sessão para usuário/senha; cofre
+// cifrado para login por API key). Nada de credenciais no cliente.
 const wikiAxios = axios.create({ baseURL: '/' });
-
-wikiAxios.interceptors.request.use(cfg => {
-  const creds = getEffectiveCreds();
-  if (creds) {
-    cfg.headers['x-redmine-user'] = creds.username;
-    cfg.headers['x-redmine-pass'] = creds.password;
-  }
-  return cfg;
-});
 
 export const wikiApi = {
   search: (q: string): Promise<WikiSearchResult[]> =>

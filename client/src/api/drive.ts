@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { getTalkAuth } from './talk';
 
 export interface DriveEntry {
   name: string;
@@ -21,24 +20,6 @@ export interface DriveEntry {
 export interface DriveQuota { used: number; available: number }
 
 const api = axios.create({ baseURL: '/api/drive' });
-api.interceptors.request.use(cfg => {
-  const auth = getTalkAuth();
-  if (auth) {
-    cfg.headers['x-nextcloud-url']   = auth.url;
-    cfg.headers['x-nextcloud-user']  = auth.user;
-    cfg.headers['x-nextcloud-token'] = auth.token;
-  }
-  return cfg;
-});
-
-function ncHeaders(): Record<string, string> {
-  const auth = getTalkAuth();
-  return auth ? {
-    'x-nextcloud-url': auth.url,
-    'x-nextcloud-user': auth.user,
-    'x-nextcloud-token': auth.token,
-  } : {};
-}
 
 export async function listDir(path: string): Promise<{ path: string; entries: DriveEntry[] }> {
   const { data } = await api.get('/list', { params: { path } });
@@ -103,7 +84,7 @@ export async function uploadToDrive(
 
 // Busca o conteúdo do arquivo como Blob (para pré-visualização autenticada).
 export async function fetchDriveBlob(path: string): Promise<Blob> {
-  const r = await fetch(`/api/drive/download?path=${encodeURIComponent(path)}`, { headers: ncHeaders() });
+  const r = await fetch(`/api/drive/download?path=${encodeURIComponent(path)}`);
   if (!r.ok) throw new Error('fetch failed');
   return r.blob();
 }
@@ -111,7 +92,7 @@ export async function fetchDriveBlob(path: string): Promise<Blob> {
 // Baixa via fetch (precisa de headers de auth) e dispara o download no navegador.
 export async function downloadDriveFile(path: string): Promise<void> {
   const name = path.split('/').pop() || 'arquivo';
-  const r = await fetch(`/api/drive/download?path=${encodeURIComponent(path)}`, { headers: ncHeaders() });
+  const r = await fetch(`/api/drive/download?path=${encodeURIComponent(path)}`);
   if (!r.ok) throw new Error('download failed');
   const blob = await r.blob();
   const url = URL.createObjectURL(blob);
@@ -177,7 +158,7 @@ export async function fetchThumb(entry: DriveEntry, size = 128): Promise<string 
   const params = new URLSearchParams({ size: String(size) });
   if (entry.fileId) params.set('fileId', entry.fileId);
   if (entry.path) params.set('path', entry.path);
-  const r = await fetch(`/api/drive/thumb?${params}`, { headers: ncHeaders() });
+  const r = await fetch(`/api/drive/thumb?${params}`);
   if (!r.ok) return null;
   return URL.createObjectURL(await r.blob());
 }

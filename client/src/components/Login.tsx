@@ -26,20 +26,22 @@ export function Login({ onSuccess }: Props) {
     const cleanUrl = url.replace(/\/$/, '');
 
     try {
-      const headers: Record<string, string> = { 'X-Redmine-Url': cleanUrl };
-      let auth: RedmineAuth;
+      const payload: Record<string, string> = { url: cleanUrl };
 
       if (mode === 'token') {
-        headers['X-Redmine-Key'] = apiKey.trim();
-        auth = { url: cleanUrl, apiKey: apiKey.trim() };
+        payload.apiKey = apiKey.trim();
       } else {
-        headers['X-Redmine-User'] = username.trim();
-        headers['X-Redmine-Pass'] = password;
-        auth = { url: cleanUrl, username: username.trim(), password };
+        payload.username = username.trim();
+        payload.password = password;
       }
 
-      await axios.get('/api/users/current', { headers });
-      saveAuth(auth);
+      await axios.post('/api/auth/login', payload, { withCredentials: true });
+      
+      // Save only safe metadata to localStorage, never passwords/keys
+      const safeAuth: Partial<RedmineAuth> = { url: cleanUrl };
+      if (mode === 'userpass') safeAuth.username = username.trim();
+      saveAuth(safeAuth as RedmineAuth);
+      
       onSuccess();
     } catch (err: any) {
       const status = err.response?.status;

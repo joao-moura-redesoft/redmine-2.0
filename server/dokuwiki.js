@@ -7,15 +7,26 @@
 //   GET /doku.php?do=search&q=QUERY               → HTML com resultados de busca
 // =========================================================================
 const axios = require('axios');
+const { getMyUserId } = require('./lib/redmine');
+const { getAd } = require('./services/secretsStore');
 
 const DEFAULT_HOST = process.env.DOKUWIKI_HOST || 'wiki.redesoft.com.br';
 
 let lastWikiCreds = { host: DEFAULT_HOST, user: '', pass: '' };
 
-function resolveWikiCreds(req) {
+// Credenciais AD: no login usuário/senha vêm da sessão (x-redmine-*, injetadas
+// pela authMiddleware); no login por API key, do cofre cifrado server-side.
+async function resolveWikiCreds(req) {
   const host = req.headers['x-wiki-host'] || DEFAULT_HOST;
-  const user = req.headers['x-wiki-user'] || req.headers['x-redmine-user'] || '';
-  const pass = req.headers['x-wiki-pass'] || req.headers['x-redmine-pass'] || '';
+  let user = req.headers['x-redmine-user'] || '';
+  let pass = req.headers['x-redmine-pass'] || '';
+  if (!user || !pass) {
+    try {
+      const uid = await getMyUserId(req);
+      const ad = uid ? getAd(uid) : null;
+      if (ad) { user = ad.user; pass = ad.pass; }
+    } catch { /* sem credenciais no cofre */ }
+  }
   if (user && pass) lastWikiCreds = { host, user, pass };
   return { host, user, pass };
 }
@@ -92,7 +103,7 @@ function rewriteLinks(html, host) {
 // --- Operações públicas ---
 
 async function searchPages(req, q) {
-  const { host, user, pass } = resolveWikiCreds(req);
+  const { host, user, pass } = await resolveWikiCreds(req);
   const html = await dokuGet(host, user, pass, `/doku.php?do=search&q=${encodeURIComponent(q)}`);
   return parseSearchHTML(html);
 }
@@ -126,7 +137,7 @@ function extractPageContent(html) {
 }
 
 async function getPageHTML(req, id) {
-  const { host, user, pass } = resolveWikiCreds(req);
+  const { host, user, pass } = await resolveWikiCreds(req);
   // Página completa para incluir output de plugins (checkmarks, etc.)
   const raw = String(await dokuGet(host, user, pass, `/doku.php?id=${encodeURIComponent(id)}`) || '');
   const content = extractPageContent(raw);

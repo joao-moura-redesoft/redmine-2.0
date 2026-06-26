@@ -10,15 +10,25 @@ const { buildAuthHeaders } = require('../lib/redmine');
 const { fetchAllIssues } = require('../lib/pagination');
 const { dataFile, readJsonSecure, writeJsonSecure } = require('../lib/secureStore');
 
+// Web Push ligado por padrão. Desligue com PUSH_ENABLED=0 (ou false) no .env.
+const PUSH_ENABLED = !(process.env.PUSH_ENABLED === '0' || /^false$/i.test(process.env.PUSH_ENABLED || ''));
+
 // VAPID: carrega ou gera o par de chaves uma única vez (persistido em vapid.json).
+// Só inicializa quando o push está habilitado — assim, desligado, nem gera chaves.
+// Contato VAPID configurável via PUSH_CONTACT.
 const VAPID_FILE = dataFile('vapid.json');
-let vapid = readJsonSecure(VAPID_FILE, null);
-if (!vapid || !vapid.publicKey || !vapid.privateKey) {
-  vapid = webpush.generateVAPIDKeys();
-  writeJsonSecure(VAPID_FILE, vapid);
-  console.log('[push] novas chaves VAPID geradas');
+let vapid = null;
+if (PUSH_ENABLED) {
+  vapid = readJsonSecure(VAPID_FILE, null);
+  if (!vapid || !vapid.publicKey || !vapid.privateKey) {
+    vapid = webpush.generateVAPIDKeys();
+    writeJsonSecure(VAPID_FILE, vapid);
+    console.log('[push] novas chaves VAPID geradas');
+  }
+  webpush.setVapidDetails(process.env.PUSH_CONTACT || 'mailto:admin@b2click.com', vapid.publicKey, vapid.privateKey);
+} else {
+  console.log('[push] Web Push desabilitado (defina PUSH_ENABLED=1 para habilitar)');
 }
-webpush.setVapidDetails('mailto:admin@b2click.com', vapid.publicKey, vapid.privateKey);
 
 // Inscrições persistidas: [{ endpoint, subscription, url, key, updatedAt, seen:{...} }]
 const SUBS_FILE = dataFile('push-subscriptions.json');
@@ -57,16 +67,22 @@ async function collectPushState(url, key, username, password) {
 }
 
 function getVapidPublicKey() {
-  return vapid.publicKey;
+  return vapid ? vapid.publicKey : null;
 }
 
 async function subscribe(req) {
+  if (!PUSH_ENABLED) return;
   const url = req.headers['x-redmine-url'];
   const key = req.headers['x-redmine-key'] || '';
   const username = req.headers['x-redmine-user'] || '';
   const password = req.headers['x-redmine-pass'] || '';
   const subscription = req.body?.subscription;
-  const talkAuth = req.body?.talkAuth || null; // { url, user, token } — opcional
+  
+  const { getMyUserId } = require('../lib/redmine');
+  const { getTalkAuth } = require('./talkStore');
+  const uid = await getMyUserId(req);
+  const talkAuth = uid ? getTalkAuth(uid) : null;
+  
   const talkPrefs = req.body?.talkPrefs || null; // { groupMentionsOnly, realtime } — opcional
   const hasAuth = !!(key || (username && password));
   if (!url || !hasAuth || !subscription?.endpoint) {
@@ -95,7 +111,7 @@ async function subscribe(req) {
     } catch (e) { console.warn('[push] não inicializei estado Talk:', e.response?.status || e.message); }
   }
 
-  const rec = { endpoint: subscription.endpoint, subscription, url, key, username, password, seen, talkAuth, talkPrefs, talkSeen, updatedAt: Date.now() };
+  const rec = { endpoint: subscription.endpoint, subscription, url, key, username, password, seen, uid, talkPrefs, talkSeen, updatedAt: Date.now() };
   const idx = subscriptions.findIndex(s => s.endpoint === subscription.endpoint);
   if (idx >= 0) subscriptions[idx] = rec; else subscriptions.push(rec);
   saveSubs();
@@ -213,12 +229,15 @@ function recPrefs(rec) {
 // Agrupa as inscrições por conta de Talk (url+user) → 1 request por usuário, não por
 // dispositivo. A carga passa a escalar com pessoas, não aparelhos.
 function buildTalkGroups() {
+  const { getTalkAuth } = require('./talkStore');
   const groups = new Map();
   for (const rec of subscriptions) {
-    if (!(rec.talkAuth?.url && rec.talkAuth?.user && rec.talkAuth?.token)) continue;
-    const key = `${rec.talkAuth.url}\n${rec.talkAuth.user}`;
+    if (!rec.uid) continue;
+    const talkAuth = getTalkAuth(rec.uid);
+    if (!(talkAuth?.url && talkAuth?.user && talkAuth?.token)) continue;
+    const key = `${talkAuth.url}\n${talkAuth.user}`;
     let g = groups.get(key);
-    if (!g) { g = { auth: rec.talkAuth, recs: [] }; groups.set(key, g); }
+    if (!g) { g = { auth: talkAuth, recs: [] }; groups.set(key, g); }
     g.recs.push(rec);
   }
   return [...groups.values()];
@@ -310,6 +329,7 @@ async function runTalkPoll(filterFn, getGuard, setGuard) {
 }
 
 function startPushPolling() {
+  if (!PUSH_ENABLED) { console.log('[push] polling desabilitado (PUSH_ENABLED!=1)'); return; }
   setInterval(pollPush, PUSH_POLL_MS);
   setInterval(
     () => runTalkPoll(g => !groupIsRealtime(g), () => talkPollingNormal, v => { talkPollingNormal = v; }),

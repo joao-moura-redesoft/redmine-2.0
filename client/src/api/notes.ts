@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getStoredAuth } from './redmine';
+import { createAuthedClient } from './client';
 
 export interface Note {
   id: string;
@@ -21,21 +22,7 @@ export type NotePatch = Partial<Pick<Note,
 // de id quando o servidor responde).
 export const newNoteId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-const api = axios.create({ baseURL: '/api' });
-
-api.interceptors.request.use(config => {
-  const auth = getStoredAuth();
-  if (auth) {
-    config.headers['X-Redmine-Url'] = auth.url;
-    if (auth.apiKey) {
-      config.headers['X-Redmine-Key'] = auth.apiKey;
-    } else if (auth.username && auth.password) {
-      config.headers['X-Redmine-User'] = auth.username;
-      config.headers['X-Redmine-Pass'] = auth.password;
-    }
-  }
-  return config;
-});
+const api = createAuthedClient();
 
 export async function fetchNotes(): Promise<Note[]> {
   const { data } = await api.get<Note[]>('/notes');

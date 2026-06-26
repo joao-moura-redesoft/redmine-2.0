@@ -6,8 +6,7 @@
       "Bash(echo \"exit: $?\")",
       "Bash(npm run *)",
       "Bash(pkg --version)",
-      "PowerShell(Stop-Process -Name \"kanban\" -Force -ErrorAction SilentlyContinue)",
-      "PowerShell(powershell -ExecutionPolicy Bypass -File .\\\\automation\\\\concierge-read.ps1)"
+      "PowerShell(Stop-Process -Name \"kanban\" -Force -ErrorAction SilentlyContinue)"
     ]
   }
 }

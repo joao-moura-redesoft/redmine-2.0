@@ -178,13 +178,7 @@ function TalkAvatar({ actorId, displayName, size = 36, onClick, status }: {
   const { data: src } = useQuery({
     queryKey: ['talk-avatar', actorId, size],
     queryFn: async () => {
-      const r = await fetch(`/api/talk/avatar/${encodeURIComponent(actorId)}?size=${size}`, {
-        headers: {
-          'x-nextcloud-url':   auth!.url,
-          'x-nextcloud-user':  auth!.user,
-          'x-nextcloud-token': auth!.token,
-        },
-      });
+      const r = await fetch(`/api/talk/avatar/${encodeURIComponent(actorId)}?size=${size}`);
       if (!r.ok) return null;
       return URL.createObjectURL(await r.blob());
     },
@@ -289,13 +283,7 @@ function RoomAvatar({ room, size = 36, status }: { room: TalkRoom; size?: number
   const { data: src } = useQuery({
     queryKey: ['talk-room-avatar', room.token, size],
     queryFn: async () => {
-      const r = await fetch(`/api/talk/rooms/${room.token}/avatar`, {
-        headers: {
-          'x-nextcloud-url':   auth!.url,
-          'x-nextcloud-user':  auth!.user,
-          'x-nextcloud-token': auth!.token,
-        },
-      });
+      const r = await fetch(`/api/talk/rooms/${room.token}/avatar`);
       if (!r.ok) return null;
       return URL.createObjectURL(await r.blob());
     },
@@ -338,13 +326,7 @@ function TalkImage({ fileId, path, name, actorId }: {
     const params = new URLSearchParams({ fileId });
     if (path) params.set('path', path);
     if (actorId) params.set('actorId', actorId);
-    fetch(`/api/talk/file-preview?${params}`, {
-      headers: {
-        'x-nextcloud-url':   auth.url,
-        'x-nextcloud-user':  auth.user,
-        'x-nextcloud-token': auth.token,
-      },
-    })
+    fetch(`/api/talk/file-preview?${params}`)
       .then(r => r.ok ? r.blob() : Promise.reject())
       .then(blob => {
         if (!active) return;
@@ -403,9 +385,7 @@ async function fetchTalkFileBlob(
   if (file.path) params.set('path', file.path);
   if (actorId) params.set('actorId', actorId);
   if (file.name) params.set('name', file.name);
-  const r = await fetch(`/api/talk/file-download?${params}`, {
-    headers: { 'x-nextcloud-url': auth.url, 'x-nextcloud-user': auth.user, 'x-nextcloud-token': auth.token },
-  });
+  const r = await fetch(`/api/talk/file-download?${params}`);
   if (!r.ok) throw new Error('download failed');
   return r.blob();
 }
@@ -421,13 +401,7 @@ async function downloadTalkFile(
   if (actorId) params.set('actorId', actorId);
   if (file.name) params.set('name', file.name);
   try {
-    const r = await fetch(`/api/talk/file-download?${params}`, {
-      headers: {
-        'x-nextcloud-url': auth.url,
-        'x-nextcloud-user': auth.user,
-        'x-nextcloud-token': auth.token,
-      },
-    });
+    const r = await fetch(`/api/talk/file-download?${params}`);
     if (!r.ok) throw new Error('download failed');
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
@@ -465,9 +439,7 @@ function TalkAudio({ file, actorId, isMe, isVoice }: {
     if (file.path) params.set('path', file.path);
     if (actorId) params.set('actorId', actorId);
     if (file.name) params.set('name', file.name);
-    fetch(`/api/talk/file-download?${params}`, {
-      headers: { 'x-nextcloud-url': auth.url, 'x-nextcloud-user': auth.user, 'x-nextcloud-token': auth.token },
-    })
+    fetch(`/api/talk/file-download?${params}`)
       .then(r => r.ok ? r.blob() : Promise.reject())
       .then(blob => {
         if (!active) return;
@@ -2578,9 +2550,7 @@ function ShareThumb({ msg }: { msg: TalkMessage }) {
     const params = new URLSearchParams({ fileId: file.id });
     if (file.path) params.set('path', file.path);
     if (msg.actorId) params.set('actorId', msg.actorId);
-    fetch(`/api/talk/file-preview?${params}`, {
-      headers: { 'x-nextcloud-url': auth.url, 'x-nextcloud-user': auth.user, 'x-nextcloud-token': auth.token },
-    })
+    fetch(`/api/talk/file-preview?${params}`)
       .then(r => r.ok ? r.blob() : Promise.reject())
       .then(blob => { if (!active) return; const u = URL.createObjectURL(blob); urlRef.current = u; setSrc(u); })
       .catch(() => {});

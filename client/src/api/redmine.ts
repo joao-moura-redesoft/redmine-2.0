@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type { Issue, IssueStatus, Project, Tracker, Priority, CurrentUser, Version, TimeEntry, TimeEntryActivity, Mention, NamedRef, EditField } from '../types/redmine';
-import { getActiveAI, getAIKeys } from '../utils/aiConfig';
+import { aiConfigured, hasOpenAIKey } from '../utils/aiConfig';
 
 export const AUTH_KEY = 'redmine_auth';
 
@@ -23,9 +23,7 @@ export function getStoredAuth(): RedmineAuth | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed?.url) return null;
-    if (parsed.apiKey) return parsed;
-    if (parsed.username && parsed.password) return parsed;
-    return null;
+    return parsed;
   } catch { return null; }
 }
 
@@ -37,17 +35,9 @@ export function clearAuth() {
   localStorage.removeItem(AUTH_KEY);
 }
 
-/** Headers de autenticação para fetch() manual (fora do axios com interceptor). */
+/** Retorna vazio, pois agora a autenticação é via Cookie HttpOnly no Backend */
 export function authHeaders(): Record<string, string> {
-  const auth = getStoredAuth();
-  if (!auth) return {};
-  const h: Record<string, string> = { 'x-redmine-url': auth.url };
-  if (auth.apiKey) h['x-redmine-key'] = auth.apiKey;
-  else if (auth.username && auth.password) {
-    h['x-redmine-user'] = auth.username;
-    h['x-redmine-pass'] = auth.password;
-  }
-  return h;
+  return {};
 }
 
 // Token de sessão por usuário para URLs de anexo (substitui o lastAuth global).
@@ -57,7 +47,7 @@ export async function initSession(): Promise<void> {
   const auth = getStoredAuth();
   if (!auth) return;
   try {
-    const { data } = await axios.post('/api/attachments/session', null, { headers: authHeaders() });
+    const { data } = await axios.post('/api/attachments/session');
     _sessionToken = data.token ?? null;
   } catch { /* silencioso; imagens de anexo retornarão 401 */ }
 }
@@ -67,21 +57,20 @@ export function attachmentUrl(id: number, filename: string): string {
   return _sessionToken ? `${base}?s=${_sessionToken}` : base;
 }
 
-const api = axios.create({ baseURL: '/api' });
-
-api.interceptors.request.use(config => {
-  const auth = getStoredAuth();
-  if (auth) {
-    config.headers['X-Redmine-Url'] = auth.url;
-    if (auth.apiKey) {
-      config.headers['X-Redmine-Key'] = auth.apiKey;
-    } else if (auth.username && auth.password) {
-      config.headers['X-Redmine-User'] = auth.username;
-      config.headers['X-Redmine-Pass'] = auth.password;
-    }
-  }
-  return config;
+const api = axios.create({ 
+  baseURL: '/api',
+  withCredentials: true 
 });
+
+api.interceptors.response.use(
+  res => res,
+  err => {
+    if (err.response?.status === 401) {
+      window.dispatchEvent(new Event('auth-expired'));
+    }
+    return Promise.reject(err);
+  }
+);
 
 export const redmineApi = {
   getIssues: async (projectId?: number): Promise<Issue[]> => {
@@ -293,11 +282,8 @@ export const redmineApi = {
   },
 
   weeklyDigest: async (open: Issue[], completed: Issue[]): Promise<string> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/weekly-digest', { open, completed }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/weekly-digest', { open, completed });
     return data.digest as string;
   },
 
@@ -309,94 +295,64 @@ export const redmineApi = {
 
   // ── IA ────────────────────────────────────────────────────────────────
   generatePrompt: async (issue: Issue): Promise<string> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/generate-prompt', { issue }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/generate-prompt', { issue });
     return data.prompt as string;
   },
 
   quickSummary: async (issue: Issue): Promise<string> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/quick', { issue }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/quick', { issue });
     return data.oneLiner as string;
   },
 
   summarizeHistory: async (issue: Issue): Promise<string> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/summarize-history', { issue }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/summarize-history', { issue });
     return data.summary as string;
   },
 
   draftNote: async (issue: Issue): Promise<string> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/draft-note', { issue }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/draft-note', { issue });
     return data.draft as string;
   },
 
   aiChat: async (
     messages: { role: 'user' | 'assistant'; content: string }[],
   ): Promise<{ reply: string; trace: { tool: string; args: unknown }[] }> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/chat', { messages }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/chat', { messages });
     return data;
   },
 
   draftReply: async (issue: Issue, instruction?: string): Promise<string> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/draft-reply', { issue, instruction }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/draft-reply', { issue, instruction });
     return data.reply as string;
   },
 
   detectAmbiguities: async (issue: Issue): Promise<{ hasIssues: boolean; ambiguities: { trecho: string; problema: string; pergunta: string }[] }> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/detect-ambiguities', { issue }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/detect-ambiguities', { issue });
     return data;
   },
 
   suggestVersionNote: async (issue: Issue): Promise<{ notes: string[]; reasoning: string }> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/suggest-version-note', { issue }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/suggest-version-note', { issue });
     return data;
   },
 
   assessComplexity: async (issue: Issue): Promise<{ level: string; reasoning: string; risks: string[]; roughHours: string }> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/assess-complexity', { issue }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/assess-complexity', { issue });
     return data;
   },
 
   reviewChecklist: async (issue: Issue): Promise<string> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/review-checklist', { issue }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/review-checklist', { issue });
     return data.checklist as string;
   },
 
@@ -406,43 +362,29 @@ export const redmineApi = {
     trackers: { id: number; name: string }[],
     priorities: { id: number; name: string }[],
   ): Promise<{ tracker_id: number | null; priority_id: number | null; impacto: string | null; reasoning: string }> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/suggest-fields', { subject, description, trackers, priorities }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/suggest-fields', { subject, description, trackers, priorities });
     return data;
   },
 
   reviewNote: async (noteText: string, issueSubject: string, issueStatus: string): Promise<string> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/review-note', { noteText, issueSubject, issueStatus }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/review-note', { noteText, issueSubject, issueStatus });
     return data.feedback as string;
   },
 
   standup: async (issues: Issue[]): Promise<string> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/standup', { issues }, {
-      headers: { 'x-ai-provider': ai.provider, 'x-ai-key': ai.key },
-    });
+    if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
+    const { data } = await api.post('/ai/standup', { issues });
     return data.standup as string;
   },
 
   transcribeSummarize: async (audioBlob: Blob, filename: string, title: string, participants: string): Promise<{ transcript: string, summary: string }> => {
-    const ai = getActiveAI();
-    if (!ai) throw new Error('AI_NOT_CONFIGURED');
-    const keys = getAIKeys();
-    if (!keys.openai) throw new Error('A transcrição exige uma chave da OpenAI (Whisper) configurada nas configurações de IA.');
+    if (!hasOpenAIKey()) throw new Error('A transcrição exige uma chave da OpenAI (Whisper) configurada nas configurações de IA.');
 
+    // Chaves de IA resolvidas no servidor (cofre). O cliente só envia metadados.
     const { data } = await api.post('/ai/transcribe-summarize', audioBlob, {
       headers: {
-        'x-ai-provider': ai.provider,
-        'x-ai-key': ai.key,
-        'x-openai-key': keys.openai,
         'x-filename': encodeURIComponent(filename),
         'x-meeting-title': encodeURIComponent(title),
         'x-meeting-participants': encodeURIComponent(participants),
@@ -461,10 +403,9 @@ export const redmineApi = {
 
   subscribePush: async (
     subscription: PushSubscriptionJSON,
-    talkAuth?: { url: string; user: string; token: string } | null,
     talkPrefs?: { groupMentionsOnly: boolean; realtime: boolean } | null,
   ): Promise<void> => {
-    await api.post('/push/subscribe', { subscription, talkAuth: talkAuth ?? null, talkPrefs: talkPrefs ?? null });
+    await api.post('/push/subscribe', { subscription, talkPrefs: talkPrefs ?? null });
   },
 
   unsubscribePush: async (endpoint: string): Promise<void> => {

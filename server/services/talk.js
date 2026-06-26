@@ -1,13 +1,17 @@
-// Nextcloud Talk — cliente axios por request (OCS API).
 const axios = require('axios');
+const { getMyUserId } = require('../lib/redmine');
+const { getTalkAuth } = require('./talkStore');
 
-function makeTalk(req) {
-  const url   = req.headers['x-nextcloud-url']   || '';
-  const user  = req.headers['x-nextcloud-user']  || '';
-  const token = req.headers['x-nextcloud-token'] || '';
+async function makeTalk(req) {
+  const uid = await getMyUserId(req);
+  if (!uid) throw Object.assign(new Error('Não autorizado (Redmine)'), { statusCode: 401 });
+  
+  const auth = getTalkAuth(uid);
+  if (!auth) throw Object.assign(new Error('Conta do Talk não vinculada'), { statusCode: 401 });
+
   return axios.create({
-    baseURL: url,
-    auth: { username: user, password: token },
+    baseURL: auth.url,
+    auth: { username: auth.user, password: auth.token },
     headers: { 'OCS-APIRequest': 'true', 'Accept': 'application/json' },
   });
 }

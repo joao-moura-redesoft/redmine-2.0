@@ -85,13 +85,31 @@ function buildIssueContext(issue, inlineImageNames = new Set(), revisorName = ''
   ].filter(Boolean).join('\n');
 }
 
-// Extrai provider + key dos headers. Suporta:
-//   x-ai-provider (anthropic|openai) + x-ai-key  ← novo padrão
-//   x-anthropic-key                               ← legado
-function getAICredentials(req) {
-  const provider = req.headers['x-ai-provider'] || 'anthropic';
-  const key = req.headers['x-ai-key'] || req.headers['x-anthropic-key'] || '';
-  return { provider, key };
+// Resolve provider + key do cofre cifrado server-side (por usuário do Redmine).
+// Precedência do provider: Claude > OpenAI > Gemini (igual ao cliente antigo).
+async function getAICredentials(req) {
+  const { getMyUserId } = require('../lib/redmine');
+  const { getAi } = require('./secretsStore');
+  let ai = {};
+  try {
+    const uid = await getMyUserId(req);
+    if (uid) ai = getAi(uid) || {};
+  } catch { /* sem chaves no cofre */ }
+  let provider = 'anthropic';
+  if (ai.anthropic) provider = 'anthropic';
+  else if (ai.openai) provider = 'openai';
+  else if (ai.gemini) provider = 'gemini';
+  return { provider, key: ai[provider] || '' };
+}
+
+// Chave da OpenAI especificamente (Whisper/transcrição), do cofre.
+async function getOpenAIKey(req) {
+  const { getMyUserId } = require('../lib/redmine');
+  const { getAi } = require('./secretsStore');
+  try {
+    const uid = await getMyUserId(req);
+    return (uid ? getAi(uid).openai : '') || '';
+  } catch { return ''; }
 }
 
 // Busca um anexo do Redmine e devolve { base64, mediaType } ou null se falhar/muito grande.
@@ -437,6 +455,7 @@ module.exports = {
   resolveUserName,
   buildIssueContext,
   getAICredentials,
+  getOpenAIKey,
   MAX_ATTACH_BYTES,
   fetchAttachmentBase64,
   imageBlock,

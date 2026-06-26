@@ -1,7 +1,5 @@
 import axios from 'axios';
-import { getStoredAuth } from './redmine';
 import { getMailHost } from '../utils/mailConfig';
-import { getEffectiveCreds } from '../utils/adConfig';
 
 // Tipos do front (espelham o que o servidor normaliza a partir do Zimbra).
 export interface MailFolder {
@@ -89,25 +87,10 @@ export interface MailMessageFull {
 const api = axios.create({ baseURL: '/api' });
 
 api.interceptors.request.use(config => {
-  const auth = getStoredAuth();
-  if (auth) {
-    config.headers['X-Redmine-Url'] = auth.url;
-    if (auth.apiKey) config.headers['X-Redmine-Key'] = auth.apiKey;
-    if (auth.username && auth.password) {
-      config.headers['X-Redmine-User'] = auth.username;
-      config.headers['X-Redmine-Pass'] = auth.password;
-    }
-  }
+  // Credenciais (Redmine/AD) resolvidas no servidor a partir da sessão/cofre.
+  // O cliente só envia a configuração de host do e-mail.
   const host = getMailHost();
   if (host) config.headers['X-Mail-Host'] = host;
-  // Credenciais AD manuais (quando logado só por API key)
-  if (!auth?.username) {
-    const creds = getEffectiveCreds();
-    if (creds) {
-      config.headers['X-Mail-User'] = creds.username;
-      config.headers['X-Mail-Pass'] = creds.password;
-    }
-  }
   return config;
 });
 

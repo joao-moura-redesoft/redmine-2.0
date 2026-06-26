@@ -175,17 +175,7 @@ export function useTypingSender(token: string | null) {
       isTyping.current = true;
       fetch(`/api/talk/rooms/${encodeURIComponent(token)}/typing`, {
         method: 'POST',
-        headers: (() => {
-          const auth = getTalkAuth();
-          return {
-            'Content-Type': 'application/json',
-            ...(auth ? {
-              'x-nextcloud-url': auth.url,
-              'x-nextcloud-user': auth.user,
-              'x-nextcloud-token': auth.token,
-            } : {}),
-          };
-        })(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ typing: true }),
       }).catch(() => {});
     }
@@ -194,17 +184,7 @@ export function useTypingSender(token: string | null) {
       isTyping.current = false;
       fetch(`/api/talk/rooms/${encodeURIComponent(token)}/typing`, {
         method: 'POST',
-        headers: (() => {
-          const auth = getTalkAuth();
-          return {
-            'Content-Type': 'application/json',
-            ...(auth ? {
-              'x-nextcloud-url': auth.url,
-              'x-nextcloud-user': auth.user,
-              'x-nextcloud-token': auth.token,
-            } : {}),
-          };
-        })(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ typing: false }),
       }).catch(() => {});
     }, 3000);
@@ -216,17 +196,7 @@ export function useTypingSender(token: string | null) {
       isTyping.current = false;
       fetch(`/api/talk/rooms/${encodeURIComponent(token)}/typing`, {
         method: 'POST',
-        headers: (() => {
-          const auth = getTalkAuth();
-          return {
-            'Content-Type': 'application/json',
-            ...(auth ? {
-              'x-nextcloud-url': auth.url,
-              'x-nextcloud-user': auth.user,
-              'x-nextcloud-token': auth.token,
-            } : {}),
-          };
-        })(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ typing: false }),
       }).catch(() => {});
     }
@@ -254,13 +224,10 @@ export function useTalkSSE(token: string | null, initialMessageId: number) {
     if (!auth) return;
 
     const params = new URLSearchParams({
-      ncUrl:   auth.url,
-      ncUser:  auth.user,
-      ncToken: auth.token,
       lastKnownMessageId: String(initialMessageId),
     });
 
-    const sse = new EventSource(`/api/talk/rooms/${encodeURIComponent(token)}/sse?${params}`);
+    const sse = new EventSource(`/api/talk/rooms/${encodeURIComponent(token)}/sse?${params}`, { withCredentials: true });
 
     sse.onmessage = (e) => {
       let event: { type: string; data: unknown };

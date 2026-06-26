@@ -5,6 +5,15 @@ const axios = require('axios');
 const router = express.Router();
 const handle = require('../lib/handle');
 const { makeTalk } = require('../services/talk');
+const { getMyUserId } = require('../lib/redmine');
+const { saveTalkAuth, clearTalkAuth, getTalkAuth } = require('../services/talkStore');
+
+// Resolve a conta do Talk (url, user, token) a partir do uid do Redmine logado.
+// Substitui os antigos headers x-nextcloud-* enviados pelo cliente.
+async function talkAccount(req) {
+  const uid = await getMyUserId(req);
+  return getTalkAuth(uid) || {};
+}
 
 // =========================================================================
 // NEXTCLOUD LOGIN FLOW v2
@@ -27,12 +36,49 @@ router.post('/talk/login-flow/poll', handle(async (req, res) => {
       `token=${encodeURIComponent(pollToken)}`,
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
     );
-    res.json({ done: true, server: data.server, user: data.loginName, token: data.appPassword });
+    
+    const uid = await getMyUserId(req);
+    if (!uid) throw Object.assign(new Error('Redmine não autenticado'), { statusCode: 401 });
+    
+    saveTalkAuth(uid, { url: data.server, user: data.loginName, token: data.appPassword });
+    
+    res.json({ done: true, server: data.server, user: data.loginName });
   } catch (e) {
     // 404 = ainda aguardando o usuário fazer login
     if (e.response?.status === 404) return res.json({ done: false });
     throw e;
   }
+}));
+
+// Vincula manualmente uma conta do Talk (URL + usuário + senha de app/token).
+// Valida as credenciais antes de persistir no store cifrado, chaveado pelo uid do Redmine.
+router.post('/talk/auth', handle(async (req, res) => {
+  const { url, user, token } = req.body || {};
+  if (!url || !user || !token) {
+    return res.status(400).json({ error: 'url, user e token são obrigatórios' });
+  }
+  const uid = await getMyUserId(req);
+  if (!uid) return res.status(401).json({ error: 'Redmine não autenticado' });
+
+  try {
+    const client = axios.create({
+      baseURL: url.replace(/\/$/, ''),
+      auth: { username: user, password: token },
+      headers: { 'OCS-APIRequest': 'true', 'Accept': 'application/json' },
+    });
+    await client.get('/ocs/v2.php/cloud/user?format=json');
+  } catch {
+    return res.status(401).json({ error: 'Credenciais do Talk inválidas' });
+  }
+
+  saveTalkAuth(uid, { url: url.replace(/\/$/, ''), user, token });
+  res.json({ success: true });
+}));
+
+router.delete('/talk/auth', handle(async (req, res) => {
+  const uid = await getMyUserId(req);
+  if (uid) clearTalkAuth(uid);
+  res.json({ success: true });
 }));
 
 // =========================================================================
@@ -41,7 +87,7 @@ router.post('/talk/login-flow/poll', handle(async (req, res) => {
 
 router.get('/talk/avatar/:userId', handle(async (req, res) => {
   const size = parseInt(req.query.size) || 40;
-  const response = await makeTalk(req).get(
+  const response = await (await makeTalk(req)).get(
     `/index.php/avatar/${encodeURIComponent(req.params.userId)}/${size}`,
     { responseType: 'arraybuffer' }
   );
@@ -51,7 +97,7 @@ router.get('/talk/avatar/:userId', handle(async (req, res) => {
 }));
 
 router.get('/talk/me', handle(async (req, res) => {
-  const { data } = await makeTalk(req).get('/ocs/v2.php/cloud/user?format=json');
+  const { data } = await (await makeTalk(req)).get('/ocs/v2.php/cloud/user?format=json');
   res.json({ id: data.ocs.data.id, displayName: data.ocs.data.display_name });
 }));
 
@@ -61,7 +107,7 @@ router.get('/talk/me', handle(async (req, res) => {
 // ainda ser útil (avatar + botão de DM).
 router.get('/talk/users/:userId', handle(async (req, res) => {
   const userId = req.params.userId;
-  const talk = makeTalk(req);
+  const talk = (await makeTalk(req));
   const out = { id: userId, displayName: '', email: '', organisation: '', role: '', phone: '' };
 
   // 1. Metadados completos (requer admin ou mesmo grupo, conforme config do NC)
@@ -93,7 +139,7 @@ router.get('/talk/users/:userId', handle(async (req, res) => {
 }));
 
 router.get('/talk/rooms', handle(async (req, res) => {
-  const { data } = await makeTalk(req).get('/ocs/v2.php/apps/spreed/api/v4/room?format=json');
+  const { data } = await (await makeTalk(req)).get('/ocs/v2.php/apps/spreed/api/v4/room?format=json');
   res.json(data.ocs.data);
 }));
 
@@ -102,7 +148,7 @@ router.get('/talk/rooms/:token/messages', handle(async (req, res) => {
   // Sem cursor = busca as 50 mais recentes usando um ID alto como âncora.
   // Sem isso, algumas versões do Talk retornam as mensagens mais ANTIGAS primeiro.
   params.lastKnownMessageId = req.query.lastKnownMessageId || 2147483647;
-  const { data } = await makeTalk(req).get(
+  const { data } = await (await makeTalk(req)).get(
     `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}?format=json`,
     { params }
   );
@@ -110,7 +156,7 @@ router.get('/talk/rooms/:token/messages', handle(async (req, res) => {
 }));
 
 router.post('/talk/rooms/:token/messages', handle(async (req, res) => {
-  const { data } = await makeTalk(req).post(
+  const { data } = await (await makeTalk(req)).post(
     `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}?format=json`,
     req.body
   );
@@ -120,13 +166,12 @@ router.post('/talk/rooms/:token/messages', handle(async (req, res) => {
 router.post('/talk/rooms/:token/upload',
   express.raw({ type: '*/*', limit: '100mb' }),
   handle(async (req, res) => {
-    const user     = req.headers['x-nextcloud-user'];
     const filename = decodeURIComponent(req.headers['x-filename'] || `upload_${Date.now()}`);
     const ct       = req.headers['x-content-type'] || 'application/octet-stream';
     const caption  = req.headers['x-caption'] ? decodeURIComponent(req.headers['x-caption']) : '';
     const isVoice  = req.headers['x-voice-message'] === '1';
     const { token } = req.params;
-    const talk = makeTalk(req);
+    const talk = (await makeTalk(req));
 
     const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
     if (!body.length) {
@@ -134,7 +179,7 @@ router.post('/talk/rooms/:token/upload',
     }
 
     const OCS_TIMEOUT = 8000;
-    const ncUrl = req.headers['x-nextcloud-url'];
+    const ncUrl = (await talkAccount(req)).url || '';
     const putOpts = {
       headers: { 'Content-Type': ct, 'Content-Length': body.length },
       maxBodyLength: 100 * 1024 * 1024,
@@ -210,7 +255,7 @@ router.post('/talk/rooms/:token/upload',
 );
 
 router.post('/talk/rooms/:token/read', handle(async (req, res) => {
-  const { data } = await makeTalk(req).post(
+  const { data } = await (await makeTalk(req)).post(
     `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/read?format=json`,
     req.body
   );
@@ -218,7 +263,7 @@ router.post('/talk/rooms/:token/read', handle(async (req, res) => {
 }));
 
 router.get('/talk/rooms/:token/participants', handle(async (req, res) => {
-  const { data } = await makeTalk(req).get(
+  const { data } = await (await makeTalk(req)).get(
     `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/participants?format=json`
   );
   res.json(data.ocs.data);
@@ -226,8 +271,8 @@ router.get('/talk/rooms/:token/participants', handle(async (req, res) => {
 
 router.get('/talk/file-preview', handle(async (req, res) => {
   const { fileId, path: filePath, actorId } = req.query;
-  const user = req.headers['x-nextcloud-user'];
-  const talk = makeTalk(req);
+  const user = (await talkAccount(req)).user;
+  const talk = (await makeTalk(req));
   const ext = (filePath || '').split('.').pop()?.toLowerCase() || 'jpg';
   const fallbackCt = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
 
@@ -281,8 +326,8 @@ router.get('/talk/file-preview', handle(async (req, res) => {
 // não cai para thumbnail — busca os bytes reais e força attachment.
 router.get('/talk/file-download', handle(async (req, res) => {
   const { fileId, path: filePath, actorId } = req.query;
-  const user = req.headers['x-nextcloud-user'];
-  const talk = makeTalk(req);
+  const user = (await talkAccount(req)).user;
+  const talk = (await makeTalk(req));
   const filename = req.query.name
     ? decodeURIComponent(req.query.name)
     : ((filePath || '').split('/').pop() || `arquivo_${fileId}`);
@@ -330,7 +375,7 @@ router.get('/talk/file-download', handle(async (req, res) => {
 // Indicador de digitação
 router.post('/talk/rooms/:token/typing', handle(async (req, res) => {
   try {
-    const { data } = await makeTalk(req).post(
+    const { data } = await (await makeTalk(req)).post(
       `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/typing?format=json`,
       req.body
     );
@@ -340,14 +385,14 @@ router.post('/talk/rooms/:token/typing', handle(async (req, res) => {
 
 // Reações — GET, POST, DELETE
 router.get('/talk/rooms/:token/messages/:messageId/reactions', handle(async (req, res) => {
-  const { data } = await makeTalk(req).get(
+  const { data } = await (await makeTalk(req)).get(
     `/ocs/v2.php/apps/spreed/api/v1/reaction/${req.params.token}/${req.params.messageId}?format=json`
   );
   res.json(data.ocs.data ?? {});
 }));
 
 router.post('/talk/rooms/:token/messages/:messageId/reactions', handle(async (req, res) => {
-  const { data } = await makeTalk(req).post(
+  const { data } = await (await makeTalk(req)).post(
     `/ocs/v2.php/apps/spreed/api/v1/reaction/${req.params.token}/${req.params.messageId}?format=json`,
     req.body
   );
@@ -355,7 +400,7 @@ router.post('/talk/rooms/:token/messages/:messageId/reactions', handle(async (re
 }));
 
 router.delete('/talk/rooms/:token/messages/:messageId/reactions', handle(async (req, res) => {
-  const { data } = await makeTalk(req).delete(
+  const { data } = await (await makeTalk(req)).delete(
     `/ocs/v2.php/apps/spreed/api/v1/reaction/${req.params.token}/${req.params.messageId}?format=json`,
     { params: { reaction: req.query.reaction } }
   );
@@ -364,7 +409,7 @@ router.delete('/talk/rooms/:token/messages/:messageId/reactions', handle(async (
 
 // Editar mensagem
 router.put('/talk/rooms/:token/messages/:messageId', handle(async (req, res) => {
-  const { data } = await makeTalk(req).put(
+  const { data } = await (await makeTalk(req)).put(
     `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/${req.params.messageId}?format=json`,
     req.body
   );
@@ -373,7 +418,7 @@ router.put('/talk/rooms/:token/messages/:messageId', handle(async (req, res) => 
 
 // Excluir mensagem
 router.delete('/talk/rooms/:token/messages/:messageId', handle(async (req, res) => {
-  await makeTalk(req).delete(
+  await (await makeTalk(req)).delete(
     `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/${req.params.messageId}?format=json`
   );
   res.json({ success: true });
@@ -383,7 +428,7 @@ router.delete('/talk/rooms/:token/messages/:messageId', handle(async (req, res) 
 router.get('/talk/rooms/:token/avatar', handle(async (req, res) => {
   try {
     const isDark = req.query.dark === '1';
-    const response = await makeTalk(req).get(
+    const response = await (await makeTalk(req)).get(
       `/ocs/v2.php/apps/spreed/api/v1/room/${req.params.token}/avatar${isDark ? '/dark' : ''}`,
       { responseType: 'arraybuffer' }
     );
@@ -395,7 +440,7 @@ router.get('/talk/rooms/:token/avatar', handle(async (req, res) => {
 
 // Criar sala (DM roomType=1 ou grupo roomType=2)
 router.post('/talk/rooms', handle(async (req, res) => {
-  const { data } = await makeTalk(req).post(
+  const { data } = await (await makeTalk(req)).post(
     `/ocs/v2.php/apps/spreed/api/v4/room?format=json`,
     req.body
   );
@@ -406,7 +451,7 @@ router.post('/talk/rooms', handle(async (req, res) => {
 // Retorna objeto agrupado por tipo: { media, file, voice, audio, location, deckcard, other }.
 router.get('/talk/rooms/:token/shares', handle(async (req, res) => {
   try {
-    const { data } = await makeTalk(req).get(
+    const { data } = await (await makeTalk(req)).get(
       `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/share/overview?format=json`,
       { params: { limit: 7 } }
     );
@@ -423,7 +468,7 @@ router.get('/talk/rooms/:token/shares/:objectType', handle(async (req, res) => {
   try {
     const params = { objectType: req.params.objectType, limit: 50 };
     if (req.query.lastKnownMessageId) params.lastKnownMessageId = req.query.lastKnownMessageId;
-    const { data } = await makeTalk(req).get(
+    const { data } = await (await makeTalk(req)).get(
       `/ocs/v2.php/apps/spreed/api/v1/chat/${req.params.token}/share?format=json`,
       { params }
     );
@@ -441,7 +486,7 @@ router.get('/talk/rooms/:token/search', handle(async (req, res) => {
   const term = (req.query.term || '').toString().trim();
   if (term.length < 2) return res.json([]);
   try {
-    const { data } = await makeTalk(req).get(
+    const { data } = await (await makeTalk(req)).get(
       `/ocs/v2.php/search/providers/talk-message/search?format=json`,
       { params: { term, from: `/call/${req.params.token}`, limit: 20 } }
     );
@@ -473,7 +518,7 @@ router.get('/talk/rooms/:token/search', handle(async (req, res) => {
 // Lista de status (presença) — só retorna quem tem status ativo/recente.
 router.get('/talk/user-statuses', handle(async (req, res) => {
   try {
-    const { data } = await makeTalk(req).get(
+    const { data } = await (await makeTalk(req)).get(
       `/ocs/v2.php/apps/user_status/api/v1/statuses?format=json`, { params: { limit: 200 } }
     );
     res.json(data?.ocs?.data ?? []);
@@ -486,7 +531,7 @@ router.get('/talk/user-statuses', handle(async (req, res) => {
 // Meu status
 router.get('/talk/my-status', handle(async (req, res) => {
   try {
-    const { data } = await makeTalk(req).get(
+    const { data } = await (await makeTalk(req)).get(
       `/ocs/v2.php/apps/user_status/api/v1/user_status?format=json`
     );
     res.json(data?.ocs?.data ?? null);
@@ -498,7 +543,7 @@ router.get('/talk/my-status', handle(async (req, res) => {
 
 // Definir tipo de status: online | away | dnd | invisible
 router.put('/talk/my-status', handle(async (req, res) => {
-  const { data } = await makeTalk(req).put(
+  const { data } = await (await makeTalk(req)).put(
     `/ocs/v2.php/apps/user_status/api/v1/user_status/status?format=json`,
     { statusType: req.body.statusType }
   );
@@ -510,7 +555,7 @@ router.put('/talk/my-status', handle(async (req, res) => {
 router.put('/talk/my-status/message', handle(async (req, res) => {
   const body = { message: req.body.message ?? '', statusIcon: req.body.statusIcon ?? null };
   if (req.body.clearAt) body.clearAt = req.body.clearAt;
-  const { data } = await makeTalk(req).put(
+  const { data } = await (await makeTalk(req)).put(
     `/ocs/v2.php/apps/user_status/api/v1/user_status/message/custom?format=json`, body
   );
   if (data?.ocs?.meta?.status === 'failure') throw new Error(data.ocs.meta.message || 'Erro ao definir mensagem de status');
@@ -519,7 +564,7 @@ router.put('/talk/my-status/message', handle(async (req, res) => {
 
 // Limpar mensagem de status
 router.delete('/talk/my-status/message', handle(async (req, res) => {
-  const { data } = await makeTalk(req).delete(
+  const { data } = await (await makeTalk(req)).delete(
     `/ocs/v2.php/apps/user_status/api/v1/user_status/message?format=json`
   );
   res.json(data?.ocs?.data ?? {});
@@ -529,7 +574,7 @@ router.delete('/talk/my-status/message', handle(async (req, res) => {
 
 // Renomear sala
 router.put('/talk/rooms/:token', handle(async (req, res) => {
-  const { data } = await makeTalk(req).put(
+  const { data } = await (await makeTalk(req)).put(
     `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}?format=json`,
     { roomName: req.body.roomName }
   );
@@ -538,7 +583,7 @@ router.put('/talk/rooms/:token', handle(async (req, res) => {
 
 // Definir descrição/tópico
 router.put('/talk/rooms/:token/description', handle(async (req, res) => {
-  const { data } = await makeTalk(req).put(
+  const { data } = await (await makeTalk(req)).put(
     `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/description?format=json`,
     { description: req.body.description }
   );
@@ -547,7 +592,7 @@ router.put('/talk/rooms/:token/description', handle(async (req, res) => {
 
 // Adicionar participante (source: 'users' por padrão)
 router.post('/talk/rooms/:token/participants', handle(async (req, res) => {
-  const { data } = await makeTalk(req).post(
+  const { data } = await (await makeTalk(req)).post(
     `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/participants?format=json`,
     { newParticipant: req.body.newParticipant, source: req.body.source || 'users' }
   );
@@ -556,7 +601,7 @@ router.post('/talk/rooms/:token/participants', handle(async (req, res) => {
 
 // Remover participante (por attendeeId)
 router.delete('/talk/rooms/:token/attendees', handle(async (req, res) => {
-  const { data } = await makeTalk(req).delete(
+  const { data } = await (await makeTalk(req)).delete(
     `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/attendees?format=json`,
     { params: { attendeeId: req.query.attendeeId } }
   );
@@ -565,7 +610,7 @@ router.delete('/talk/rooms/:token/attendees', handle(async (req, res) => {
 
 // Promover / rebaixar moderador (por attendeeId)
 router.post('/talk/rooms/:token/moderators', handle(async (req, res) => {
-  const { data } = await makeTalk(req).post(
+  const { data } = await (await makeTalk(req)).post(
     `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/moderators?format=json`,
     { attendeeId: req.body.attendeeId }
   );
@@ -573,7 +618,7 @@ router.post('/talk/rooms/:token/moderators', handle(async (req, res) => {
 }));
 
 router.delete('/talk/rooms/:token/moderators', handle(async (req, res) => {
-  const { data } = await makeTalk(req).delete(
+  const { data } = await (await makeTalk(req)).delete(
     `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/moderators?format=json`,
     { params: { attendeeId: req.query.attendeeId } }
   );
@@ -582,7 +627,7 @@ router.delete('/talk/rooms/:token/moderators', handle(async (req, res) => {
 
 // Sair do grupo
 router.delete('/talk/rooms/:token/participants/self', handle(async (req, res) => {
-  const { data } = await makeTalk(req).delete(
+  const { data } = await (await makeTalk(req)).delete(
     `/ocs/v2.php/apps/spreed/api/v4/room/${req.params.token}/participants/self?format=json`
   );
   res.json(data.ocs.data ?? { success: true });
@@ -605,7 +650,7 @@ router.post('/talk/rooms/:token/avatar',
     const post = Buffer.from(`\r\n--${boundary}--\r\n`);
     const multipart = Buffer.concat([pre, body, post]);
 
-    const { data } = await makeTalk(req).post(
+    const { data } = await (await makeTalk(req)).post(
       `/ocs/v2.php/apps/spreed/api/v1/room/${req.params.token}/avatar?format=json`,
       multipart,
       { headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` } }
@@ -616,7 +661,7 @@ router.post('/talk/rooms/:token/avatar',
 
 // Buscar usuários Nextcloud para iniciar conversa
 router.get('/talk/search/users', handle(async (req, res) => {
-  const { data } = await makeTalk(req).get(
+  const { data } = await (await makeTalk(req)).get(
     `/ocs/v2.php/core/autocomplete/get?format=json`,
     { params: { search: req.query.search || '', itemType: 'call', itemId: 'new', 'shareTypes[]': '0', limit: 20 } }
   );
@@ -624,23 +669,20 @@ router.get('/talk/search/users', handle(async (req, res) => {
 }));
 
 // SSE — proxy do long-poll do Talk para updates em tempo real.
-// Auth via query string porque EventSource não suporta headers customizados.
-router.get('/talk/rooms/:token/sse', (req, res) => {
-  const ncUrl   = req.query.ncUrl   || '';
-  const ncUser  = req.query.ncUser  || '';
-  const ncToken = req.query.ncToken || '';
-  if (!ncUrl || !ncUser || !ncToken) return res.status(401).json({ error: 'credenciais obrigatórias' });
+// Como o EventSource trafega o cookie session_id (withCredentials: true),
+// a authMiddleware do Redmine injeta os headers, permitindo usar makeTalk.
+router.get('/talk/rooms/:token/sse', handle(async (req, res) => {
+  let talk;
+  try {
+    talk = await makeTalk(req);
+  } catch (e) {
+    return res.status(401).json({ error: 'Talk não autenticado' });
+  }
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
-
-  const talk = axios.create({
-    baseURL: ncUrl,
-    auth: { username: ncUser, password: ncToken },
-    headers: { 'OCS-APIRequest': 'true', 'Accept': 'application/json' },
-  });
 
   let lastId = parseInt(req.query.lastKnownMessageId) || 0;
   let active = true;
@@ -675,6 +717,6 @@ router.get('/talk/rooms/:token/sse', (req, res) => {
   })();
 
   req.on('close', () => { active = false; });
-});
+}));
 
 module.exports = router;

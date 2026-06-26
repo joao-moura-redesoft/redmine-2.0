@@ -6,7 +6,6 @@ const router = express.Router();
 const { makeRedmine, getMyUserId, buildAuthHeaders, DEFAULT_URL, DEFAULT_KEY } = require('../lib/redmine');
 const handle = require('../lib/handle');
 const { fetchAllPages, mapLimit, fetchAllIssues } = require('../lib/pagination');
-const { syncConcierge, CONCIERGE_INPROGRESS_RE } = require('../services/concierge');
 const { parseEditFormSchema } = require('../lib/editFormSchema');
 
 // Minhas issues
@@ -291,10 +290,6 @@ router.put('/issues/:id', handle(async (req, res) => {
       return res.status(422).json({
         error: `Transição não permitida pelo workflow do Redmine. Status atual: "${actual.name}". Configure as transições em Administração → Workflow.`
       });
-    }
-    // Status confirmado: se virou "Em andamento", aponta no Concierge.
-    if (CONCIERGE_INPROGRESS_RE.test(actual.name)) {
-      syncConcierge(req.params.id, data.issue.subject);
     }
   }
 

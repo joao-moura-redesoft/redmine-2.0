@@ -10,6 +10,8 @@
 // =========================================================================
 const axios = require('axios');
 const { createSession, MAIL_TTL_MS } = require('./lib/sessions');
+const { getMyUserId } = require('./lib/redmine');
+const { getAd } = require('./services/secretsStore');
 
 const DEFAULT_HOST = process.env.ZIMBRA_HOST || 'email.redesoft.org';
 
@@ -88,16 +90,23 @@ async function authenticate(host, user, password) {
 //   Modo usuário/senha do Redmine  -> reaproveita x-redmine-user / x-redmine-pass.
 //   Modo chave de API (sem senha)  -> usa headers x-mail-* (config manual).
 // Headers x-mail-* sempre têm prioridade quando presentes.
-function resolveMailCreds(req) {
+async function resolveMailCreds(req) {
   const host = req.headers['x-mail-host'] || DEFAULT_HOST;
-  const user = req.headers['x-mail-user'] || req.headers['x-redmine-user'] || '';
-  const password = req.headers['x-mail-pass'] || req.headers['x-redmine-pass'] || '';
+  let user = req.headers['x-redmine-user'] || '';
+  let password = req.headers['x-redmine-pass'] || '';
+  if (!user || !password) {
+    try {
+      const uid = await getMyUserId(req);
+      const ad = uid ? getAd(uid) : null;
+      if (ad) { user = ad.user; password = ad.pass; }
+    } catch { /* sem credenciais no cofre */ }
+  }
   return { host, user, password };
 }
 
 // Garante um token válido para o request atual. Lança 412 se faltarem credenciais.
 async function tokenFor(req) {
-  const { host, user, password } = resolveMailCreds(req);
+  const { host, user, password } = await resolveMailCreds(req);
   if (!user || !password) {
     const err = new Error('Sem credenciais de e-mail. Faça login com usuário e senha, ou configure o e-mail nas Configurações.');
     err.statusCode = 412; // Precondition Failed
@@ -254,7 +263,7 @@ async function listMessages(req, { folder = 'inbox', limit = 25, offset = 0 } = 
 }
 
 async function getMessage(req, id, { markRead = true } = {}) {
-  const { host, user, password } = resolveMailCreds(req);
+  const { host, user, password } = await resolveMailCreds(req);
   const resp = await mailSoap(req, 'urn:zimbraMail', 'GetMsgRequest', {
     m: { id: String(id), html: 1, read: markRead ? 1 : 0, needExp: 1 },
   });
@@ -405,7 +414,7 @@ function slimAttendee(at, me) {
 // GetAppointmentRequest, cujo <inv><comp> contém os <at> (attendees) e o <or>.
 // `id` é o id do item de calendário (CalendarEvent.id). `raw` devolve o JSON cru.
 async function getAppointmentAttendees(req, id, { raw = false } = {}) {
-  const { user: me } = resolveMailCreds(req);
+  const { user: me } = await resolveMailCreds(req);
   const resp = await mailSoap(req, 'urn:zimbraMail', 'GetAppointmentRequest', {
     id: String(id),
     includeContent: 0, // só metadados; não precisamos do corpo do convite

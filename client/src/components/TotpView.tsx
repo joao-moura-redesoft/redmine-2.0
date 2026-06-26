@@ -1,23 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Copy, Trash2, Check, ShieldCheck, KeyRound, Eye, EyeOff } from 'lucide-react';
-import { generateTOTP, totpRemaining } from '../utils/totp';
-
-interface TotpAccount {
-  id: string;
-  name: string;
-  secret: string;
-}
-
-const STORAGE_KEY = 'totp_accounts';
-
-function loadAccounts(): TotpAccount[] {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
-  catch { return []; }
-}
-
-function saveAccounts(accounts: TotpAccount[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
-}
+import { totpRemaining } from '../utils/totp';
+import { listTotp, addTotp, deleteTotp, type TotpEntry } from '../api/totp';
 
 // SVG countdown ring
 function CountdownRing({ remaining, total = 30 }: { remaining: number; total?: number }) {
@@ -46,32 +30,10 @@ function CountdownRing({ remaining, total = 30 }: { remaining: number; total?: n
   );
 }
 
-function TotpCard({ account, onDelete }: { account: TotpAccount; onDelete: () => void }) {
-  const [code, setCode] = useState('------');
-  const [remaining, setRemaining] = useState(totpRemaining());
+function TotpCard({ account, remaining, onDelete }: { account: TotpEntry; remaining: number; onDelete: () => void }) {
   const [copied, setCopied] = useState(false);
-  const [error, setError] = useState(false);
-
-  const refresh = useCallback(async () => {
-    try {
-      const c = await generateTOTP(account.secret);
-      setCode(c);
-      setError(false);
-    } catch {
-      setCode('------');
-      setError(true);
-    }
-  }, [account.secret]);
-
-  useEffect(() => {
-    refresh();
-    const tick = setInterval(() => {
-      const rem = totpRemaining();
-      setRemaining(rem);
-      if (rem === 30) refresh();
-    }, 1000);
-    return () => clearInterval(tick);
-  }, [refresh]);
+  const code = account.code;
+  const error = code === '------';
 
   const copy = async () => {
     if (error) return;
@@ -125,13 +87,36 @@ function TotpCard({ account, onDelete }: { account: TotpAccount; onDelete: () =>
 }
 
 export function TotpView() {
-  const [accounts, setAccounts] = useState<TotpAccount[]>(loadAccounts);
+  const [accounts, setAccounts] = useState<TotpEntry[]>([]);
+  const [remaining, setRemaining] = useState(totpRemaining());
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [secret, setSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+
+  const reload = async () => {
+    try {
+      const { accounts } = await listTotp();
+      setAccounts(accounts);
+    } catch { /* mantém lista atual */ }
+  };
+
+  useEffect(() => { reload(); }, []);
+
+  // Conta o tempo restante localmente (sem segredo) e rebusca os códigos no
+  // servidor a cada rollover de 30s (detectado quando o tempo restante sobe).
+  useEffect(() => {
+    let prev = totpRemaining();
+    const tick = setInterval(() => {
+      const rem = totpRemaining();
+      setRemaining(rem);
+      if (rem > prev) reload(); // virou o ciclo
+      prev = rem;
+    }, 1000);
+    return () => clearInterval(tick);
+  }, []);
 
   const addAccount = async () => {
     setFormError(null);
@@ -140,24 +125,23 @@ export function TotpView() {
     if (cleanSecret.length < 16) return setFormError('Segredo muito curto — verifique o valor copiado.');
     setAdding(true);
     try {
-      await generateTOTP(cleanSecret);
-    } catch {
+      await addTotp(name.trim(), cleanSecret);
+    } catch (e: any) {
       setAdding(false);
-      return setFormError('Segredo inválido. Verifique se copiou corretamente.');
+      return setFormError(e?.response?.data?.error === 'semente inválida'
+        ? 'Segredo inválido. Verifique se copiou corretamente.'
+        : 'Não foi possível salvar. Tente novamente.');
     }
-    const updated = [...accounts, { id: crypto.randomUUID(), name: name.trim(), secret: cleanSecret }];
-    setAccounts(updated);
-    saveAccounts(updated);
+    await reload();
     setName('');
     setSecret('');
     setShowForm(false);
     setAdding(false);
   };
 
-  const remove = (id: string) => {
-    const updated = accounts.filter(a => a.id !== id);
-    setAccounts(updated);
-    saveAccounts(updated);
+  const remove = async (id: string) => {
+    setAccounts(prev => prev.filter(a => a.id !== id));
+    try { await deleteTotp(id); } catch { reload(); }
   };
 
   return (
@@ -165,7 +149,7 @@ export function TotpView() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Autenticação 2FA</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Códigos TOTP gerados localmente, sem precisar do celular.</p>
+          <p className="text-sm text-slate-500 mt-0.5">Códigos TOTP gerados no servidor (sementes cifradas), sem precisar do celular.</p>
         </div>
         <button
           onClick={() => { setShowForm(v => !v); setFormError(null); }}
@@ -248,7 +232,7 @@ export function TotpView() {
       ) : (
         <div className="space-y-2">
           {accounts.map(acc => (
-            <TotpCard key={acc.id} account={acc} onDelete={() => remove(acc.id)} />
+            <TotpCard key={acc.id} account={acc} remaining={remaining} onDelete={() => remove(acc.id)} />
           ))}
         </div>
       )}

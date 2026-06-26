@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import DOMPurify from 'dompurify';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen, Search, ExternalLink, X, ChevronRight, Loader2, AlertCircle, FileText, KeyRound } from 'lucide-react';
 import { wikiApi, isWikiAvailable } from '../api/wiki';
@@ -55,7 +56,10 @@ function WikiPageReader({ id, onClose }: { id: string; onClose: () => void }) {
         {data && (
           <div
             className="wiki-content max-w-none p-5"
-            dangerouslySetInnerHTML={{ __html: data.html }}
+            // HTML vem do DokuWiki (conteúdo de terceiros) — sanitiza no cliente
+            // contra XSS armazenado (onerror=, javascript:, etc.). O servidor só
+            // tira <script>/<style> via regex, o que é insuficiente sozinho.
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(data.html, { ADD_ATTR: ['target'] }) }}
             onClick={e => {
               const a = (e.target as HTMLElement).closest('a');
               if (a) { e.preventDefault(); const href = a.getAttribute('href'); if (href) window.open(href, '_blank', 'noreferrer'); }

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, KeyRound, Eye, EyeOff, Check, Loader2, Trash2, Sparkles, ChevronDown, MessageSquare, LogIn, Mail, BookOpen, Shield } from 'lucide-react';
-import { getAIKeys, saveAIKey, clearAIKey, getActiveAI, type AIProvider } from '../utils/aiConfig';
+import { getConfiguredProviders, saveAIKey, clearAIKey, getActiveAIProvider, type AIProvider } from '../utils/aiConfig';
 import { getTalkAuth, saveTalkAuth, clearTalkAuth, initLoginFlow, pollLoginFlow } from '../api/talk';
 import { getTalkPrefs, saveTalkPrefs, type TalkPrefs } from '../utils/talkPrefs';
 import { getMailConfig, saveMailConfig, clearMailConfig, DEFAULT_HOST, getMailHost } from '../utils/mailConfig';
 import { getStoredAuth } from '../api/redmine';
 import { mailApi } from '../api/mail';
-import { getADCreds, saveADCreds, clearADCreds, hasEffectiveCreds, needsADCreds } from '../utils/adConfig';
+import { adConfigured, saveADCreds, clearADCreds, hasEffectiveCreds, needsADCreds } from '../utils/adConfig';
 
 interface Props {
   onClose: () => void;
@@ -65,31 +65,39 @@ const PROVIDER_NAMES: Record<AIProvider, string> = {
 };
 
 function ProviderSection({ config, active }: { config: ProviderConfig; active: boolean }) {
-  const [currentKey, setCurrentKey] = useState(() => getAIKeys()[config.id] ?? '');
+  const [configured, setConfigured] = useState(() => getConfiguredProviders()[config.id]);
   const [input, setInput] = useState('');
   const [show, setShow] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [open, setOpen] = useState(!!currentKey || active);
+  const [open, setOpen] = useState(() => getConfiguredProviders()[config.id] || active);
 
-  const save = () => {
+  const save = async () => {
     if (config.prefix && !input.trim().startsWith(config.prefix)) {
       setError(`A chave deve começar com ${config.prefix}`);
       return;
     }
-    saveAIKey(config.id, input.trim());
-    setCurrentKey(input.trim());
-    setInput('');
-    setSaved(true);
-    setError('');
-    setTimeout(() => setSaved(false), 2500);
+    if (busy) return;
+    setBusy(true);
+    try {
+      await saveAIKey(config.id, input.trim());
+      setConfigured(true);
+      setInput('');
+      setSaved(true);
+      setError('');
+      setTimeout(() => setSaved(false), 2500);
+    } finally { setBusy(false); }
   };
 
-  const remove = () => {
-    clearAIKey(config.id);
-    setCurrentKey('');
-    setSaved(false);
-    setError('');
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await clearAIKey(config.id);
+      setConfigured(false);
+      setSaved(false);
+      setError('');
+    } finally { setBusy(false); }
   };
 
   return (
@@ -110,7 +118,7 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
               Em uso
             </span>
           )}
-          {currentKey && !active && (
+          {configured && !active && (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-slate-100 dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400">
               Configurado
             </span>
@@ -121,15 +129,16 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
 
       {open && (
         <div className="px-4 py-3 space-y-3 bg-white dark:bg-slate-900">
-          {currentKey ? (
+          {configured ? (
             <div className="flex items-center justify-between bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2">
               <div className="flex items-center gap-2 text-xs text-green-700 dark:text-green-400">
                 <Check size={12} />
-                <span className="font-mono">{currentKey.slice(0, 20)}…</span>
+                <span>Chave salva no servidor</span>
               </div>
               <button
                 onClick={remove}
-                className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors"
+                disabled={busy}
+                className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 dark:hover:text-red-300 disabled:opacity-40 transition-colors"
               >
                 <Trash2 size={11} />
                 Remover
@@ -158,7 +167,7 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
                 </div>
                 <button
                   onClick={save}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() || busy}
                   className="flex items-center gap-1.5 px-3 py-2 text-xs bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
                 >
                   {saved ? <><Check size={11} /> Salvo!</> : <><KeyRound size={11} /> Salvar</>}
@@ -221,7 +230,7 @@ function NextcloudSection() {
           const result = await pollLoginFlow(pollParamsRef.current.pollEndpoint, pollParamsRef.current.pollToken);
           if (result.done) {
             stopPolling();
-            const auth = { url: result.server.replace(/\/$/, ''), user: result.user, token: result.token };
+            const auth = { url: result.server.replace(/\/$/, ''), user: result.user };
             saveTalkAuth(auth);
             setCurrentAuth(auth);
             setUrl('');
@@ -253,12 +262,15 @@ function NextcloudSection() {
     setError('');
     setSaving(true);
     try {
-      // Valida as credenciais antes de salvar — evita guardar um token quebrado.
-      const res = await fetch('/api/talk/me', {
-        headers: { 'x-nextcloud-url': base, 'x-nextcloud-user': user, 'x-nextcloud-token': token },
+      // Valida e persiste o token no servidor (store cifrado). O token nunca
+      // fica no cliente — o localStorage guarda só metadados (url + user).
+      const res = await fetch('/api/talk/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: base, user, token }),
       });
       if (!res.ok) throw new Error('auth');
-      const auth = { url: base, user, token };
+      const auth = { url: base, user };
       saveTalkAuth(auth);
       setCurrentAuth(auth);
       setUrl(''); setMUser(''); setMToken(''); setShowToken(false);
@@ -450,31 +462,39 @@ function NextcloudSection() {
 // Se logado com usuário/senha no Redmine: automático. Se por API key: formulário.
 function ADCredsSection() {
   const auth = getStoredAuth();
-  const isAuto = !!(auth?.username && auth?.password);
-  const [creds, setCreds] = useState(() => getADCreds());
+  // Logado por usuário/senha → AD automático (o servidor injeta a senha da sessão).
+  const isAuto = !!auth?.username;
+  const [configured, setConfigured] = useState(() => adConfigured());
   const [user, setUser] = useState('');
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [open, setOpen] = useState(!isAuto && !creds);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(!isAuto && !adConfigured());
 
-  const save = () => {
-    if (!user.trim() || !password) return;
-    saveADCreds({ username: user.trim(), password });
-    setCreds(getADCreds());
-    setUser(''); setPassword('');
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  const save = async () => {
+    if (!user.trim() || !password || busy) return;
+    setBusy(true);
+    try {
+      await saveADCreds({ username: user.trim(), password });
+      setConfigured(true);
+      setUser(''); setPassword('');
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } finally { setBusy(false); }
   };
 
-  const remove = () => {
-    clearADCreds();
-    setCreds(null);
-    setSaved(false);
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await clearADCreds();
+      setConfigured(false);
+      setSaved(false);
+    } finally { setBusy(false); }
   };
 
   return (
-    <div className={`border rounded-xl overflow-hidden ${isAuto ? 'border-green-200 dark:border-green-800' : creds ? 'border-blue-200 dark:border-blue-800' : 'border-slate-200 dark:border-slate-700'}`}>
+    <div className={`border rounded-xl overflow-hidden ${isAuto ? 'border-green-200 dark:border-green-800' : configured ? 'border-blue-200 dark:border-blue-800' : 'border-slate-200 dark:border-slate-700'}`}>
       <button
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -486,12 +506,12 @@ function ADCredsSection() {
               Automático
             </span>
           )}
-          {!isAuto && creds && (
+          {!isAuto && configured && (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300">
               Configurado
             </span>
           )}
-          {!isAuto && !creds && (
+          {!isAuto && !configured && (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300">
               Necessário
             </span>
@@ -509,13 +529,13 @@ function ADCredsSection() {
                 Logado como <strong>{auth?.username}</strong> com usuário e senha — E-mail e Wiki usam as mesmas credenciais automaticamente.
               </span>
             </div>
-          ) : creds ? (
+          ) : configured ? (
             <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
               <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400">
                 <Check size={12} />
-                <span className="font-mono">{creds.username}</span>
+                <span>Credenciais AD salvas no servidor</span>
               </div>
-              <button onClick={remove} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors">
+              <button onClick={remove} disabled={busy} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 disabled:opacity-40 transition-colors">
                 <Trash2 size={11} /> Remover
               </button>
             </div>
@@ -549,7 +569,7 @@ function ADCredsSection() {
               </div>
               <button
                 onClick={save}
-                disabled={!user.trim() || !password}
+                disabled={!user.trim() || !password || busy}
                 className="flex items-center gap-1.5 px-3 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors"
               >
                 {saved ? <><Check size={11} /> Salvo!</> : <><KeyRound size={11} /> Salvar</>}
@@ -684,7 +704,7 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Shield }[] = [
 ];
 
 export function SettingsModal({ onClose }: Props) {
-  const active = getActiveAI();
+  const active = getActiveAIProvider();
   const [tab, setTab] = useState<SettingsTab>('corporativo');
 
   return (
@@ -787,14 +807,14 @@ export function SettingsModal({ onClose }: Props) {
 
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                 Configure uma ou mais chaves. A ordem de preferência é <strong>Claude</strong> → <strong>ChatGPT</strong> → <strong>Gemini</strong>.
-                As chaves ficam salvas apenas neste navegador.
+                As chaves ficam salvas com segurança no servidor (cifradas).
               </p>
 
               {active && (
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
                   Usando: <strong className="text-slate-700 dark:text-slate-200">
-                    {PROVIDER_NAMES[active.provider]}
+                    {PROVIDER_NAMES[active]}
                   </strong>
                 </div>
               )}
@@ -803,7 +823,7 @@ export function SettingsModal({ onClose }: Props) {
                 <ProviderSection
                   key={p.id}
                   config={p}
-                  active={active?.provider === p.id}
+                  active={active === p.id}
                 />
               ))}
             </div>
