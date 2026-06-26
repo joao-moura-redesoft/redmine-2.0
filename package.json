@@ -9,7 +9,7 @@
     "client": "npm run dev --prefix client"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.100.1",
+    "@anthropic-ai/sdk": "^0.106.0",
     "axios": "^1.7.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
