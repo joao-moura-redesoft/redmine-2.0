@@ -151,3 +151,4 @@ server/teams.json
 server/sessions.json
 server/talk.json
 server/secrets.json
+/database.db
