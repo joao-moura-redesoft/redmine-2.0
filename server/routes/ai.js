@@ -27,13 +27,17 @@ const {
 
 // Limita o uso dos endpoints de IA: cada chamada custa dinheiro e bate em APIs
 // externas (Anthropic/OpenAI/Gemini). Janela generosa o suficiente para uso
-// normal de um usuário, mas que corta loops/abuso. Aplicado a todo /ai/*.
+// normal de um usuário, mas que corta loops/abuso.
 const aiLimiter = createRateLimiter({
   windowMs: 60 * 1000,
   max: 30,
   message: 'Muitas requisições de IA em pouco tempo. Aguarde um instante e tente novamente.',
 });
-router.use(aiLimiter);
+// IMPORTANTE: escopar ao prefixo '/ai'. Este router é montado em '/api' junto com
+// os demais (talk, mail, jitsi...). Um `router.use(aiLimiter)` sem path rodaria
+// para TODA requisição /api que passa por aqui antes de cair no router seguinte,
+// fazendo o talk/mail/jitsi consumir o contador de IA e tomar 429 indevido.
+router.use('/ai', aiLimiter);
 
 // Transcreve o áudio de uma reunião (Whisper/OpenAI) e gera um resumo estruturado
 // com o provider de IA preferido. Recebe o áudio como corpo binário (express.raw).
