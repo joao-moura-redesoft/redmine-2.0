@@ -369,7 +369,6 @@ function NoteEditor({
       if (pendingTitle.current !== null) flush.title = pendingTitle.current;
       if (pendingBody.current !== null) flush.body = pendingBody.current;
       if (Object.keys(flush).length) updateNote.mutate({ id: n.id, patch: flush });
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
     [],
   );
@@ -380,7 +379,7 @@ function NoteEditor({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${(noteTitle(note) || 'nota').replace(/[^\w\-]+/g, '_').slice(0, 60)}.md`;
+    a.download = `${(noteTitle(note) || 'nota').replace(/[^\w-]+/g, '_').slice(0, 60)}.md`;
     a.click();
     URL.revokeObjectURL(url);
   };

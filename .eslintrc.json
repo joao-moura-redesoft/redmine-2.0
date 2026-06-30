@@ -1,4 +1,5 @@
 {
+  "root": true,
   "env": {
     "node": true,
     "es2021": true
@@ -8,8 +9,18 @@
     "ecmaVersion": 12,
     "sourceType": "module"
   },
+  "ignorePatterns": [
+    "client/",
+    "node_modules/",
+    "**/dist/",
+    "build/",
+    "server/dist/",
+    "*.min.js",
+    "test-*.js"
+  ],
   "rules": {
     "no-unused-vars": "warn",
-    "no-console": "off"
+    "no-console": "off",
+    "no-empty": ["error", { "allowEmptyCatch": true }]
   }
 }

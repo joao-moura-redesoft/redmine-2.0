@@ -7,16 +7,22 @@
   "extends": [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended",
-    "plugin:react-hooks/recommended",
     "plugin:prettier/recommended"
   ],
   "ignorePatterns": ["dist", ".eslintrc.json", "vite.config.ts"],
   "parser": "@typescript-eslint/parser",
-  "plugins": ["react-refresh", "prettier"],
+  "plugins": ["react-hooks", "prettier"],
   "rules": {
-    "react-refresh/only-export-components": ["warn", { "allowConstantExport": true }],
+    "react-hooks/rules-of-hooks": "warn",
+    "react-hooks/exhaustive-deps": "warn",
     "@typescript-eslint/no-unused-vars": "warn",
     "@typescript-eslint/no-explicit-any": "warn",
+    "@typescript-eslint/no-unused-expressions": [
+      "error",
+      { "allowTernary": true, "allowShortCircuit": true }
+    ],
+    "no-empty": ["error", { "allowEmptyCatch": true }],
+    "no-control-regex": "off",
     "no-console": "off"
   }
 }

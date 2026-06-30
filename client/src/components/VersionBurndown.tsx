@@ -85,8 +85,7 @@ function compute(issues: Issue[], metric: Metric, dueDateIso?: string): Burndown
     .filter((e) => e.t !== null)
     .sort((a, b) => a.t - b.t);
 
-  const valueClosedBy = (t: number) =>
-    closedEvents.reduce((s, e) => (e.t <= t ? s + e.v : s), 0);
+  const valueClosedBy = (t: number) => closedEvents.reduce((s, e) => (e.t <= t ? s + e.v : s), 0);
 
   const remainingValue = totalValue - valueClosedBy(now);
 
@@ -281,11 +280,26 @@ function IssueList({
 }
 
 const STATUS_META: Record<Status, { label: string; cls: string }> = {
-  done: { label: 'Concluído', cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' },
-  ahead: { label: 'Adiantado', cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' },
-  ontrack: { label: 'No ritmo', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400' },
-  behind: { label: 'Atrasado', cls: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-400' },
-  unknown: { label: 'Sem dados', cls: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400' },
+  done: {
+    label: 'Concluído',
+    cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
+  },
+  ahead: {
+    label: 'Adiantado',
+    cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
+  },
+  ontrack: {
+    label: 'No ritmo',
+    cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
+  },
+  behind: {
+    label: 'Atrasado',
+    cls: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-400',
+  },
+  unknown: {
+    label: 'Sem dados',
+    cls: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+  },
 };
 
 function BurndownChart({ data }: { data: BurndownData }) {
@@ -633,9 +647,7 @@ export function VersionBurndown({
                 />
               }
               color={
-                predictedLate
-                  ? 'bg-rose-50 dark:bg-rose-900/30'
-                  : 'bg-teal-50 dark:bg-teal-900/30'
+                predictedLate ? 'bg-rose-50 dark:bg-rose-900/30' : 'bg-teal-50 dark:bg-teal-900/30'
               }
               label={predictedLate ? 'Conclusão (após prazo)' : 'Conclusão prevista'}
               value={predictedLabel}

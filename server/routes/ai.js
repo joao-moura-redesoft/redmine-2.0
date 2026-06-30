@@ -45,12 +45,10 @@ router.post(
   handle(async (req, res) => {
     const openaiKey = await getOpenAIKey(req);
     if (!openaiKey)
-      return res
-        .status(400)
-        .json({
-          error:
-            'Transcrição requer uma chave da OpenAI (Whisper). Configure-a em Configurações → IA.',
-        });
+      return res.status(400).json({
+        error:
+          'Transcrição requer uma chave da OpenAI (Whisper). Configure-a em Configurações → IA.',
+      });
     if (!req.body || !req.body.length) return res.status(400).json({ error: 'áudio vazio' });
 
     const filename = decodeURIComponent(req.headers['x-filename'] || 'meeting.webm');
