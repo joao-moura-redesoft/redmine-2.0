@@ -1,7 +1,6 @@
 // Nextcloud Files (Drive) — navegação e gestão de arquivos via WebDAV/OCS,
 // reaproveitando a mesma autenticação do Talk (headers x-nextcloud-*).
 const express = require('express');
-const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
 const router = express.Router();
 const handle = require('../lib/handle');
@@ -247,8 +246,13 @@ router.put(
   express.raw({ type: '*/*', limit: '500mb' }),
   handle(async (req, res) => {
     const dir = String(req.query.path || '').replace(/^\/+|\/+$/g, '');
-    const filename = decodeURIComponent(req.headers['x-filename'] || `upload_${Date.now()}`);
-    const ct = req.headers['x-content-type'] || 'application/octet-stream';
+    // Headers podem chegar como array se enviados repetidos — coage a string para
+    // evitar type confusion (um array em x-content-type/x-filename mudaria o tipo).
+    const header = (h) => String((Array.isArray(h) ? h[0] : h) ?? '');
+    const filename = decodeURIComponent(
+      header(req.headers['x-filename']) || `upload_${Date.now()}`,
+    );
+    const ct = header(req.headers['x-content-type']) || 'application/octet-stream';
     const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
     if (!body.length) return res.status(400).json({ error: 'Arquivo vazio.' });
     const full = dir ? `${dir}/${filename}` : filename;
