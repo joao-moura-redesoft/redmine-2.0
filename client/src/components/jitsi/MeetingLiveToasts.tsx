@@ -27,8 +27,8 @@ export function MeetingLiveToasts() {
 
   const relevant = useMemo(() => {
     const s = new Set<number>();
-    [myIssues, authored, monitored].forEach(list => list?.forEach(i => s.add(i.id)));
-    watchedIds.forEach(id => s.add(id));
+    [myIssues, authored, monitored].forEach((list) => list?.forEach((i) => s.add(i.id)));
+    watchedIds.forEach((id) => s.add(id));
     return s;
   }, [myIssues, authored, monitored, watchedIds]);
 
@@ -36,18 +36,23 @@ export function MeetingLiveToasts() {
   const primedRef = useRef(false);
   const [toasts, setToasts] = useState<LiveToast[]>([]);
 
-  const dismiss = (room: string) => setToasts(t => t.filter(x => x.room !== room));
+  const dismiss = (room: string) => setToasts((t) => t.filter((x) => x.room !== room));
 
   const join = (t: LiveToast) => {
-    startCall({ room: makeTaskRoom(t.issueId), title: `#${t.issueId}`, kind: 'task', issueId: t.issueId });
+    startCall({
+      room: makeTaskRoom(t.issueId),
+      title: `#${t.issueId}`,
+      kind: 'task',
+      issueId: t.issueId,
+    });
     dismiss(t.room);
   };
 
   useEffect(() => {
     if (!isLoaded) return;
     const myRoom = activeCall?.room ?? poppedOut?.room;
-    const liveTask = rooms.filter(r => r.issueId != null);
-    const liveKeys = new Set(liveTask.map(r => r.room));
+    const liveTask = rooms.filter((r) => r.issueId != null);
+    const liveKeys = new Set(liveTask.map((r) => r.room));
 
     // Limpa salas que já encerraram (permite re-notificar se reabrirem depois).
     for (const k of [...seenRef.current]) if (!liveKeys.has(k)) seenRef.current.delete(k);
@@ -55,18 +60,22 @@ export function MeetingLiveToasts() {
     // Primeiro carregamento: marca tudo como visto sem notificar.
     if (!primedRef.current) {
       primedRef.current = true;
-      liveTask.forEach(r => seenRef.current.add(r.room));
+      liveTask.forEach((r) => seenRef.current.add(r.room));
       return;
     }
 
     for (const r of liveTask) {
       if (seenRef.current.has(r.room)) continue;
       seenRef.current.add(r.room);
-      if (r.room === myRoom) continue;            // já estou nela
+      if (r.room === myRoom) continue; // já estou nela
       if (!relevant.has(r.issueId as number)) continue; // não é tarefa minha
 
-      const toast: LiveToast = { room: r.room, issueId: r.issueId as number, participants: r.participants };
-      setToasts(prev => prev.some(p => p.room === r.room) ? prev : [...prev, toast]);
+      const toast: LiveToast = {
+        room: r.room,
+        issueId: r.issueId as number,
+        participants: r.participants,
+      };
+      setToasts((prev) => (prev.some((p) => p.room === r.room) ? prev : [...prev, toast]));
       // expira o toast sozinho
       setTimeout(() => dismiss(r.room), 30000);
 
@@ -77,18 +86,23 @@ export function MeetingLiveToasts() {
             body: `${r.participants.join(', ')} em #${r.issueId}`,
             tag: r.room,
           });
-          n.onclick = () => { window.focus(); join(toast); };
-        } catch { /* ignore */ }
+          n.onclick = () => {
+            window.focus();
+            join(toast);
+          };
+        } catch {
+          /* ignore */
+        }
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rooms, isLoaded, relevant, activeCall, poppedOut]);
 
   if (toasts.length === 0) return null;
 
   return (
     <div className="fixed bottom-4 left-4 z-[95] flex flex-col gap-2">
-      {toasts.map(t => (
+      {toasts.map((t) => (
         <div
           key={t.room}
           className="w-72 flex items-start gap-2.5 p-3 rounded-xl shadow-2xl border border-red-200 dark:border-red-900/40 bg-white dark:bg-slate-900"

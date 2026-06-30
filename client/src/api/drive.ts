@@ -17,7 +17,10 @@ export interface DriveEntry {
   shareUrl?: string;
 }
 
-export interface DriveQuota { used: number; available: number }
+export interface DriveQuota {
+  used: number;
+  available: number;
+}
 
 const api = axios.create({ baseURL: '/api/drive' });
 
@@ -67,7 +70,9 @@ export async function moveItem(from: string, to: string): Promise<void> {
 }
 
 export async function uploadToDrive(
-  dir: string, file: File, onProgress?: (pct: number) => void,
+  dir: string,
+  file: File,
+  onProgress?: (pct: number) => void,
 ): Promise<void> {
   await api.put('/upload', file, {
     params: { path: dir },
@@ -97,8 +102,11 @@ export async function downloadDriveFile(path: string): Promise<void> {
   const blob = await r.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
@@ -109,7 +117,7 @@ export async function copyItem(from: string, to: string): Promise<void> {
 // ─── Compartilhamento ──────────────────────────────────────────────────────────
 export interface DriveShare {
   id: number;
-  share_type: number;       // 3 = link público, 0 = usuário
+  share_type: number; // 3 = link público, 0 = usuário
   share_with?: string;
   share_with_displayname?: string;
   url?: string;
@@ -120,7 +128,11 @@ export async function listShares(path: string): Promise<DriveShare[]> {
   const { data } = await api.get<DriveShare[]>('/shares', { params: { path } });
   return data;
 }
-export async function createShare(path: string, shareType: number, shareWith?: string): Promise<DriveShare> {
+export async function createShare(
+  path: string,
+  shareType: number,
+  shareWith?: string,
+): Promise<DriveShare> {
   const { data } = await api.post<DriveShare>('/share', { path, shareType, shareWith });
   return data;
 }

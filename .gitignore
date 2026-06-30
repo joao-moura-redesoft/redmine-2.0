@@ -158,3 +158,14 @@ server/secrets.json
 server/notes.json
 server/boards.json
 server/sprints.json
+
+# Saída de execução do servidor (stdout/stderr) — gerada em runtime
+srv.out
+srv.err
+
+# Config local do Claude Code / editor — máquina-específica, não compartilhar
+.claude/settings.local.json
+
+# Saída temporária de auditoria/relatórios de dependências
+audit.txt
+client/audit.txt

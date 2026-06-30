@@ -12,7 +12,7 @@ function userNotes(userId) {
 
 // Remove uma nota do usuário (reatribui o array filtrado no store).
 function removeNote(userId, id) {
-  notesStore[userId] = userNotes(userId).filter(n => n.id !== id);
+  notesStore[userId] = userNotes(userId).filter((n) => n.id !== id);
   saveNotes();
 }
 

@@ -1,5 +1,18 @@
 import axios from 'axios';
-import type { Issue, IssueStatus, Project, Tracker, Priority, CurrentUser, Version, TimeEntry, TimeEntryActivity, Mention, NamedRef, EditField } from '../types/redmine';
+import type {
+  Issue,
+  IssueStatus,
+  Project,
+  Tracker,
+  Priority,
+  CurrentUser,
+  Version,
+  TimeEntry,
+  TimeEntryActivity,
+  Mention,
+  NamedRef,
+  EditField,
+} from '../types/redmine';
 import { aiConfigured, hasOpenAIKey } from '../utils/aiConfig';
 
 export const AUTH_KEY = 'redmine_auth';
@@ -24,7 +37,9 @@ export function getStoredAuth(): RedmineAuth | null {
     const parsed = JSON.parse(raw);
     if (!parsed?.url) return null;
     return parsed;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 export function saveAuth(auth: RedmineAuth) {
@@ -49,7 +64,9 @@ export async function initSession(): Promise<void> {
   try {
     const { data } = await axios.post('/api/attachments/session');
     _sessionToken = data.token ?? null;
-  } catch { /* silencioso; imagens de anexo retornarão 401 */ }
+  } catch {
+    /* silencioso; imagens de anexo retornarão 401 */
+  }
 }
 
 export function attachmentUrl(id: number, filename: string): string {
@@ -57,19 +74,19 @@ export function attachmentUrl(id: number, filename: string): string {
   return _sessionToken ? `${base}?s=${_sessionToken}` : base;
 }
 
-const api = axios.create({ 
+const api = axios.create({
   baseURL: '/api',
-  withCredentials: true 
+  withCredentials: true,
 });
 
 api.interceptors.response.use(
-  res => res,
-  err => {
+  (res) => res,
+  (err) => {
     if (err.response?.status === 401) {
       window.dispatchEvent(new Event('auth-expired'));
     }
     return Promise.reject(err);
-  }
+  },
 );
 
 export const redmineApi = {
@@ -90,12 +107,21 @@ export const redmineApi = {
   // (projeto/tracker/status/autor/responsável), e não por tarefa.
   getAllowedStatuses: async (
     id: number,
-    wf: { projectId?: number; trackerId?: number; statusId?: number; isAuthor?: boolean; isAssignee?: boolean },
+    wf: {
+      projectId?: number;
+      trackerId?: number;
+      statusId?: number;
+      isAuthor?: boolean;
+      isAssignee?: boolean;
+    },
   ): Promise<NamedRef[] | null> => {
     const { data } = await api.get(`/issues/${id}/allowed-statuses`, {
       params: {
-        project_id: wf.projectId, tracker_id: wf.trackerId, status_id: wf.statusId,
-        is_author: wf.isAuthor ? 1 : 0, is_assignee: wf.isAssignee ? 1 : 0,
+        project_id: wf.projectId,
+        tracker_id: wf.trackerId,
+        status_id: wf.statusId,
+        is_author: wf.isAuthor ? 1 : 0,
+        is_assignee: wf.isAssignee ? 1 : 0,
       },
     });
     return data.allowed_statuses ?? null;
@@ -128,7 +154,10 @@ export const redmineApi = {
 
   searchIssues: async (q: string): Promise<{ id: number; subject: string }[]> => {
     const { data } = await api.get('/search', { params: { q } });
-    return (data.issues ?? []).map((i: { id: number; subject: string }) => ({ id: i.id, subject: i.subject }));
+    return (data.issues ?? []).map((i: { id: number; subject: string }) => ({
+      id: i.id,
+      subject: i.subject,
+    }));
   },
 
   updateJournal: async (id: number, notes: string): Promise<void> => {
@@ -141,7 +170,11 @@ export const redmineApi = {
       params: { filename: file.name },
       headers: { 'Content-Type': 'application/octet-stream' },
     });
-    return { token: data.token, filename: file.name, content_type: file.type || 'application/octet-stream' };
+    return {
+      token: data.token,
+      filename: file.name,
+      content_type: file.type || 'application/octet-stream',
+    };
   },
 
   createIssue: async (payload: {
@@ -212,14 +245,14 @@ export const redmineApi = {
   getIssuesByIds: async (ids: number[]): Promise<Issue[]> => {
     if (!ids.length) return [];
     const { data } = await api.get('/issues/by-ids', {
-      params: { ids: ids.join(',') }
+      params: { ids: ids.join(',') },
     });
     return data.issues;
   },
 
   getUserIssues: async (userId: number): Promise<Issue[]> => {
     const { data } = await api.get('/issues', {
-      params: { assigned_to_id: userId, status_id: 'open', limit: 100 }
+      params: { assigned_to_id: userId, status_id: 'open', limit: 100 },
     });
     return data.issues;
   },
@@ -229,7 +262,9 @@ export const redmineApi = {
     return data.issues;
   },
 
-  getProjectMembers: async (projectId: number): Promise<{ id: number; name: string; team: string }[]> => {
+  getProjectMembers: async (
+    projectId: number,
+  ): Promise<{ id: number; name: string; team: string }[]> => {
     const { data } = await api.get(`/projects/${projectId}/memberships`);
     return data.users;
   },
@@ -239,9 +274,13 @@ export const redmineApi = {
     return data.users;
   },
 
-  getTimeEntries: async (params: {
-    from?: string; to?: string; issue_id?: number;
-  } = {}): Promise<TimeEntry[]> => {
+  getTimeEntries: async (
+    params: {
+      from?: string;
+      to?: string;
+      issue_id?: number;
+    } = {},
+  ): Promise<TimeEntry[]> => {
     const { data } = await api.get('/time_entries', { params });
     return data.time_entries ?? [];
   },
@@ -265,7 +304,7 @@ export const redmineApi = {
   getProjectVersions: async (projectId: number): Promise<Version[]> => {
     const { data } = await api.get(`/projects/${projectId}/versions`);
     return (data.versions ?? []).sort((a: Version, b: Version) =>
-      a.name.localeCompare(b.name, 'pt-BR')
+      a.name.localeCompare(b.name, 'pt-BR'),
     );
   },
 
@@ -332,7 +371,12 @@ export const redmineApi = {
     return data.reply as string;
   },
 
-  detectAmbiguities: async (issue: Issue): Promise<{ hasIssues: boolean; ambiguities: { trecho: string; problema: string; pergunta: string }[] }> => {
+  detectAmbiguities: async (
+    issue: Issue,
+  ): Promise<{
+    hasIssues: boolean;
+    ambiguities: { trecho: string; problema: string; pergunta: string }[];
+  }> => {
     if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
     const { data } = await api.post('/ai/detect-ambiguities', { issue });
     return data;
@@ -344,7 +388,9 @@ export const redmineApi = {
     return data;
   },
 
-  assessComplexity: async (issue: Issue): Promise<{ level: string; reasoning: string; risks: string[]; roughHours: string }> => {
+  assessComplexity: async (
+    issue: Issue,
+  ): Promise<{ level: string; reasoning: string; risks: string[]; roughHours: string }> => {
     if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
     const { data } = await api.post('/ai/assess-complexity', { issue });
     return data;
@@ -361,13 +407,27 @@ export const redmineApi = {
     description: string,
     trackers: { id: number; name: string }[],
     priorities: { id: number; name: string }[],
-  ): Promise<{ tracker_id: number | null; priority_id: number | null; impacto: string | null; reasoning: string }> => {
+  ): Promise<{
+    tracker_id: number | null;
+    priority_id: number | null;
+    impacto: string | null;
+    reasoning: string;
+  }> => {
     if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
-    const { data } = await api.post('/ai/suggest-fields', { subject, description, trackers, priorities });
+    const { data } = await api.post('/ai/suggest-fields', {
+      subject,
+      description,
+      trackers,
+      priorities,
+    });
     return data;
   },
 
-  reviewNote: async (noteText: string, issueSubject: string, issueStatus: string): Promise<string> => {
+  reviewNote: async (
+    noteText: string,
+    issueSubject: string,
+    issueStatus: string,
+  ): Promise<string> => {
     if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
     const { data } = await api.post('/ai/review-note', { noteText, issueSubject, issueStatus });
     return data.feedback as string;
@@ -379,8 +439,16 @@ export const redmineApi = {
     return data.standup as string;
   },
 
-  transcribeSummarize: async (audioBlob: Blob, filename: string, title: string, participants: string): Promise<{ transcript: string, summary: string }> => {
-    if (!hasOpenAIKey()) throw new Error('A transcrição exige uma chave da OpenAI (Whisper) configurada nas configurações de IA.');
+  transcribeSummarize: async (
+    audioBlob: Blob,
+    filename: string,
+    title: string,
+    participants: string,
+  ): Promise<{ transcript: string; summary: string }> => {
+    if (!hasOpenAIKey())
+      throw new Error(
+        'A transcrição exige uma chave da OpenAI (Whisper) configurada nas configurações de IA.',
+      );
 
     // Chaves de IA resolvidas no servidor (cofre). O cliente só envia metadados.
     const { data } = await api.post('/ai/transcribe-summarize', audioBlob, {

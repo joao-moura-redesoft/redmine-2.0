@@ -19,7 +19,7 @@ interface NotifyOptions {
  */
 export function useBrowserNotifications() {
   const [permission, setPermission] = useState<NotificationPermission>(() =>
-    'Notification' in window ? Notification.permission : 'denied'
+    'Notification' in window ? Notification.permission : 'denied',
   );
 
   // Mantém o estado sincronizado com o valor real do browser (muda se o usuário
@@ -61,18 +61,24 @@ export function useBrowserNotifications() {
     // Prefer SW-backed notifications (enables notificationclick in sw.ts)
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.ready
-        .then(reg => reg.showNotification(title, options))
+        .then((reg) => reg.showNotification(title, options))
         .catch(() => {
           // SW not ready — fallback to direct API
           const n = new Notification(title, options);
-          n.onclick = () => { window.focus(); n.close(); };
+          n.onclick = () => {
+            window.focus();
+            n.close();
+          };
         });
       return;
     }
 
     // No SW support — direct Notification API
     const n = new Notification(title, options);
-    n.onclick = () => { window.focus(); n.close(); };
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
   }, []);
 
   return { permission, requestPermission, notify };

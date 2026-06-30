@@ -9,15 +9,25 @@ import { TableKit } from '@tiptap/extension-table';
 import { Markdown } from 'tiptap-markdown';
 import { SlashCommand } from './noteSlashCommand';
 import { IssueMention } from './noteIssueMention';
-import { Bold, Italic, Strikethrough, Code, Heading1, Heading2, List, ListOrdered, Quote } from 'lucide-react';
+import {
+  Bold,
+  Italic,
+  Strikethrough,
+  Code,
+  Heading1,
+  Heading2,
+  List,
+  ListOrdered,
+  Quote,
+} from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 
 interface Props {
-  value: string;            // markdown inicial
+  value: string; // markdown inicial
   onChange: (markdown: string) => void;
-  noteId: string;           // recarrega o conteúdo ao trocar de nota
+  noteId: string; // recarrega o conteúdo ao trocar de nota
   placeholder?: string;
-  onIssueClick?: (id: number) => void;  // abre tarefa ao clicar em #1234
+  onIssueClick?: (id: number) => void; // abre tarefa ao clicar em #1234
 }
 
 /**
@@ -25,7 +35,13 @@ interface Props {
  * enquanto se digita (## vira título, - vira lista, **x** vira negrito…). O
  * conteúdo é lido/gravado como Markdown, mantendo compatibilidade com o resto do app.
  */
-export function RichNoteEditor({ value, onChange, noteId, placeholder = 'Comece a escrever…', onIssueClick }: Props) {
+export function RichNoteEditor({
+  value,
+  onChange,
+  noteId,
+  placeholder = 'Comece a escrever…',
+  onIssueClick,
+}: Props) {
   const settingContent = useRef(false);
   const issueClickRef = useRef(onIssueClick);
   issueClickRef.current = onIssueClick;
@@ -79,12 +95,23 @@ export function RichNoteEditor({ value, onChange, noteId, placeholder = 'Comece 
 
 // Barra flutuante que aparece ao selecionar texto (estilo Notion)
 function NoteBubbleMenu({ editor }: { editor: Editor }) {
-  const Btn = ({ onClick, active, title, children }: {
-    onClick: () => void; active?: boolean; title: string; children: React.ReactNode;
+  const Btn = ({
+    onClick,
+    active,
+    title,
+    children,
+  }: {
+    onClick: () => void;
+    active?: boolean;
+    title: string;
+    children: React.ReactNode;
   }) => (
     <button
       type="button"
-      onMouseDown={e => { e.preventDefault(); onClick(); }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onClick();
+      }}
       title={title}
       className={`p-1.5 rounded-md transition-colors ${
         active
@@ -98,27 +125,72 @@ function NoteBubbleMenu({ editor }: { editor: Editor }) {
 
   return (
     <div className="flex items-center gap-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-1">
-      <Btn title="Negrito (Ctrl+B)" active={editor.isActive('bold')}
-           onClick={() => editor.chain().focus().toggleBold().run()}><Bold size={14} /></Btn>
-      <Btn title="Itálico (Ctrl+I)" active={editor.isActive('italic')}
-           onClick={() => editor.chain().focus().toggleItalic().run()}><Italic size={14} /></Btn>
-      <Btn title="Tachado" active={editor.isActive('strike')}
-           onClick={() => editor.chain().focus().toggleStrike().run()}><Strikethrough size={14} /></Btn>
-      <Btn title="Código" active={editor.isActive('code')}
-           onClick={() => editor.chain().focus().toggleCode().run()}><Code size={14} /></Btn>
+      <Btn
+        title="Negrito (Ctrl+B)"
+        active={editor.isActive('bold')}
+        onClick={() => editor.chain().focus().toggleBold().run()}
+      >
+        <Bold size={14} />
+      </Btn>
+      <Btn
+        title="Itálico (Ctrl+I)"
+        active={editor.isActive('italic')}
+        onClick={() => editor.chain().focus().toggleItalic().run()}
+      >
+        <Italic size={14} />
+      </Btn>
+      <Btn
+        title="Tachado"
+        active={editor.isActive('strike')}
+        onClick={() => editor.chain().focus().toggleStrike().run()}
+      >
+        <Strikethrough size={14} />
+      </Btn>
+      <Btn
+        title="Código"
+        active={editor.isActive('code')}
+        onClick={() => editor.chain().focus().toggleCode().run()}
+      >
+        <Code size={14} />
+      </Btn>
 
       <span className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-0.5" />
 
-      <Btn title="Título 1" active={editor.isActive('heading', { level: 1 })}
-           onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}><Heading1 size={14} /></Btn>
-      <Btn title="Título 2" active={editor.isActive('heading', { level: 2 })}
-           onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={14} /></Btn>
-      <Btn title="Lista" active={editor.isActive('bulletList')}
-           onClick={() => editor.chain().focus().toggleBulletList().run()}><List size={14} /></Btn>
-      <Btn title="Lista numerada" active={editor.isActive('orderedList')}
-           onClick={() => editor.chain().focus().toggleOrderedList().run()}><ListOrdered size={14} /></Btn>
-      <Btn title="Citação" active={editor.isActive('blockquote')}
-           onClick={() => editor.chain().focus().toggleBlockquote().run()}><Quote size={14} /></Btn>
+      <Btn
+        title="Título 1"
+        active={editor.isActive('heading', { level: 1 })}
+        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+      >
+        <Heading1 size={14} />
+      </Btn>
+      <Btn
+        title="Título 2"
+        active={editor.isActive('heading', { level: 2 })}
+        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+      >
+        <Heading2 size={14} />
+      </Btn>
+      <Btn
+        title="Lista"
+        active={editor.isActive('bulletList')}
+        onClick={() => editor.chain().focus().toggleBulletList().run()}
+      >
+        <List size={14} />
+      </Btn>
+      <Btn
+        title="Lista numerada"
+        active={editor.isActive('orderedList')}
+        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+      >
+        <ListOrdered size={14} />
+      </Btn>
+      <Btn
+        title="Citação"
+        active={editor.isActive('blockquote')}
+        onClick={() => editor.chain().focus().toggleBlockquote().run()}
+      >
+        <Quote size={14} />
+      </Btn>
     </div>
   );
 }

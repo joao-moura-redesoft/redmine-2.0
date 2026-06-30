@@ -14,7 +14,9 @@ export function getTalkAuth(): TalkAuth | null {
     const parsed = JSON.parse(raw);
     if (parsed?.url && parsed?.user) return parsed;
     return null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 export function saveTalkAuth(auth: TalkAuth) {
@@ -23,7 +25,11 @@ export function saveTalkAuth(auth: TalkAuth) {
 
 export async function clearTalkAuth() {
   localStorage.removeItem(TALK_AUTH_KEY);
-  try { await axios.delete('/api/talk/auth'); } catch { /* ignorar erro */ }
+  try {
+    await axios.delete('/api/talk/auth');
+  } catch {
+    /* ignorar erro */
+  }
 }
 
 export interface TalkMessageParam {
@@ -99,8 +105,8 @@ const api = axios.create({ baseURL: '/api/talk' });
 export const TALK_AUTH_EXPIRED_EVENT = 'rk-talk-auth-expired';
 
 api.interceptors.response.use(
-  r => r,
-  err => {
+  (r) => r,
+  (err) => {
     if (err?.response?.status === 401 && getTalkAuth()) {
       window.dispatchEvent(new CustomEvent(TALK_AUTH_EXPIRED_EVENT));
     }
@@ -113,19 +119,30 @@ export async function fetchRooms(): Promise<TalkRoom[]> {
   return data;
 }
 
-export async function fetchMessages(token: string, params?: { lastKnownMessageId?: number }): Promise<TalkMessage[]> {
+export async function fetchMessages(
+  token: string,
+  params?: { lastKnownMessageId?: number },
+): Promise<TalkMessage[]> {
   const { data } = await api.get<TalkMessage[]>(`/rooms/${token}/messages`, { params });
   return data;
 }
 
-export async function sendMessage(token: string, message: string, replyTo?: number): Promise<TalkMessage> {
+export async function sendMessage(
+  token: string,
+  message: string,
+  replyTo?: number,
+): Promise<TalkMessage> {
   const body: Record<string, unknown> = { message };
   if (replyTo) body.replyTo = replyTo;
   const { data } = await api.post<TalkMessage>(`/rooms/${token}/messages`, body);
   return data;
 }
 
-export async function editMessage(token: string, messageId: number, message: string): Promise<TalkMessage> {
+export async function editMessage(
+  token: string,
+  messageId: number,
+  message: string,
+): Promise<TalkMessage> {
   const { data } = await api.put<TalkMessage>(`/rooms/${token}/messages/${messageId}`, { message });
   return data;
 }
@@ -166,15 +183,27 @@ export async function sendTyping(token: string, typing: boolean): Promise<void> 
   await api.post(`/rooms/${token}/typing`, { typing });
 }
 
-export async function addReaction(token: string, messageId: number, reaction: string): Promise<void> {
+export async function addReaction(
+  token: string,
+  messageId: number,
+  reaction: string,
+): Promise<void> {
   await api.post(`/rooms/${token}/messages/${messageId}/reactions`, { reaction });
 }
 
-export async function removeReaction(token: string, messageId: number, reaction: string): Promise<void> {
+export async function removeReaction(
+  token: string,
+  messageId: number,
+  reaction: string,
+): Promise<void> {
   await api.delete(`/rooms/${token}/messages/${messageId}/reactions`, { params: { reaction } });
 }
 
-export async function createRoom(roomType: number, invite: string, roomName?: string): Promise<TalkRoom> {
+export async function createRoom(
+  roomType: number,
+  invite: string,
+  roomName?: string,
+): Promise<TalkRoom> {
   const body: Record<string, unknown> = { roomType, invite };
   if (roomName) body.roomName = roomName;
   const { data } = await api.post<TalkRoom>('/rooms', body);
@@ -206,7 +235,11 @@ export async function setMyStatusType(statusType: UserStatusType): Promise<void>
   await api.put('/my-status', { statusType });
 }
 
-export async function setMyStatusMessage(message: string, statusIcon?: string | null, clearAt?: number | null): Promise<void> {
+export async function setMyStatusMessage(
+  message: string,
+  statusIcon?: string | null,
+  clearAt?: number | null,
+): Promise<void> {
   await api.put('/my-status/message', { message, statusIcon, clearAt });
 }
 
@@ -215,17 +248,19 @@ export async function clearMyStatusMessage(): Promise<void> {
 }
 
 // Compartilhamentos agrupados por tipo (cada item tem o mesmo formato de mensagem)
-export type TalkShareOverview = Partial<Record<
-  'media' | 'file' | 'voice' | 'audio' | 'location' | 'deckcard' | 'other',
-  TalkMessage[]
->>;
+export type TalkShareOverview = Partial<
+  Record<'media' | 'file' | 'voice' | 'audio' | 'location' | 'deckcard' | 'other', TalkMessage[]>
+>;
 
 export async function fetchRoomShares(token: string): Promise<TalkShareOverview> {
   const { data } = await api.get<TalkShareOverview>(`/rooms/${token}/shares`);
   return data;
 }
 
-export async function fetchRoomSharesByType(token: string, objectType: string): Promise<TalkMessage[]> {
+export async function fetchRoomSharesByType(
+  token: string,
+  objectType: string,
+): Promise<TalkMessage[]> {
   const { data } = await api.get<TalkMessage[]>(`/rooms/${token}/shares/${objectType}`);
   return data;
 }
@@ -238,7 +273,9 @@ export interface TalkSearchResult {
 }
 
 export async function searchMessages(token: string, term: string): Promise<TalkSearchResult[]> {
-  const { data } = await api.get<TalkSearchResult[]>(`/rooms/${token}/search`, { params: { term } });
+  const { data } = await api.get<TalkSearchResult[]>(`/rooms/${token}/search`, {
+    params: { term },
+  });
   return data;
 }
 
@@ -252,7 +289,11 @@ export async function setRoomDescription(token: string, description: string): Pr
   await api.put(`/rooms/${token}/description`, { description });
 }
 
-export async function addParticipant(token: string, userId: string, source = 'users'): Promise<void> {
+export async function addParticipant(
+  token: string,
+  userId: string,
+  source = 'users',
+): Promise<void> {
   await api.post(`/rooms/${token}/participants`, { newParticipant: userId, source });
 }
 
@@ -282,16 +323,19 @@ export async function uploadRoomAvatar(token: string, file: File): Promise<void>
   });
 }
 
-export async function initLoginFlow(ncUrl: string): Promise<{ loginUrl: string; pollEndpoint: string; pollToken: string }> {
+export async function initLoginFlow(
+  ncUrl: string,
+): Promise<{ loginUrl: string; pollEndpoint: string; pollToken: string }> {
   const { data } = await axios.post('/api/talk/login-flow/init', { url: ncUrl });
   return data;
 }
 
-export type LoginFlowResult =
-  | { done: false }
-  | { done: true; server: string; user: string };
+export type LoginFlowResult = { done: false } | { done: true; server: string; user: string };
 
-export async function pollLoginFlow(pollEndpoint: string, pollToken: string): Promise<LoginFlowResult> {
+export async function pollLoginFlow(
+  pollEndpoint: string,
+  pollToken: string,
+): Promise<LoginFlowResult> {
   const { data } = await axios.post('/api/talk/login-flow/poll', { pollEndpoint, pollToken });
   return data;
 }
@@ -333,7 +377,7 @@ export async function uploadFileToTalk(
 export function resolveMessageText(msg: TalkMessage): string {
   const fileParam =
     msg.messageParameters?.file ??
-    Object.values(msg.messageParameters ?? {}).find(p => p.type === 'file') ??
+    Object.values(msg.messageParameters ?? {}).find((p) => p.type === 'file') ??
     null;
   if (msg.message === '{file}' || fileParam) {
     return fileParam?.name ? `📎 ${fileParam.name}` : '📎 Arquivo';

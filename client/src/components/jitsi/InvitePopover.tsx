@@ -1,7 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Send, Check, Loader2, Users, User as UserIcon } from 'lucide-react';
-import { fetchRooms, searchNCUsers, createRoom, sendMessage, type TalkRoom, type NCUser } from '../../api/talk';
+import {
+  fetchRooms,
+  searchNCUsers,
+  createRoom,
+  sendMessage,
+  type TalkRoom,
+  type NCUser,
+} from '../../api/talk';
 import { getJitsiDomain } from '../../utils/jitsiConfig';
 
 interface Props {
@@ -42,13 +49,19 @@ export function InvitePopover({ room, title, coords, onClose }: Props) {
 
   // Carrega conversas recentes ao abrir (filtra tokens/UUID e mantém as 8 reais).
   useEffect(() => {
-    fetchRooms().then(rs => setRooms(rs.filter(isRealRoom).slice(0, 8))).catch(() => {});
+    fetchRooms()
+      .then((rs) => setRooms(rs.filter(isRealRoom).slice(0, 8)))
+      .catch(() => {});
   }, []);
 
   // Busca usuários conforme digita (debounce).
   useEffect(() => {
     const q = search.trim();
-    if (q.length < 2) { setUsers([]); setLoadingUsers(false); return; }
+    if (q.length < 2) {
+      setUsers([]);
+      setLoadingUsers(false);
+      return;
+    }
     setLoadingUsers(true);
     const t = setTimeout(() => {
       searchNCUsers(q)
@@ -75,19 +88,18 @@ export function InvitePopover({ room, title, coords, onClose }: Props) {
   };
 
   const sendToRoom = (r: TalkRoom) => send(`room-${r.token}`, async () => r.token);
-  const sendToUser = (u: NCUser) => send(`user-${u.id}`, async () => {
-    const dm = await createRoom(1, u.id); // 1 = conversa 1:1
-    return dm.token;
-  });
+  const sendToUser = (u: NCUser) =>
+    send(`user-${u.id}`, async () => {
+      const dm = await createRoom(1, u.id); // 1 = conversa 1:1
+      return dm.token;
+    });
 
   const q = norm(search.trim());
-  const filteredRooms = q
-    ? rooms.filter(r => norm(r.displayName).includes(q))
-    : rooms;
+  const filteredRooms = q ? rooms.filter((r) => norm(r.displayName).includes(q)) : rooms;
 
   // Evita listar em "Pessoas" alguém que já apareceu em "Conversas" (DM existente).
-  const roomNames = new Set(filteredRooms.map(r => norm(r.displayName)));
-  const filteredUsers = users.filter(u => !roomNames.has(norm(u.label)));
+  const roomNames = new Set(filteredRooms.map((r) => norm(r.displayName)));
+  const filteredUsers = users.filter((u) => !roomNames.has(norm(u.label)));
 
   return createPortal(
     <>
@@ -95,16 +107,18 @@ export function InvitePopover({ room, title, coords, onClose }: Props) {
       <div
         className="fixed z-[101] w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl flex flex-col overflow-hidden"
         style={{ top: coords.top, left: coords.left, maxHeight: 360 }}
-        onPointerDown={e => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="px-3 pt-3 pb-2 border-b border-slate-100 dark:border-slate-800">
-          <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-2">Convidar para a reunião</p>
+          <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-2">
+            Convidar para a reunião
+          </p>
           <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg px-2">
             <Search size={13} className="text-slate-400 flex-shrink-0" />
             <input
               autoFocus
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar pessoa ou conversa…"
               className="w-full bg-transparent text-sm py-1.5 focus:outline-none text-slate-700 dark:text-slate-200"
             />
@@ -115,8 +129,10 @@ export function InvitePopover({ room, title, coords, onClose }: Props) {
           {/* Conversas */}
           {filteredRooms.length > 0 && (
             <>
-              <p className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Conversas</p>
-              {filteredRooms.map(r => {
+              <p className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+                Conversas
+              </p>
+              {filteredRooms.map((r) => {
                 const key = `room-${r.token}`;
                 return (
                   <button
@@ -125,9 +141,19 @@ export function InvitePopover({ room, title, coords, onClose }: Props) {
                     disabled={!!sending}
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
                   >
-                    {r.type === 1 ? <UserIcon size={13} className="text-slate-400 flex-shrink-0" /> : <Users size={13} className="text-slate-400 flex-shrink-0" />}
+                    {r.type === 1 ? (
+                      <UserIcon size={13} className="text-slate-400 flex-shrink-0" />
+                    ) : (
+                      <Users size={13} className="text-slate-400 flex-shrink-0" />
+                    )}
                     <span className="flex-1 text-left truncate">{r.displayName}</span>
-                    {sentTo === key ? <Check size={14} className="text-green-600" /> : sending === key ? <Loader2 size={14} className="animate-spin text-slate-400" /> : <Send size={13} className="text-slate-300" />}
+                    {sentTo === key ? (
+                      <Check size={14} className="text-green-600" />
+                    ) : sending === key ? (
+                      <Loader2 size={14} className="animate-spin text-slate-400" />
+                    ) : (
+                      <Send size={13} className="text-slate-300" />
+                    )}
                   </button>
                 );
               })}
@@ -136,12 +162,16 @@ export function InvitePopover({ room, title, coords, onClose }: Props) {
 
           {/* Pessoas (resultado da busca) */}
           {loadingUsers && (
-            <p className="px-3 py-2 text-xs text-slate-400 flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Buscando…</p>
+            <p className="px-3 py-2 text-xs text-slate-400 flex items-center gap-1.5">
+              <Loader2 size={12} className="animate-spin" /> Buscando…
+            </p>
           )}
           {filteredUsers.length > 0 && (
             <>
-              <p className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Pessoas</p>
-              {filteredUsers.map(u => {
+              <p className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+                Pessoas
+              </p>
+              {filteredUsers.map((u) => {
                 const key = `user-${u.id}`;
                 return (
                   <button
@@ -152,7 +182,13 @@ export function InvitePopover({ room, title, coords, onClose }: Props) {
                   >
                     <UserIcon size={13} className="text-slate-400 flex-shrink-0" />
                     <span className="flex-1 text-left truncate">{u.label}</span>
-                    {sentTo === key ? <Check size={14} className="text-green-600" /> : sending === key ? <Loader2 size={14} className="animate-spin text-slate-400" /> : <Send size={13} className="text-slate-300" />}
+                    {sentTo === key ? (
+                      <Check size={14} className="text-green-600" />
+                    ) : sending === key ? (
+                      <Loader2 size={14} className="animate-spin text-slate-400" />
+                    ) : (
+                      <Send size={13} className="text-slate-300" />
+                    )}
                   </button>
                 );
               })}
@@ -167,7 +203,9 @@ export function InvitePopover({ room, title, coords, onClose }: Props) {
         </div>
 
         {error && (
-          <div className="px-3 py-2 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 border-t border-red-100 dark:border-red-900/30">{error}</div>
+          <div className="px-3 py-2 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 border-t border-red-100 dark:border-red-900/30">
+            {error}
+          </div>
         )}
       </div>
     </>,

@@ -49,11 +49,12 @@ export function usePushNotifications() {
   useEffect(() => {
     if (permission !== 'granted') return;
 
-    subscribeNow().catch(err => console.error('[push] falha ao inscrever:', err));
+    subscribeNow().catch((err) => console.error('[push] falha ao inscrever:', err));
 
     // Re-inscreve quando o usuário muda as preferências do Talk, para o servidor
     // passar a respeitar o filtro de ruído / tempo real sem precisar recarregar.
-    const onPrefsChange = () => subscribeNow().catch(err => console.error('[push] re-inscrição falhou:', err));
+    const onPrefsChange = () =>
+      subscribeNow().catch((err) => console.error('[push] re-inscrição falhou:', err));
     window.addEventListener(TALK_PREFS_EVENT, onPrefsChange);
     return () => window.removeEventListener(TALK_PREFS_EVENT, onPrefsChange);
   }, [permission]);

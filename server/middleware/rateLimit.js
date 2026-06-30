@@ -20,7 +20,10 @@ function createRateLimiter({ windowMs, max, message } = {}) {
     const key = keyOf(req);
     const now = Date.now();
     let e = hits.get(key);
-    if (!e || now > e.resetAt) { e = { count: 0, resetAt: now + windowMs }; hits.set(key, e); }
+    if (!e || now > e.resetAt) {
+      e = { count: 0, resetAt: now + windowMs };
+      hits.set(key, e);
+    }
     if (e.count >= max) {
       res.setHeader('Retry-After', String(Math.ceil((e.resetAt - now) / 1000)));
       return res.status(429).json({ error: message });
@@ -29,7 +32,9 @@ function createRateLimiter({ windowMs, max, message } = {}) {
     next();
   };
 
-  middleware.reset = (req) => { hits.delete(keyOf(req)); };
+  middleware.reset = (req) => {
+    hits.delete(keyOf(req));
+  };
   return middleware;
 }
 

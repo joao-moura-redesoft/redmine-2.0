@@ -8,8 +8,8 @@ const api = axios.create({
   baseURL: URL,
   headers: {
     'X-Redmine-API-Key': KEY,
-    'Content-Type': 'application/json'
-  }
+    'Content-Type': 'application/json',
+  },
 });
 
 const LONG_NOTES = `h1. Estimativa Técnica: Tarefa #89521: Controle de Validade de Acesso
@@ -43,20 +43,22 @@ h3. 1.2 Infraestrutura de Rotina Agendada
 *Como registrar um novo job:* criar uma classe que implementa @AgendadorTipoTarefaInterface@ com @getCodigo()@ único. Inserir um registro na tabela @AGENDADOR@ com schedule desejado (ex.: diário às 00:00). O daemon já faz o resto. Existe \\~20 tarefas cadastradas como referência.`;
 
 async function test() {
-  console.log("\\nTeste long notes: tudo (notes longa + number + YYYY-MM-DD)");
+  console.log('\\nTeste long notes: tudo (notes longa + number + YYYY-MM-DD)');
   try {
     const res = await api.put(`/issues/${ISSUE_ID}.json`, {
       issue: {
         notes: LONG_NOTES,
         estimated_hours: 26,
-        custom_fields: [
-          { id: 228, value: "2026-08-08" }
-        ]
-      }
+        custom_fields: [{ id: 228, value: '2026-08-08' }],
+      },
     });
-    console.log("Teste long notes sucesso:", res.status);
+    console.log('Teste long notes sucesso:', res.status);
   } catch (err) {
-    console.log("Teste long notes falhou:", err.response?.status, err.response?.data || err.message);
+    console.log(
+      'Teste long notes falhou:',
+      err.response?.status,
+      err.response?.data || err.message,
+    );
   }
 }
 

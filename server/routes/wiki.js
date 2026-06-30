@@ -12,7 +12,8 @@ router.get('/wiki/search', async (req, res) => {
     if (!q) return res.json({ results: [] });
     res.json({ results: await doku.searchPages(req, q) });
   } catch (err) {
-    if (err.code === 'WIKI_NO_CREDS') return res.status(401).json({ error: 'credentials_required' });
+    if (err.code === 'WIKI_NO_CREDS')
+      return res.status(401).json({ error: 'credentials_required' });
     console.error('[wiki/search]', err.message);
     res.status(500).json({ error: err.message });
   }
@@ -26,7 +27,8 @@ router.get('/wiki/page', async (req, res) => {
     const html = await doku.getPageHTML(req, id);
     res.json({ id, html });
   } catch (err) {
-    if (err.code === 'WIKI_NO_CREDS') return res.status(401).json({ error: 'credentials_required' });
+    if (err.code === 'WIKI_NO_CREDS')
+      return res.status(401).json({ error: 'credentials_required' });
     console.error('[wiki/page]', err.message);
     res.status(500).json({ error: err.message });
   }
@@ -39,7 +41,11 @@ router.get('/wiki/media', async (req, res) => {
     // Allowlist: só busca mídia do host configurado do DokuWiki (evita SSRF —
     // o cliente não controla mais o host, então é sempre o host corporativo).
     let parsed;
-    try { parsed = new URL(url); } catch { return res.status(400).end(); }
+    try {
+      parsed = new URL(url);
+    } catch {
+      return res.status(400).end();
+    }
     if (parsed.protocol !== 'https:' || parsed.hostname !== doku.DEFAULT_HOST) {
       return res.status(400).end();
     }

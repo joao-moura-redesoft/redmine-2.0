@@ -14,8 +14,8 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       staleTime: 30 * 1000,
-    }
-  }
+    },
+  },
 });
 
 createRoot(document.getElementById('root')!).render(
@@ -27,5 +27,5 @@ createRoot(document.getElementById('root')!).render(
         </JitsiProvider>
       </QueryClientProvider>
     </BrowserRouter>
-  </StrictMode>
+  </StrictMode>,
 );

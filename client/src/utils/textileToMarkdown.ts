@@ -15,7 +15,7 @@ function splitCells(line: string): string[] {
   let t = line.trim();
   if (t.startsWith('|')) t = t.slice(1);
   if (t.endsWith('|')) t = t.slice(0, -1);
-  return t.split('|').map(c => c.trim());
+  return t.split('|').map((c) => c.trim());
 }
 
 // Remove o modificador de célula Textile do início (`_.` cabeçalho, `<. >. =.`
@@ -31,12 +31,18 @@ function convertTextileTables(s: string): string {
   const lines = s.split('\n');
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
-    if (!TEXTILE_ROW_RE.test(lines[i])) { out.push(lines[i]); continue; }
+    if (!TEXTILE_ROW_RE.test(lines[i])) {
+      out.push(lines[i]);
+      continue;
+    }
     const block: string[] = [];
-    while (i < lines.length && TEXTILE_ROW_RE.test(lines[i])) { block.push(lines[i]); i++; }
+    while (i < lines.length && TEXTILE_ROW_RE.test(lines[i])) {
+      block.push(lines[i]);
+      i++;
+    }
     i--; // o for() volta a incrementar
     const rows = block.map(splitCells);
-    const ncol = Math.max(...rows.map(r => r.length));
+    const ncol = Math.max(...rows.map((r) => r.length));
     const pad = (cells: string[]) => {
       const c = cells.map(stripCellMod);
       while (c.length < ncol) c.push('');
@@ -71,18 +77,21 @@ export function textileToMarkdown(tx: string): string {
   s = convertTextileTables(s);
 
   // 3) Transformações por linha (cabeçalhos, citações, listas)
-  s = s.split('\n').map(line => {
-    const h = line.match(/^h([1-6])\.\s+(.*)$/);
-    if (h) return `${'#'.repeat(+h[1])} ${h[2]}`;
-    if (/^bq\.\s?/.test(line)) return line.replace(/^bq\.\s?/, '> ');
-    // Lista não ordenada: * / ** / *** → -, com indentação por nível
-    const ul = line.match(/^(\*+)\s+(.*)$/);
-    if (ul) return `${'  '.repeat(ul[1].length - 1)}- ${ul[2]}`;
-    // Lista ordenada: # / ## → 1. (marked renumera sequencialmente)
-    const ol = line.match(/^(#+)\s+(.*)$/);
-    if (ol) return `${'  '.repeat(ol[1].length - 1)}1. ${ol[2]}`;
-    return line;
-  }).join('\n');
+  s = s
+    .split('\n')
+    .map((line) => {
+      const h = line.match(/^h([1-6])\.\s+(.*)$/);
+      if (h) return `${'#'.repeat(+h[1])} ${h[2]}`;
+      if (/^bq\.\s?/.test(line)) return line.replace(/^bq\.\s?/, '> ');
+      // Lista não ordenada: * / ** / *** → -, com indentação por nível
+      const ul = line.match(/^(\*+)\s+(.*)$/);
+      if (ul) return `${'  '.repeat(ul[1].length - 1)}- ${ul[2]}`;
+      // Lista ordenada: # / ## → 1. (marked renumera sequencialmente)
+      const ol = line.match(/^(#+)\s+(.*)$/);
+      if (ol) return `${'  '.repeat(ol[1].length - 1)}1. ${ol[2]}`;
+      return line;
+    })
+    .join('\n');
 
   // 4) Links "texto":url -> [texto](url)
   s = s.replace(/"([^"]+)":(\S+)/g, '[$1]($2)');

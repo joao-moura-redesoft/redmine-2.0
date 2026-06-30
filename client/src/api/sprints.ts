@@ -6,17 +6,18 @@ export interface Sprint {
   id: string;
   name: string;
   goal: string;
-  startDate: string | null;   // YYYY-MM-DD
-  endDate: string | null;     // YYYY-MM-DD
+  startDate: string | null; // YYYY-MM-DD
+  endDate: string | null; // YYYY-MM-DD
   status: SprintStatus;
-  boardId: string | null;     // "projeto" pessoal ao qual pertence (ou null)
+  boardId: string | null; // "projeto" pessoal ao qual pertence (ou null)
   issueIds: number[];
   createdAt: number;
   updatedAt: number;
 }
 
-export type SprintPatch = Partial<Pick<Sprint,
-  'name' | 'goal' | 'startDate' | 'endDate' | 'status' | 'boardId' | 'issueIds'>>;
+export type SprintPatch = Partial<
+  Pick<Sprint, 'name' | 'goal' | 'startDate' | 'endDate' | 'status' | 'boardId' | 'issueIds'>
+>;
 
 // Id gerado no cliente para criação otimista (sem flicker nem troca de id).
 export const newSprintId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

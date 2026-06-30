@@ -32,13 +32,17 @@ function read(): Store {
 
 let store = read();
 const listeners = new Set<() => void>();
-const emit = () => listeners.forEach(l => l());
+const emit = () => listeners.forEach((l) => l());
 
 function persist() {
   // Mantém só os últimos 7 dias para não crescer indefinidamente.
   const keys = Object.keys(store).sort().slice(-7);
-  store = Object.fromEntries(keys.map(k => [k, store[k]]));
-  try { localStorage.setItem(KEY, JSON.stringify(store)); } catch { /* quota */ }
+  store = Object.fromEntries(keys.map((k) => [k, store[k]]));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(store));
+  } catch {
+    /* quota */
+  }
   emit();
 }
 
@@ -56,13 +60,19 @@ let cachedSnapshot: DayPlan = { ids: [], done: [] };
 // useSyncExternalStore exige snapshot estável (mesma referência se nada mudou).
 function snapshot(): DayPlan {
   const key = todayKey() + '|' + JSON.stringify(store[todayKey()] ?? {});
-  if (key !== cachedKey) { cachedKey = key; cachedSnapshot = plan(); }
+  if (key !== cachedKey) {
+    cachedKey = key;
+    cachedSnapshot = plan();
+  }
   return cachedSnapshot;
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('storage', e => {
-    if (e.key === KEY) { store = read(); emit(); }
+  window.addEventListener('storage', (e) => {
+    if (e.key === KEY) {
+      store = read();
+      emit();
+    }
   });
 }
 
@@ -76,11 +86,11 @@ export const myDay = {
   },
   remove: (id: number) => {
     const p = plan();
-    setPlan({ ids: p.ids.filter(x => x !== id), done: p.done.filter(x => x !== id) });
+    setPlan({ ids: p.ids.filter((x) => x !== id), done: p.done.filter((x) => x !== id) });
   },
   toggleDone: (id: number) => {
     const p = plan();
-    const done = p.done.includes(id) ? p.done.filter(x => x !== id) : [...p.done, id];
+    const done = p.done.includes(id) ? p.done.filter((x) => x !== id) : [...p.done, id];
     setPlan({ ...p, done });
   },
   move: (id: number, dir: -1 | 1) => {
@@ -94,11 +104,13 @@ export const myDay = {
   },
   clearDone: () => {
     const p = plan();
-    setPlan({ ids: p.ids.filter(x => !p.done.includes(x)), done: [] });
+    setPlan({ ids: p.ids.filter((x) => !p.done.includes(x)), done: [] });
   },
   subscribe: (cb: () => void) => {
     listeners.add(cb);
-    return () => { listeners.delete(cb); };
+    return () => {
+      listeners.delete(cb);
+    };
   },
 };
 

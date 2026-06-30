@@ -1,7 +1,17 @@
 import { useState, useRef } from 'react';
 import DOMPurify from 'dompurify';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, Search, ExternalLink, X, ChevronRight, Loader2, AlertCircle, FileText, KeyRound } from 'lucide-react';
+import {
+  BookOpen,
+  Search,
+  ExternalLink,
+  X,
+  ChevronRight,
+  Loader2,
+  AlertCircle,
+  FileText,
+  KeyRound,
+} from 'lucide-react';
 import { wikiApi, isWikiAvailable } from '../api/wiki';
 import type { WikiSearchResult } from '../api/wiki';
 import { formatDistanceToNow } from 'date-fns';
@@ -33,7 +43,10 @@ function WikiPageReader({ id, onClose }: { id: string; onClose: () => void }) {
         >
           <ExternalLink size={13} />
         </a>
-        <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+        <button
+          onClick={onClose}
+          className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+        >
           <X size={14} />
         </button>
       </div>
@@ -50,7 +63,10 @@ function WikiPageReader({ id, onClose }: { id: string; onClose: () => void }) {
           <div className="flex items-center gap-2 m-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm">
             <AlertCircle size={14} />
             Não foi possível carregar a página. Tente abrir no&nbsp;
-            <a href={wikiApi.pageUrl(id)} target="_blank" rel="noreferrer" className="underline">DokuWiki</a>.
+            <a href={wikiApi.pageUrl(id)} target="_blank" rel="noreferrer" className="underline">
+              DokuWiki
+            </a>
+            .
           </div>
         )}
         {data && (
@@ -59,10 +75,16 @@ function WikiPageReader({ id, onClose }: { id: string; onClose: () => void }) {
             // HTML vem do DokuWiki (conteúdo de terceiros) — sanitiza no cliente
             // contra XSS armazenado (onerror=, javascript:, etc.). O servidor só
             // tira <script>/<style> via regex, o que é insuficiente sozinho.
-            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(data.html, { ADD_ATTR: ['target'] }) }}
-            onClick={e => {
+            dangerouslySetInnerHTML={{
+              __html: DOMPurify.sanitize(data.html, { ADD_ATTR: ['target'] }),
+            }}
+            onClick={(e) => {
               const a = (e.target as HTMLElement).closest('a');
-              if (a) { e.preventDefault(); const href = a.getAttribute('href'); if (href) window.open(href, '_blank', 'noreferrer'); }
+              if (a) {
+                e.preventDefault();
+                const href = a.getAttribute('href');
+                if (href) window.open(href, '_blank', 'noreferrer');
+              }
             }}
           />
         )}
@@ -73,13 +95,19 @@ function WikiPageReader({ id, onClose }: { id: string; onClose: () => void }) {
 
 // --- PageRow ---
 
-function PageRow({ page, selected, onClick }: {
+function PageRow({
+  page,
+  selected,
+  onClick,
+}: {
   page: WikiSearchResult;
   selected: boolean;
   onClick: () => void;
 }) {
   const snippet = 'snippet' in page ? page.snippet : undefined;
-  const time = page.mtime ? formatDistanceToNow(new Date(page.mtime * 1000), { addSuffix: true, locale: ptBR }) : '';
+  const time = page.mtime
+    ? formatDistanceToNow(new Date(page.mtime * 1000), { addSuffix: true, locale: ptBR })
+    : '';
 
   return (
     <button
@@ -89,18 +117,27 @@ function PageRow({ page, selected, onClick }: {
       <div className="flex items-start gap-2">
         <FileText size={13} className="mt-0.5 flex-shrink-0 text-slate-400" />
         <div className="flex-1 min-w-0">
-          <p className={`text-sm font-medium truncate ${selected ? 'text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-200'}`}>
+          <p
+            className={`text-sm font-medium truncate ${selected ? 'text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-200'}`}
+          >
             {page.title || page.id}
           </p>
           {page.namespace && (
-            <p className="text-[11px] text-slate-400 truncate">{page.namespace.replace(/:/g, ' / ')}</p>
+            <p className="text-[11px] text-slate-400 truncate">
+              {page.namespace.replace(/:/g, ' / ')}
+            </p>
           )}
           {snippet && (
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{snippet}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
+              {snippet}
+            </p>
           )}
           {time && <p className="text-[10px] text-slate-400 mt-0.5">{time}</p>}
         </div>
-        <ChevronRight size={13} className="flex-shrink-0 mt-0.5 text-slate-300 group-hover:text-slate-500 dark:group-hover:text-slate-400 transition-colors" />
+        <ChevronRight
+          size={13}
+          className="flex-shrink-0 mt-0.5 text-slate-300 group-hover:text-slate-500 dark:group-hover:text-slate-400 transition-colors"
+        />
       </div>
     </button>
   );
@@ -148,7 +185,10 @@ export function WikiView() {
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter') handleSearch();
-    if (e.key === 'Escape') { setSearchTerm(''); setActiveSearch(''); }
+    if (e.key === 'Escape') {
+      setSearchTerm('');
+      setActiveSearch('');
+    }
   }
 
   function clearSearch() {
@@ -173,19 +213,25 @@ export function WikiView() {
         <div className={`flex flex-col min-h-0 ${selectedId ? 'w-80 flex-shrink-0' : 'flex-1'}`}>
           {/* Search bar */}
           <div className="relative mb-3">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+            />
             <input
               ref={inputRef}
               autoFocus
               type="text"
               placeholder="Buscar páginas da wiki… (Enter)"
               value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+              onChange={(e) => setSearchTerm(e.target.value)}
               onKeyDown={handleKeyDown}
               className="w-full pl-8 pr-8 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {(searchTerm || activeSearch) && (
-              <button onClick={clearSearch} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+              <button
+                onClick={clearSearch}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
                 <X size={14} />
               </button>
             )}
@@ -195,7 +241,9 @@ export function WikiView() {
           {hasSearch && (
             <div className="flex items-center justify-between mb-2 px-0.5">
               <span className="text-xs text-slate-400">
-                {loading ? 'Buscando…' : `${items.length} resultado${items.length !== 1 ? 's' : ''} para "${activeSearch}"`}
+                {loading
+                  ? 'Buscando…'
+                  : `${items.length} resultado${items.length !== 1 ? 's' : ''} para "${activeSearch}"`}
               </span>
               <button onClick={clearSearch} className="text-xs text-blue-500 hover:text-blue-600">
                 Limpar
@@ -228,7 +276,7 @@ export function WikiView() {
                 <p className="text-sm">Nenhum resultado.</p>
               </div>
             )}
-            {items.map(page => (
+            {items.map((page) => (
               <PageRow
                 key={page.id}
                 page={page}
@@ -286,8 +334,13 @@ export function WikiLinkSearch({
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
           <BookOpen size={15} className="text-slate-400" />
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex-1">Vincular página da Wiki</span>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex-1">
+            Vincular página da Wiki
+          </span>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+          >
             <X size={16} />
           </button>
         </div>
@@ -302,13 +355,16 @@ export function WikiLinkSearch({
         {/* Search */}
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
           <div className="relative">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Search
+              size={13}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+            />
             <input
               autoFocus
               type="text"
               placeholder="Buscar páginas… (Enter)"
               value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+              onChange={(e) => setSearchTerm(e.target.value)}
               onKeyDown={handleKeyDown}
               className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -333,7 +389,7 @@ export function WikiLinkSearch({
               Nenhum resultado.
             </div>
           )}
-          {items.map(page => (
+          {items.map((page) => (
             <button
               key={page.id}
               onClick={() => onSelect(page.id, page.title || page.id, page.namespace)}
@@ -346,7 +402,9 @@ export function WikiLinkSearch({
                     {page.title || page.id}
                   </p>
                   {page.namespace && (
-                    <p className="text-[11px] text-slate-400">{page.namespace.replace(/:/g, ' / ')}</p>
+                    <p className="text-[11px] text-slate-400">
+                      {page.namespace.replace(/:/g, ' / ')}
+                    </p>
                   )}
                 </div>
               </div>

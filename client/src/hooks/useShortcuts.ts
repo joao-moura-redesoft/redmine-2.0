@@ -8,12 +8,7 @@ interface Options {
   modalOpen: boolean;
 }
 
-export function useShortcuts({
-  onOpenIssue,
-  onOpenPalette,
-  paletteOpen,
-  modalOpen,
-}: Options) {
+export function useShortcuts({ onOpenIssue, onOpenPalette, paletteOpen, modalOpen }: Options) {
   const navigate = useNavigate();
   const location = useLocation();
   const [focusedIssueId, setFocusedIssueId] = useState<number | null>(null);
@@ -23,10 +18,14 @@ export function useShortcuts({
 
   // Stable refs for callbacks — avoids stale closures without re-registering
   const cbRef = useRef({ navigate, onOpenIssue, onOpenPalette });
-  useEffect(() => { cbRef.current = { navigate, onOpenIssue, onOpenPalette }; });
+  useEffect(() => {
+    cbRef.current = { navigate, onOpenIssue, onOpenPalette };
+  });
 
   // Reset focus whenever the active route changes
-  useEffect(() => { setFocusedIssueId(null); }, [location.pathname]);
+  useEffect(() => {
+    setFocusedIssueId(null);
+  }, [location.pathname]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -46,24 +45,35 @@ export function useShortcuts({
       if (isEditing || paletteOpen || modalOpen) return;
 
       // Tab shortcuts: 1 → Dashboard, 2 → Kanban, 3 → Pessoas
-      if (e.key === '1') { cbRef.current.navigate('/dashboard'); return; }
-      if (e.key === '2') { cbRef.current.navigate('/kanban'); return; }
-      if (e.key === '3') { cbRef.current.navigate('/people'); return; }
+      if (e.key === '1') {
+        cbRef.current.navigate('/dashboard');
+        return;
+      }
+      if (e.key === '2') {
+        cbRef.current.navigate('/kanban');
+        return;
+      }
+      if (e.key === '3') {
+        cbRef.current.navigate('/people');
+        return;
+      }
 
       // Card navigation: J (down) / K (up)
       if (e.key === 'j' || e.key === 'k') {
         e.preventDefault();
-        const cards = Array.from(
-          document.querySelectorAll<HTMLElement>('[data-issue-id]'),
-        );
+        const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-issue-id]'));
         if (!cards.length) return;
-        const ids = cards.map(c => parseInt(c.dataset.issueId!));
+        const ids = cards.map((c) => parseInt(c.dataset.issueId!));
         const current = focusedRef.current;
         const currentIdx = current != null ? ids.indexOf(current) : -1;
         const nextIdx =
           e.key === 'j'
-            ? currentIdx < ids.length - 1 ? currentIdx + 1 : 0
-            : currentIdx > 0 ? currentIdx - 1 : ids.length - 1;
+            ? currentIdx < ids.length - 1
+              ? currentIdx + 1
+              : 0
+            : currentIdx > 0
+              ? currentIdx - 1
+              : ids.length - 1;
         setFocusedIssueId(ids[nextIdx]);
         cards[nextIdx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         return;

@@ -6,15 +6,20 @@
 // Decodifica entidades HTML comuns nos rótulos/opções.
 function decodeEntities(s) {
   return s
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
     .trim();
 }
 
 function cleanLabel(raw) {
   // remove tags internas (ex.: <span class="required">*</span>) e o "*" final
   return decodeEntities(raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '))
-    .replace(/\s*\*\s*$/, '').trim();
+    .replace(/\s*\*\s*$/, '')
+    .trim();
 }
 
 // Mapeia o id do elemento (issue_xxx) para o parâmetro de PUT do Redmine.
@@ -28,8 +33,8 @@ function paramFromId(id) {
 
 function parseOptions(selectHtml) {
   return [...selectHtml.matchAll(/<option[^>]*value="([^"]*)"[^>]*>([\s\S]*?)<\/option>/g)]
-    .map(m => ({ value: m[1], label: cleanLabel(m[2]) }))
-    .filter(o => o.value !== ''); // descarta o "--- Selecione ---"
+    .map((m) => ({ value: m[1], label: cleanLabel(m[2]) }))
+    .filter((o) => o.value !== ''); // descarta o "--- Selecione ---"
 }
 
 // Recebe o HTML da página show e devolve a lista de campos do formulário.
@@ -42,7 +47,9 @@ function parseEditFormSchema(html) {
 
   // 1) Coleta os rótulos por id de campo: <label for="issue_xxx">Rótulo</label>
   const labels = new Map();
-  for (const m of scope.matchAll(/<label[^>]*for="(issue_[a-z0-9_]+)"[^>]*>([\s\S]*?)<\/label>/gi)) {
+  for (const m of scope.matchAll(
+    /<label[^>]*for="(issue_[a-z0-9_]+)"[^>]*>([\s\S]*?)<\/label>/gi,
+  )) {
     labels.set(m[1], cleanLabel(m[2]));
   }
 
@@ -64,7 +71,8 @@ function parseEditFormSchema(html) {
     if (sel) {
       type = 'select';
       options = parseOptions(sel[1]);
-      if (new RegExp(`<select[^>]*id="${id}"[^>]*\\bmultiple\\b`, 'i').test(scope)) type = 'multiselect';
+      if (new RegExp(`<select[^>]*id="${id}"[^>]*\\bmultiple\\b`, 'i').test(scope))
+        type = 'multiselect';
     } else if (txa) {
       type = 'textarea';
     } else if (inp) {

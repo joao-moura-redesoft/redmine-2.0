@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export interface RecordedPcm { samples: Float32Array; sampleRate: number; }
+export interface RecordedPcm {
+  samples: Float32Array;
+  sampleRate: number;
+}
 
 // Grava áudio capturando PCM direto via Web Audio (ScriptProcessor). Isso evita o
 // passo frágil de decodificar o webm do MediaRecorder — entregamos amostras prontas
@@ -18,19 +21,35 @@ export function useVoiceRecorder() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const cleanup = () => {
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    try { procRef.current?.disconnect(); } catch { /* ignore */ }
-    try { sourceRef.current?.disconnect(); } catch { /* ignore */ }
-    streamRef.current?.getTracks().forEach(t => t.stop());
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    try {
+      procRef.current?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    try {
+      sourceRef.current?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
     ctxRef.current?.close().catch(() => {});
-    procRef.current = null; sourceRef.current = null; streamRef.current = null; ctxRef.current = null;
+    procRef.current = null;
+    sourceRef.current = null;
+    streamRef.current = null;
+    ctxRef.current = null;
   };
 
   const start = useCallback(async (): Promise<boolean> => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AC =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const ctx = new AC();
       ctxRef.current = ctx;
       sampleRateRef.current = ctx.sampleRate;
@@ -55,7 +74,7 @@ export function useVoiceRecorder() {
 
       setRecording(true);
       setSeconds(0);
-      timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
+      timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
       return true;
     } catch {
       cleanup();
@@ -68,7 +87,10 @@ export function useVoiceRecorder() {
     if (!total) return null;
     const out = new Float32Array(total);
     let off = 0;
-    for (const c of chunksRef.current) { out.set(c, off); off += c.length; }
+    for (const c of chunksRef.current) {
+      out.set(c, off);
+      off += c.length;
+    }
     return { samples: out, sampleRate: sampleRateRef.current };
   };
 

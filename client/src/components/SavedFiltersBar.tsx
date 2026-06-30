@@ -50,14 +50,18 @@ export function SavedFiltersBar({ currentFilter, onApply }: Props) {
   };
 
   const projectLabel = (id?: number) =>
-    id ? (projects?.find(p => p.id === id)?.name ?? `Projeto ${id}`) : 'Todos';
+    id ? (projects?.find((p) => p.id === id)?.name ?? `Projeto ${id}`) : 'Todos';
 
   const filterSummary = (f: SavedFilter) => {
     const parts: string[] = [];
     if (f.projectId) parts.push(projectLabel(f.projectId));
     if (f.priorityFilter) parts.push(f.priorityFilter);
     if (f.alertFilter) parts.push(ALERT_LABELS[f.alertFilter] ?? f.alertFilter);
-    const sortLabels: Record<string, string> = { priority: 'Prioridade', due_date: 'Prazo', updated: 'Atualizado' };
+    const sortLabels: Record<string, string> = {
+      priority: 'Prioridade',
+      due_date: 'Prazo',
+      updated: 'Atualizado',
+    };
     if (f.sortBy !== 'priority') parts.push(sortLabels[f.sortBy]);
     return parts.join(' · ') || 'Geral';
   };
@@ -66,7 +70,7 @@ export function SavedFiltersBar({ currentFilter, onApply }: Props) {
     <div className="flex items-center gap-2 mb-3 flex-wrap">
       <Bookmark size={13} className="text-slate-400 flex-shrink-0" />
 
-      {filters.map(f => (
+      {filters.map((f) => (
         <button
           key={f.id}
           onClick={() => onApply(f)}
@@ -81,7 +85,7 @@ export function SavedFiltersBar({ currentFilter, onApply }: Props) {
           </span>
           <span
             role="button"
-            onClick={e => handleDelete(f.id, e)}
+            onClick={(e) => handleDelete(f.id, e)}
             className="ml-0.5 p-0.5 rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
           >
             <X size={10} />
@@ -94,10 +98,13 @@ export function SavedFiltersBar({ currentFilter, onApply }: Props) {
           <input
             autoFocus
             value={name}
-            onChange={e => setName(e.target.value)}
-            onKeyDown={e => {
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
               if (e.key === 'Enter') handleSave();
-              if (e.key === 'Escape') { setSaving(false); setName(''); }
+              if (e.key === 'Escape') {
+                setSaving(false);
+                setName('');
+              }
             }}
             placeholder="Nome do filtro…"
             className="text-xs border border-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 w-36"
@@ -110,7 +117,10 @@ export function SavedFiltersBar({ currentFilter, onApply }: Props) {
             Salvar
           </button>
           <button
-            onClick={() => { setSaving(false); setName(''); }}
+            onClick={() => {
+              setSaving(false);
+              setName('');
+            }}
             className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
           >
             Cancelar

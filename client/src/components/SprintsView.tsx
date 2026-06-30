@@ -1,12 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Folder, FolderPlus, CalendarRange, Loader2, ChevronDown } from 'lucide-react';
 import {
-  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, closestCorners,
-  type CollisionDetection, type DragStartEvent, type DragOverEvent, type DragEndEvent,
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCorners,
+  type CollisionDetection,
+  type DragStartEvent,
+  type DragOverEvent,
+  type DragEndEvent,
 } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
 import { useIssues, useIssuesByIds, useProjects, useStatuses } from '../hooks/useRedmine';
-import { useSprints, useCreateSprint, useUpdateSprint, useAddIssueToSprint, useReorderSprints } from '../hooks/useSprints';
+import {
+  useSprints,
+  useCreateSprint,
+  useUpdateSprint,
+  useAddIssueToSprint,
+  useReorderSprints,
+} from '../hooks/useSprints';
 import { useQueryClient } from '@tanstack/react-query';
 import { startOfWeek, addDays, format } from 'date-fns';
 import { useBoards, useCreateBoard } from '../hooks/useBoards';
@@ -19,7 +33,13 @@ import { BoardLane } from './sprints/BoardLane';
 import { IssueRow } from './sprints/IssueRow';
 import { SprintCardOverlay } from './sprints/SprintCard';
 import {
-  C_BACKLOG, issueDragId, parseIssueId, parseSprintId, isIssueDrag, isSprintDrag, issueContainerKey,
+  C_BACKLOG,
+  issueDragId,
+  parseIssueId,
+  parseSprintId,
+  isIssueDrag,
+  isSprintDrag,
+  issueContainerKey,
 } from './sprints/dnd';
 
 // Status terminais saem do backlog — backlog é trabalho a fazer. O conjunto de
@@ -34,7 +54,12 @@ function LaneSkeleton() {
     <div className="mb-5 animate-pulse">
       <div className="h-4 w-40 bg-slate-200 dark:bg-slate-700 rounded mb-3 ml-2" />
       <div className="flex gap-3 pl-4">
-        {[0, 1, 2].map(i => <div key={i} className="w-[300px] h-32 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700" />)}
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="w-[300px] h-32 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700"
+          />
+        ))}
       </div>
     </div>
   );
@@ -62,9 +87,13 @@ export function SprintsView({ onIssueClick }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]')); } catch { return new Set(); }
+    try {
+      return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]'));
+    } catch {
+      return new Set();
+    }
   });
-  
+
   const [planningWeek, setPlanningWeek] = useState(false);
   const [weekMenuOpen, setWeekMenuOpen] = useState(false);
   const qc = useQueryClient();
@@ -73,13 +102,19 @@ export function SprintsView({ onIssueClick }: Props) {
   const [issueItems, setIssueItems] = useState<Record<string, string[]>>({});
   const itemsRef = useRef<Record<string, string[]>>({});
   const syncSigRef = useRef('');
-  const dragSourceRef = useRef<string | null>(null);     // container de origem (issue)
-  const dragLaneRef = useRef<string | null>(null);       // raia de origem (sprint)
+  const dragSourceRef = useRef<string | null>(null); // container de origem (issue)
+  const dragLaneRef = useRef<string | null>(null); // raia de origem (sprint)
   const [activeDrag, setActiveDrag] = useState<ActiveDrag>(null);
 
-  const setItems = (next: Record<string, string[]>) => { itemsRef.current = next; setIssueItems(next); };
+  const setItems = (next: Record<string, string[]>) => {
+    itemsRef.current = next;
+    setIssueItems(next);
+  };
 
-  const closedStatusIds = useMemo(() => new Set(statuses.filter(s => s.is_closed).map(s => s.id)), [statuses]);
+  const closedStatusIds = useMemo(
+    () => new Set(statuses.filter((s) => s.is_closed).map((s) => s.id)),
+    [statuses],
+  );
 
   const assignedIds = useMemo(() => {
     const set = new Set<number>();
@@ -87,8 +122,11 @@ export function SprintsView({ onIssueClick }: Props) {
     return set;
   }, [sprints]);
 
-  const myIssueIds = useMemo(() => new Set(myIssues.map(i => i.id)), [myIssues]);
-  const missingIds = useMemo(() => [...assignedIds].filter(id => !myIssueIds.has(id)), [assignedIds, myIssueIds]);
+  const myIssueIds = useMemo(() => new Set(myIssues.map((i) => i.id)), [myIssues]);
+  const missingIds = useMemo(
+    () => [...assignedIds].filter((id) => !myIssueIds.has(id)),
+    [assignedIds, myIssueIds],
+  );
   const { data: extraIssues = [] } = useIssuesByIds(missingIds);
 
   const issueById = useMemo(() => {
@@ -100,18 +138,18 @@ export function SprintsView({ onIssueClick }: Props) {
 
   const backlog = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return myIssues.filter(i => {
+    return myIssues.filter((i) => {
       if (i.status?.is_closed || closedStatusIds.has(i.status.id)) return false;
       if (i.status?.name && HIDDEN_BACKLOG_STATUS.test(i.status.name)) return false;
       if (assignedIds.has(i.id)) return false;
       if (projectFilter !== 'all' && i.project?.id !== projectFilter) return false;
-      if (q && !(`#${i.id} ${i.subject}`.toLowerCase().includes(q))) return false;
+      if (q && !`#${i.id} ${i.subject}`.toLowerCase().includes(q)) return false;
       return true;
     });
   }, [myIssues, assignedIds, projectFilter, search, closedStatusIds]);
 
   // Sprints agrupadas por board, preservando a ordem do store (ordem manual).
-  const boardIds = useMemo(() => new Set(boards.map(b => b.id)), [boards]);
+  const boardIds = useMemo(() => new Set(boards.map((b) => b.id)), [boards]);
   const sprintsByBoard = useMemo(() => {
     const map = new Map<string, Sprint[]>();
     for (const s of sprints) {
@@ -125,8 +163,9 @@ export function SprintsView({ onIssueClick }: Props) {
   // Sincroniza o estado de DnD com os dados quando NÃO se está arrastando.
   useEffect(() => {
     if (activeDrag) return;
-    const next: Record<string, string[]> = { backlog: backlog.map(i => issueDragId(i.id)) };
-    for (const s of sprints) next[s.id] = s.issueIds.filter(id => issueById.has(id)).map(issueDragId);
+    const next: Record<string, string[]> = { backlog: backlog.map((i) => issueDragId(i.id)) };
+    for (const s of sprints)
+      next[s.id] = s.issueIds.filter((id) => issueById.has(id)).map(issueDragId);
     const sig = JSON.stringify(next);
     if (sig === syncSigRef.current) return;
     syncSigRef.current = sig;
@@ -134,7 +173,7 @@ export function SprintsView({ onIssueClick }: Props) {
   }, [sprints, backlog, issueById, activeDrag]);
 
   const resolve = (dragIds: string[] = []) =>
-    dragIds.map(d => issueById.get(parseIssueId(d))).filter((i): i is Issue => !!i);
+    dragIds.map((d) => issueById.get(parseIssueId(d))).filter((i): i is Issue => !!i);
 
   const backlogIssues = resolve(issueItems.backlog);
   const issuesBySprintId = useMemo(() => {
@@ -148,11 +187,11 @@ export function SprintsView({ onIssueClick }: Props) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const collisionDetection: CollisionDetection = (args) => {
     const sprintKind = isSprintDrag(String(args.active.id));
-    const filtered = args.droppableContainers.filter(c => {
+    const filtered = args.droppableContainers.filter((c) => {
       const cid = String(c.id);
       return sprintKind
-        ? (cid.startsWith('c:l:') || isSprintDrag(cid))
-        : (cid === C_BACKLOG || cid.startsWith('c:b:') || isIssueDrag(cid));
+        ? cid.startsWith('c:l:') || isSprintDrag(cid)
+        : cid === C_BACKLOG || cid.startsWith('c:b:') || isIssueDrag(cid);
     });
     return closestCorners({ ...args, droppableContainers: filtered });
   };
@@ -161,13 +200,17 @@ export function SprintsView({ onIssueClick }: Props) {
     const id = String(e.active.id);
     if (isSprintDrag(id)) {
       const sid = parseSprintId(id);
-      const sprint = sprints.find(s => s.id === sid);
-      dragLaneRef.current = sprint ? (sprint.boardId && boardIds.has(sprint.boardId) ? sprint.boardId : NONE) : null;
+      const sprint = sprints.find((s) => s.id === sid);
+      dragLaneRef.current = sprint
+        ? sprint.boardId && boardIds.has(sprint.boardId)
+          ? sprint.boardId
+          : NONE
+        : null;
       setActiveDrag({ kind: 'sprint', sprintId: sid });
     } else {
       // Origem calculada direto dos dados (confiável), não do estado de DnD.
       const iid = parseIssueId(id);
-      const src = sprints.find(s => s.issueIds.includes(iid));
+      const src = sprints.find((s) => s.issueIds.includes(iid));
       dragSourceRef.current = src ? src.id : 'backlog';
       setActiveDrag({ kind: 'issue', issueId: iid });
     }
@@ -183,12 +226,15 @@ export function SprintsView({ onIssueClick }: Props) {
     if (!from || !to || from === to) return;
     const fromArr = cur[from];
     const toArr = cur[to];
-    const insertAt = (over === C_BACKLOG || over.startsWith('c:b:'))
-      ? toArr.length
-      : (toArr.indexOf(over) >= 0 ? toArr.indexOf(over) : toArr.length);
+    const insertAt =
+      over === C_BACKLOG || over.startsWith('c:b:')
+        ? toArr.length
+        : toArr.indexOf(over) >= 0
+          ? toArr.indexOf(over)
+          : toArr.length;
     setItems({
       ...cur,
-      [from]: fromArr.filter(x => x !== active),
+      [from]: fromArr.filter((x) => x !== active),
       [to]: [...toArr.slice(0, insertAt), active, ...toArr.slice(insertAt)],
     });
   };
@@ -202,21 +248,26 @@ export function SprintsView({ onIssueClick }: Props) {
       const laneKey = dragLaneRef.current;
       dragLaneRef.current = null;
       if (!over || !laneKey) return;
-      const laneIds = (sprintsByBoard.get(laneKey) ?? []).map(s => s.id);
+      const laneIds = (sprintsByBoard.get(laneKey) ?? []).map((s) => s.id);
       const oldI = laneIds.indexOf(parseSprintId(active));
       const newI = isSprintDrag(over) ? laneIds.indexOf(parseSprintId(over)) : laneIds.length - 1;
       if (oldI < 0 || newI < 0 || oldI === newI) return;
       const newLane = arrayMove(laneIds, oldI, newI);
       // Ordem global: percorre as raias na ordem de exibição, trocando só a afetada.
       const order: string[] = [];
-      for (const b of boards) order.push(...(b.id === laneKey ? newLane : (sprintsByBoard.get(b.id) ?? []).map(s => s.id)));
-      order.push(...(laneKey === NONE ? newLane : (sprintsByBoard.get(NONE) ?? []).map(s => s.id)));
+      for (const b of boards)
+        order.push(
+          ...(b.id === laneKey ? newLane : (sprintsByBoard.get(b.id) ?? []).map((s) => s.id)),
+        );
+      order.push(
+        ...(laneKey === NONE ? newLane : (sprintsByBoard.get(NONE) ?? []).map((s) => s.id)),
+      );
       reorderSprints.mutate(order);
       return;
     }
 
     // Issue
-    const source = dragSourceRef.current;   // container de origem (dos dados)
+    const source = dragSourceRef.current; // container de origem (dos dados)
     dragSourceRef.current = null;
     if (!over) return;
     const cur = itemsRef.current;
@@ -229,16 +280,20 @@ export function SprintsView({ onIssueClick }: Props) {
       // Reordenar dentro do mesmo container.
       const arr = cur[to];
       const oldI = arr.indexOf(active);
-      const newI = (over === C_BACKLOG || over.startsWith('c:b:')) ? arr.length - 1 : arr.indexOf(over);
+      const newI =
+        over === C_BACKLOG || over.startsWith('c:b:') ? arr.length - 1 : arr.indexOf(over);
       if (newI >= 0 && oldI !== newI) final = { ...cur, [to]: arrayMove(arr, oldI, newI) };
     } else {
       // Move entre containers aqui mesmo (não depende do onDragOver ter agido).
-      const insertAt = (over === C_BACKLOG || over.startsWith('c:b:'))
-        ? cur[to].length
-        : (cur[to].indexOf(over) >= 0 ? cur[to].indexOf(over) : cur[to].length);
+      const insertAt =
+        over === C_BACKLOG || over.startsWith('c:b:')
+          ? cur[to].length
+          : cur[to].indexOf(over) >= 0
+            ? cur[to].indexOf(over)
+            : cur[to].length;
       final = {
         ...cur,
-        [activeContainer]: cur[activeContainer].filter(x => x !== active),
+        [activeContainer]: cur[activeContainer].filter((x) => x !== active),
         [to]: [...cur[to].slice(0, insertAt), active, ...cur[to].slice(insertAt)],
       };
     }
@@ -247,13 +302,15 @@ export function SprintsView({ onIssueClick }: Props) {
     // Persiste todos os sprints afetados: origem real, container atual e destino.
     const affected = new Set<string>();
     for (const k of [source, activeContainer, to]) if (k && k !== 'backlog') affected.add(k);
-    for (const key of affected) updateSprint.mutate({ id: key, patch: { issueIds: (final[key] ?? []).map(parseIssueId) } });
+    for (const key of affected)
+      updateSprint.mutate({ id: key, patch: { issueIds: (final[key] ?? []).map(parseIssueId) } });
   };
 
   const toggleSelect = (id: number) => {
-    setSelected(prev => {
+    setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -262,9 +319,10 @@ export function SprintsView({ onIssueClick }: Props) {
     setSelected(new Set());
   };
   const toggleCollapse = (key: string) => {
-    setCollapsed(prev => {
+    setCollapsed((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next]));
       return next;
     });
@@ -286,7 +344,7 @@ export function SprintsView({ onIssueClick }: Props) {
     try {
       setPlanningWeek(true);
       setWeekMenuOpen(false);
-      
+
       const now = new Date();
       // Start of week considering Monday as first day
       const monday = addDays(startOfWeek(now, { weekStartsOn: 1 }), offsetWeeks * 7);
@@ -305,17 +363,19 @@ export function SprintsView({ onIssueClick }: Props) {
         { name: 'Sexta', offset: 4 },
       ];
 
-      await Promise.all(days.map(d => {
-        const dateStr = format(addDays(monday, d.offset), 'yyyy-MM-dd');
-        return createSprint({
-          id: newSprintId(),
-          name: d.name,
-          startDate: dateStr,
-          endDate: dateStr,
-          status: 'planned',
-          boardId: boardId
-        });
-      }));
+      await Promise.all(
+        days.map((d) => {
+          const dateStr = format(addDays(monday, d.offset), 'yyyy-MM-dd');
+          return createSprint({
+            id: newSprintId(),
+            name: d.name,
+            startDate: dateStr,
+            endDate: dateStr,
+            status: 'planned',
+            boardId: boardId,
+          });
+        }),
+      );
 
       await qc.invalidateQueries({ queryKey: ['boards'] });
       await qc.invalidateQueries({ queryKey: ['sprints'] });
@@ -329,7 +389,8 @@ export function SprintsView({ onIssueClick }: Props) {
 
   const noneSprints = sprintsByBoard.get(NONE) ?? [];
   const activeIssue = activeDrag?.kind === 'issue' ? issueById.get(activeDrag.issueId) : undefined;
-  const activeSprint = activeDrag?.kind === 'sprint' ? sprints.find(s => s.id === activeDrag.sprintId) : undefined;
+  const activeSprint =
+    activeDrag?.kind === 'sprint' ? sprints.find((s) => s.id === activeDrag.sprintId) : undefined;
 
   return (
     <div className="h-full flex flex-col">
@@ -344,35 +405,54 @@ export function SprintsView({ onIssueClick }: Props) {
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
-            <button 
+            <button
               onClick={() => setWeekMenuOpen(!weekMenuOpen)}
               disabled={planningWeek}
               className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors disabled:opacity-50"
             >
-              {planningWeek ? <Loader2 size={15} className="animate-spin" /> : <CalendarRange size={15} />} 
+              {planningWeek ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <CalendarRange size={15} />
+              )}
               Planejar Semana <ChevronDown size={13} />
             </button>
             {weekMenuOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setWeekMenuOpen(false)} />
                 <div className="absolute top-full mt-1 right-0 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 overflow-hidden text-sm">
-                  <button onClick={() => handlePlanWeek(0)} className="w-full text-left px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
+                  <button
+                    onClick={() => handlePlanWeek(0)}
+                    className="w-full text-left px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  >
                     Esta semana
                   </button>
-                  <button onClick={() => handlePlanWeek(1)} className="w-full text-left px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">
+                  <button
+                    onClick={() => handlePlanWeek(1)}
+                    className="w-full text-left px-3 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  >
                     Próxima semana
                   </button>
                 </div>
               </>
             )}
           </div>
-          <button onClick={handleNewBoard} className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+          <button
+            onClick={handleNewBoard}
+            className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+          >
             <FolderPlus size={15} /> Novo projeto
           </button>
         </div>
       </div>
 
-      <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collisionDetection}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+      >
         <div className="flex-1 min-h-0 flex">
           <BacklogPanel
             backlog={backlogIssues}
@@ -392,18 +472,24 @@ export function SprintsView({ onIssueClick }: Props) {
 
           <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
             {loadingSprints ? (
-              <><LaneSkeleton /><LaneSkeleton /></>
+              <>
+                <LaneSkeleton />
+                <LaneSkeleton />
+              </>
             ) : boards.length === 0 && noneSprints.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 dark:text-slate-500">
                 <Folder size={32} className="mb-2 opacity-40" />
                 <p className="text-sm">Nenhum projeto ainda.</p>
-                <button onClick={handleNewBoard} className="mt-2 flex items-center gap-1 text-sm text-blue-600 hover:underline">
+                <button
+                  onClick={handleNewBoard}
+                  className="mt-2 flex items-center gap-1 text-sm text-blue-600 hover:underline"
+                >
                   <Plus size={14} /> Criar o primeiro projeto
                 </button>
               </div>
             ) : (
               <>
-                {boards.map(board => (
+                {boards.map((board) => (
                   <BoardLane
                     key={board.id}
                     board={board}
@@ -440,7 +526,11 @@ export function SprintsView({ onIssueClick }: Props) {
         </div>
 
         <DragOverlay>
-          {activeIssue && <div className="w-[320px]"><IssueRow issue={activeIssue} closedIds={closedStatusIds} /></div>}
+          {activeIssue && (
+            <div className="w-[320px]">
+              <IssueRow issue={activeIssue} closedIds={closedStatusIds} />
+            </div>
+          )}
           {activeSprint && <SprintCardOverlay sprint={activeSprint} />}
         </DragOverlay>
       </DndContext>

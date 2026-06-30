@@ -1,7 +1,24 @@
 import { useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { CalendarDays, Tag, Copy, Check, ArrowLeftRight, AlertTriangle, Bell, BellRing, Clock, Archive, ListTodo, ChevronDown, Play, Square, Loader2, Video } from 'lucide-react';
+import {
+  CalendarDays,
+  Tag,
+  Copy,
+  Check,
+  ArrowLeftRight,
+  AlertTriangle,
+  Bell,
+  BellRing,
+  Clock,
+  Archive,
+  ListTodo,
+  ChevronDown,
+  Play,
+  Square,
+  Loader2,
+  Video,
+} from 'lucide-react';
 import { IssueAIPanel } from './IssueAIPanel';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -31,7 +48,11 @@ const PRIORITY_DOTS: Record<string, string> = {
 };
 
 /* ── Quick status dropdown ── */
-function QuickStatusMenu({ issue, statuses, onStatusChange }: {
+function QuickStatusMenu({
+  issue,
+  statuses,
+  onStatusChange,
+}: {
   issue: Issue;
   statuses: IssueStatus[];
   onStatusChange: (issueId: number, statusId: number) => void;
@@ -52,17 +73,20 @@ function QuickStatusMenu({ issue, statuses, onStatusChange }: {
     open && !issue.allowed_statuses,
   );
   const allowed = issue.allowed_statuses ?? lazyAllowed ?? undefined;
-  const allowedIds = allowed?.map(s => s.id);
+  const allowedIds = allowed?.map((s) => s.id);
   const loading = isFetching && allowedIds === undefined;
   // Espelha o Redmine: só os status permitidos (+ o atual). Sem dados, mostra tudo.
   const visibleStatuses = allowedIds
-    ? statuses.filter(s => allowedIds.includes(s.id) || s.id === issue.status.id)
+    ? statuses.filter((s) => allowedIds.includes(s.id) || s.id === issue.status.id)
     : statuses;
 
   return (
-    <div className="relative" onPointerDown={e => e.stopPropagation()}>
+    <div className="relative" onPointerDown={(e) => e.stopPropagation()}>
       <button
-        onClick={e => { e.stopPropagation(); setOpen(v => !v); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
         title="Mudar status"
         className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-slate-600 transition-colors"
       >
@@ -71,7 +95,13 @@ function QuickStatusMenu({ issue, statuses, onStatusChange }: {
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-20" onClick={e => { e.stopPropagation(); setOpen(false); }} />
+          <div
+            className="fixed inset-0 z-20"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+            }}
+          />
           <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-30 w-52 py-1 max-h-52 overflow-y-auto scrollbar-thin">
             {loading && (
               <p className="px-3 py-2 text-xs text-slate-400 flex items-center gap-1.5">
@@ -83,18 +113,23 @@ function QuickStatusMenu({ issue, statuses, onStatusChange }: {
                 Sem transições permitidas no workflow.
               </p>
             )}
-            {!loading && visibleStatuses.map(s => (
-              <button
-                key={s.id}
-                onClick={e => { e.stopPropagation(); onStatusChange(issue.id, s.id); setOpen(false); }}
-                className={`w-full flex items-center justify-between px-3 py-1.5 text-xs transition-colors
+            {!loading &&
+              visibleStatuses.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStatusChange(issue.id, s.id);
+                    setOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-1.5 text-xs transition-colors
                   ${s.id === issue.status.id ? 'font-semibold text-blue-600 bg-blue-50' : 'hover:bg-blue-50 text-slate-700'}
                 `}
-              >
-                <span>{s.name}</span>
-                {s.id === issue.status.id && <Check size={11} />}
-              </button>
-            ))}
+                >
+                  <span>{s.name}</span>
+                  {s.id === issue.status.id && <Check size={11} />}
+                </button>
+              ))}
           </div>
         </>
       )}
@@ -115,7 +150,7 @@ function CopyBranchButton({ branch }: { branch: string }) {
 
   return (
     <button
-      onPointerDown={e => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
       onClick={handle}
       title={`Copiar branch: ${branch}`}
       className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-colors ${
@@ -142,7 +177,11 @@ function MissingFieldsBadge({ fields }: { fields: string[] }) {
       <div className="absolute bottom-full left-0 mb-1.5 hidden group-hover/missing:block z-40 pointer-events-none">
         <div className="bg-slate-900 text-white text-xs rounded-lg px-3 py-2 whitespace-nowrap shadow-lg">
           <p className="font-semibold mb-1 text-amber-300">Campos obrigatórios faltando:</p>
-          {fields.map(f => <p key={f} className="text-slate-200">· {f}</p>)}
+          {fields.map((f) => (
+            <p key={f} className="text-slate-200">
+              · {f}
+            </p>
+          ))}
           <div className="absolute top-full left-4 border-4 border-transparent border-t-slate-900" />
         </div>
       </div>
@@ -196,7 +235,12 @@ function LiveBadge({ issue, compact }: { issue: Issue; compact?: boolean }) {
 
   const join = (e: React.MouseEvent) => {
     e.stopPropagation();
-    startCall({ room: makeTaskRoom(issue.id), title: `#${issue.id} ${issue.subject}`, kind: 'task', issueId: issue.id });
+    startCall({
+      room: makeTaskRoom(issue.id),
+      title: `#${issue.id} ${issue.subject}`,
+      kind: 'task',
+      issueId: issue.id,
+    });
   };
 
   const dot = (
@@ -209,7 +253,7 @@ function LiveBadge({ issue, compact }: { issue: Issue; compact?: boolean }) {
   if (compact) {
     return (
       <button
-        onPointerDown={e => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={join}
         title={`AO VIVO — ${info?.count} na sala. Clique para entrar.`}
         className="flex items-center gap-1 text-[10px] font-bold text-red-600 flex-shrink-0"
@@ -221,7 +265,7 @@ function LiveBadge({ issue, compact }: { issue: Issue; compact?: boolean }) {
 
   return (
     <button
-      onPointerDown={e => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
       onClick={join}
       title={`Entrar na sala — ${info?.participants.join(', ') || ''}`}
       className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-bold hover:bg-red-100 transition-colors"
@@ -229,13 +273,20 @@ function LiveBadge({ issue, compact }: { issue: Issue; compact?: boolean }) {
       {dot}
       <Video size={12} />
       AO VIVO
-      {(info?.count ?? 0) > 1 && <span className="font-medium opacity-70">· {info?.count} pessoas</span>}
+      {(info?.count ?? 0) > 1 && (
+        <span className="font-medium opacity-70">· {info?.count} pessoas</span>
+      )}
     </button>
   );
 }
 
 /* ── Subtask list ── */
-function SubtaskList({ children, statuses, onOpen, onDone }: {
+function SubtaskList({
+  children,
+  statuses,
+  onOpen,
+  onDone,
+}: {
   children: IssueChild[];
   statuses?: IssueStatus[];
   onOpen?: (id: number) => void;
@@ -243,11 +294,11 @@ function SubtaskList({ children, statuses, onOpen, onDone }: {
 }) {
   const [open, setOpen] = useState(false);
 
-  const closedStatus = statuses?.find(s => s.is_closed);
+  const closedStatus = statuses?.find((s) => s.is_closed);
 
   const isClosed = (child: IssueChild) => {
     if (!child.status) return false;
-    const matched = statuses?.find(s => s.id === child.status!.id);
+    const matched = statuses?.find((s) => s.id === child.status!.id);
     if (matched) return matched.is_closed;
     const n = child.status.name.toLowerCase();
     return n.includes('fechad') || n.includes('cancelad');
@@ -257,30 +308,38 @@ function SubtaskList({ children, statuses, onOpen, onDone }: {
   const pct = children.length > 0 ? (doneCount / children.length) * 100 : 0;
 
   return (
-    <div className="mt-2 pt-2 border-t border-slate-100" onPointerDown={e => e.stopPropagation()}>
+    <div className="mt-2 pt-2 border-t border-slate-100" onPointerDown={(e) => e.stopPropagation()}>
       <button
-        onClick={e => { e.stopPropagation(); setOpen(v => !v); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
         className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 w-full"
       >
         <ListTodo size={11} className="flex-shrink-0" />
-        <span className="flex-shrink-0">{doneCount}/{children.length}</span>
+        <span className="flex-shrink-0">
+          {doneCount}/{children.length}
+        </span>
         <div className="flex-1 h-1 bg-slate-200 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-green-500' : 'bg-blue-400'}`}
             style={{ width: `${pct}%` }}
           />
         </div>
-        <ChevronDown size={11} className={`flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={11}
+          className={`flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {open && (
         <div className="mt-1.5 space-y-1.5">
-          {children.map(child => {
+          {children.map((child) => {
             const closed = isClosed(child);
             return (
               <div key={child.id} className="flex items-center gap-1.5">
                 <button
-                  onClick={e => {
+                  onClick={(e) => {
                     e.stopPropagation();
                     if (!closed && closedStatus && onDone) onDone(child.id, closedStatus.id);
                   }}
@@ -295,7 +354,10 @@ function SubtaskList({ children, statuses, onOpen, onDone }: {
                   {closed && <Check size={9} className="text-white" />}
                 </button>
                 <button
-                  onClick={e => { e.stopPropagation(); onOpen?.(child.id); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpen?.(child.id);
+                  }}
                   className={`text-xs flex-1 text-left truncate transition-colors ${
                     closed ? 'line-through text-slate-400' : 'text-slate-600 hover:text-blue-600'
                   }`}
@@ -333,7 +395,26 @@ interface Props {
   onTimerStop?: () => void;
 }
 
-export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQuickStatusChange, onArchive, selected, selectionMode, onToggleSelect, focused, navigable = true, compact = false, onSubtaskOpen, onSubtaskDone, activeTimerIssueId, timerFormatted, onTimerStart, onTimerStop }: Props) {
+export function IssueCard({
+  issue,
+  onClick,
+  isDragOverlay = false,
+  statuses,
+  onQuickStatusChange,
+  onArchive,
+  selected,
+  selectionMode,
+  onToggleSelect,
+  focused,
+  navigable = true,
+  compact = false,
+  onSubtaskOpen,
+  onSubtaskDone,
+  activeTimerIssueId,
+  timerFormatted,
+  onTimerStart,
+  onTimerStop,
+}: Props) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `issue-${issue.id}`,
     data: { issue },
@@ -345,22 +426,30 @@ export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQ
   const reviewAlert = getReviewAlert(issue);
   const branch = getBranch(issue);
   const isTimerRunning = !isDragOverlay && activeTimerIssueId === issue.id;
-  const otherTimerRunning = !isDragOverlay && !!activeTimerIssueId && activeTimerIssueId !== issue.id;
+  const otherTimerRunning =
+    !isDragOverlay && !!activeTimerIssueId && activeTimerIssueId !== issue.id;
 
   const today = new Date().toISOString().split('T')[0];
-  const isClosed = issue.status.name.toLowerCase().includes('fechad') || issue.status.name.toLowerCase().includes('cancelad');
+  const isClosed =
+    issue.status.name.toLowerCase().includes('fechad') ||
+    issue.status.name.toLowerCase().includes('cancelad');
   const isDone = issue.done_ratio === 100 || isClosed;
   const previsao = getPrevisaoRevisao(issue);
 
   const dueBadge = (() => {
     const date = previsao || issue.due_date;
     if (!date) return null;
-    const label = new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+    const label = new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: 'short',
+    });
     const prefix = previsao ? 'Rev.' : '';
     if (isDone) return { cls: 'bg-green-100 text-green-700', icon: '✓', label, prefix };
-    if (date < today) return { cls: 'bg-red-100 text-red-700 font-semibold', icon: null, label, prefix };
+    if (date < today)
+      return { cls: 'bg-red-100 text-red-700 font-semibold', icon: null, label, prefix };
     const diffDays = Math.ceil((new Date(date).getTime() - new Date(today).getTime()) / 86400000);
-    if (diffDays <= 2) return { cls: 'bg-yellow-100 text-yellow-800 font-semibold', icon: null, label, prefix };
+    if (diffDays <= 2)
+      return { cls: 'bg-yellow-100 text-yellow-800 font-semibold', icon: null, label, prefix };
     return { cls: 'bg-slate-100 text-slate-600', icon: null, label, prefix };
   })();
 
@@ -373,7 +462,7 @@ export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQ
         {...listeners}
         {...attributes}
         {...(navigable ? { 'data-issue-id': issue.id } : {})}
-        onClick={e => {
+        onClick={(e) => {
           e.stopPropagation();
           if (selectionMode && onToggleSelect) onToggleSelect(issue.id);
           else onClick(issue);
@@ -385,13 +474,16 @@ export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQ
           ${isDragging ? 'opacity-40 scale-95' : 'hover:border-blue-300 hover:shadow-sm'}
         `}
       >
-        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOTS[issue.priority.name] ?? 'bg-slate-400'}`} />
+        <span
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOTS[issue.priority.name] ?? 'bg-slate-400'}`}
+        />
         <span className="text-xs text-slate-400 flex-shrink-0">#{issue.id}</span>
         <span className="text-xs font-medium text-slate-800 truncate">{issue.subject}</span>
         <LiveBadge issue={issue} compact />
         {isTimerRunning && (
           <span className="flex items-center gap-0.5 text-[10px] font-mono text-green-600 bg-green-50 px-1.5 py-0.5 rounded flex-shrink-0 animate-pulse">
-            <Square size={8} className="fill-green-600" />{timerFormatted}
+            <Square size={8} className="fill-green-600" />
+            {timerFormatted}
           </span>
         )}
       </div>
@@ -406,7 +498,7 @@ export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQ
       {...listeners}
       {...attributes}
       {...(navigable && !isDragOverlay ? { 'data-issue-id': issue.id } : {})}
-      onClick={e => {
+      onClick={(e) => {
         e.stopPropagation();
         if (selectionMode && onToggleSelect) onToggleSelect(issue.id);
         else onClick(issue);
@@ -422,9 +514,13 @@ export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQ
       {/* Checkbox inline — só no modo seleção */}
       {!isDragOverlay && selectionMode && (
         <div className="flex items-center gap-2 mb-2">
-          <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
-            selected ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-500 text-transparent'
-          }`}>
+          <span
+            className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
+              selected
+                ? 'bg-blue-600 border-blue-600 text-white'
+                : 'bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-500 text-transparent'
+            }`}
+          >
             <Check size={11} />
           </span>
           <span className="text-xs text-slate-400">{selected ? 'Selecionada' : 'Selecionar'}</span>
@@ -457,8 +553,12 @@ export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQ
           <Tag size={10} />
           {issue.tracker.name}
         </span>
-        <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded ${PRIORITY_COLORS[issue.priority.name] ?? 'bg-slate-100 text-slate-600'}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${PRIORITY_DOTS[issue.priority.name] ?? 'bg-slate-400'}`} />
+        <span
+          className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded ${PRIORITY_COLORS[issue.priority.name] ?? 'bg-slate-100 text-slate-600'}`}
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${PRIORITY_DOTS[issue.priority.name] ?? 'bg-slate-400'}`}
+          />
           {issue.priority.name}
         </span>
       </div>
@@ -475,10 +575,10 @@ export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQ
       <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
           {dueBadge ? (
-            <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${dueBadge.cls}`}>
-              {dueBadge.icon
-                ? <span>{dueBadge.icon}</span>
-                : <CalendarDays size={11} />}
+            <span
+              className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${dueBadge.cls}`}
+            >
+              {dueBadge.icon ? <span>{dueBadge.icon}</span> : <CalendarDays size={11} />}
               {dueBadge.prefix && <span className="opacity-70">{dueBadge.prefix}</span>}
               {dueBadge.label}
             </span>
@@ -524,16 +624,23 @@ export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQ
       {!isDragOverlay && (statuses || branch || onArchive || onTimerStart) && (
         <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
           {statuses && onQuickStatusChange && (
-            <QuickStatusMenu issue={issue} statuses={statuses} onStatusChange={onQuickStatusChange} />
+            <QuickStatusMenu
+              issue={issue}
+              statuses={statuses}
+              onStatusChange={onQuickStatusChange}
+            />
           )}
           {branch && <CopyBranchButton branch={branch} />}
           <IssueAIPanel issue={issue} compact onOpen={() => onClick(issue)} />
           {/* Timer rápido — só ícone para não quebrar a linha */}
-          {(onTimerStart || onTimerStop) && (
-            isTimerRunning ? (
+          {(onTimerStart || onTimerStop) &&
+            (isTimerRunning ? (
               <button
-                onPointerDown={e => e.stopPropagation()}
-                onClick={e => { e.stopPropagation(); onTimerStop?.(); }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTimerStop?.();
+                }}
                 title={`Parar timer (${timerFormatted})`}
                 className="flex items-center justify-center w-6 h-6 rounded bg-green-100 text-green-700 hover:bg-green-200 transition-colors animate-pulse"
               >
@@ -541,20 +648,29 @@ export function IssueCard({ issue, onClick, isDragOverlay = false, statuses, onQ
               </button>
             ) : (
               <button
-                onPointerDown={e => e.stopPropagation()}
-                onClick={e => { e.stopPropagation(); onTimerStart?.(issue.id); }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTimerStart?.(issue.id);
+                }}
                 disabled={otherTimerRunning}
-                title={otherTimerRunning ? `Timer ativo em outra tarefa (#${activeTimerIssueId})` : 'Iniciar timer'}
+                title={
+                  otherTimerRunning
+                    ? `Timer ativo em outra tarefa (#${activeTimerIssueId})`
+                    : 'Iniciar timer'
+                }
                 className="flex items-center justify-center w-6 h-6 rounded bg-slate-100 text-slate-600 hover:bg-green-100 hover:text-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 <Play size={10} className="fill-current" />
               </button>
-            )
-          )}
+            ))}
           {onArchive && (
             <button
-              onPointerDown={e => e.stopPropagation()}
-              onClick={e => { e.stopPropagation(); onArchive(issue.id); }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onArchive(issue.id);
+              }}
               title="Arquivar localmente (ocultar sem alterar no Redmine)"
               className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors ml-auto"
             >

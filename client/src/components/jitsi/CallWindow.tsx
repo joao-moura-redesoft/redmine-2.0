@@ -1,6 +1,18 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { JitsiMeeting } from '@jitsi/react-sdk';
-import { Minus, Maximize2, Minimize2, PhoneOff, Video, GripHorizontal, ExternalLink, X, Disc, Square, UserPlus } from 'lucide-react';
+import {
+  Minus,
+  Maximize2,
+  Minimize2,
+  PhoneOff,
+  Video,
+  GripHorizontal,
+  ExternalLink,
+  X,
+  Disc,
+  Square,
+  UserPlus,
+} from 'lucide-react';
 import { useJitsi } from './JitsiContext';
 import { useCurrentUser } from '../../hooks/useRedmine';
 import { getJitsiDomain } from '../../utils/jitsiConfig';
@@ -20,7 +32,16 @@ const MARGIN = 16;
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 
 export function CallWindow() {
-  const { activeCall, minimized, poppedOut, endCall, popOut, closePopout, toggleMinimize, recorder } = useJitsi();
+  const {
+    activeCall,
+    minimized,
+    poppedOut,
+    endCall,
+    popOut,
+    closePopout,
+    toggleMinimize,
+    recorder,
+  } = useJitsi();
   const { data: user } = useCurrentUser();
 
   // Tamanho atual da janela (modo expandido); ajustável por maximizar/arrastar a alça.
@@ -43,61 +64,87 @@ export function CallWindow() {
   const toggleInvite = () => {
     if (!inviteOpen && inviteBtnRef.current) {
       const r = inviteBtnRef.current.getBoundingClientRect();
-      setInviteCoords({ top: Math.min(r.bottom + 4, window.innerHeight - 372), left: Math.min(r.left, window.innerWidth - 296) });
+      setInviteCoords({
+        top: Math.min(r.bottom + 4, window.innerHeight - 372),
+        left: Math.min(r.left, window.innerWidth - 296),
+      });
     }
-    setInviteOpen(v => !v);
+    setInviteOpen((v) => !v);
   };
 
   const w = minimized ? PILL_W : size.w;
   const h = minimized ? PILL_H : size.h;
 
   // ── Arrasto da janela (pela barra de título) ──
-  const onDragDown = useCallback((e: React.PointerEvent) => {
-    if (maximized) return;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
-  }, [pos, maximized]);
+  const onDragDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (maximized) return;
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      dragRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    },
+    [pos, maximized],
+  );
 
-  const onDragMove = useCallback((e: React.PointerEvent) => {
-    if (!dragRef.current) return;
-    setPos({
-      x: clamp(e.clientX - dragRef.current.dx, 0, window.innerWidth - w),
-      y: clamp(e.clientY - dragRef.current.dy, 0, window.innerHeight - h),
-    });
-  }, [w, h]);
+  const onDragMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragRef.current) return;
+      setPos({
+        x: clamp(e.clientX - dragRef.current.dx, 0, window.innerWidth - w),
+        y: clamp(e.clientY - dragRef.current.dy, 0, window.innerHeight - h),
+      });
+    },
+    [w, h],
+  );
 
   const onDragUp = useCallback((e: React.PointerEvent) => {
     dragRef.current = null;
-    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   // ── Redimensionamento (alça inferior direita) ──
-  const onResizeDown = useCallback((e: React.PointerEvent) => {
-    e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    resizeRef.current = { sx: e.clientX, sy: e.clientY, sw: size.w, sh: size.h };
-  }, [size]);
+  const onResizeDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.stopPropagation();
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      resizeRef.current = { sx: e.clientX, sy: e.clientY, sw: size.w, sh: size.h };
+    },
+    [size],
+  );
 
-  const onResizeMove = useCallback((e: React.PointerEvent) => {
-    if (!resizeRef.current) return;
-    const r = resizeRef.current;
-    setSize({
-      w: clamp(r.sw + (e.clientX - r.sx), MIN_W, window.innerWidth - pos.x),
-      h: clamp(r.sh + (e.clientY - r.sy), MIN_H, window.innerHeight - pos.y),
-    });
-    setMaximized(false);
-  }, [pos]);
+  const onResizeMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!resizeRef.current) return;
+      const r = resizeRef.current;
+      setSize({
+        w: clamp(r.sw + (e.clientX - r.sx), MIN_W, window.innerWidth - pos.x),
+        h: clamp(r.sh + (e.clientY - r.sy), MIN_H, window.innerHeight - pos.y),
+      });
+      setMaximized(false);
+    },
+    [pos],
+  );
 
   const onResizeUp = useCallback((e: React.PointerEvent) => {
     resizeRef.current = null;
-    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   // ── Maximizar / restaurar ──
   const toggleMaximize = useCallback(() => {
     if (maximized) {
       const r = restoreRef.current;
-      if (r) { setSize(r.size); setPos(r.pos); }
+      if (r) {
+        setSize(r.size);
+        setPos(r.pos);
+      }
       setMaximized(false);
     } else {
       restoreRef.current = { size, pos };
@@ -111,10 +158,11 @@ export function CallWindow() {
 
   // Mantém a janela dentro da viewport quando o navegador é redimensionado.
   useEffect(() => {
-    const onResize = () => setPos(p => ({
-      x: clamp(p.x, 0, window.innerWidth - w),
-      y: clamp(p.y, 0, window.innerHeight - h),
-    }));
+    const onResize = () =>
+      setPos((p) => ({
+        x: clamp(p.x, 0, window.innerWidth - w),
+        y: clamp(p.y, 0, window.innerHeight - h),
+      }));
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [w, h]);
@@ -127,7 +175,9 @@ export function CallWindow() {
   const presenceRoom = activeCall?.room ?? poppedOut?.room;
   useEffect(() => {
     if (!presenceRoom || !presenceName) return;
-    const beat = () => { jitsiApi.heartbeat(presenceRoom, presenceName).catch(() => {}); };
+    const beat = () => {
+      jitsiApi.heartbeat(presenceRoom, presenceName).catch(() => {});
+    };
     beat();
     const id = setInterval(beat, 25000);
     return () => {
@@ -140,7 +190,9 @@ export function CallWindow() {
   useEffect(() => {
     const win = poppedOut?.win;
     if (!win) return;
-    const id = setInterval(() => { if (win.closed) closePopout(); }, 1500);
+    const id = setInterval(() => {
+      if (win.closed) closePopout();
+    }, 1500);
     return () => clearInterval(id);
   }, [poppedOut, closePopout]);
 
@@ -155,7 +207,9 @@ export function CallWindow() {
       'config.prejoinPageEnabled=false',
       'config.prejoinConfig.enabled=false',
       activeCall.kind === 'daily' ? 'config.startWithAudioMuted=true' : '',
-    ].filter(Boolean).join('&');
+    ]
+      .filter(Boolean)
+      .join('&');
     const url = `https://${domain}/${activeCall.room}#${hash}`;
     const win = window.open(url, `jitsi-${activeCall.room}`, 'width=960,height=680');
     if (!win) {
@@ -189,7 +243,9 @@ export function CallWindow() {
   const recordButton = (
     <button
       onClick={handleRecordToggle}
-      title={recorder.status === 'recording' ? 'Parar gravação' : 'Gravar reunião para resumo com IA'}
+      title={
+        recorder.status === 'recording' ? 'Parar gravação' : 'Gravar reunião para resumo com IA'
+      }
       className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors flex-shrink-0 ${
         recorder.status === 'recording'
           ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
@@ -221,9 +277,15 @@ export function CallWindow() {
 
   const currentRoom = activeCall?.room ?? poppedOut?.room;
   const currentTitle = activeCall?.title ?? poppedOut?.title ?? 'Reunião';
-  const invitePopover = inviteOpen && currentRoom ? (
-    <InvitePopover room={currentRoom} title={currentTitle} coords={inviteCoords} onClose={() => setInviteOpen(false)} />
-  ) : null;
+  const invitePopover =
+    inviteOpen && currentRoom ? (
+      <InvitePopover
+        room={currentRoom}
+        title={currentTitle}
+        coords={inviteCoords}
+        onClose={() => setInviteOpen(false)}
+      />
+    ) : null;
 
   // Pílula compacta quando a reunião está numa janela separada.
   if (!activeCall && poppedOut) {
@@ -235,11 +297,19 @@ export function CallWindow() {
           <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
         </span>
         <ExternalLink size={13} className="text-slate-300 flex-shrink-0" />
-        <span className="text-xs font-medium truncate max-w-[120px]" title={poppedOut.title}>{poppedOut.title}</span>
+        <span className="text-xs font-medium truncate max-w-[120px]" title={poppedOut.title}>
+          {poppedOut.title}
+        </span>
         {recordButton}
         {inviteButton}
         <button
-          onClick={() => { try { poppedOut.win?.focus(); } catch { /* ignore */ } }}
+          onClick={() => {
+            try {
+              poppedOut.win?.focus();
+            } catch {
+              /* ignore */
+            }
+          }}
           title="Focar janela da reunião"
           className="p-1 rounded hover:bg-slate-700 text-slate-300 flex-shrink-0"
         >
@@ -261,106 +331,106 @@ export function CallWindow() {
 
   return (
     <>
-    {recError}
-    {invitePopover}
-    <div
-      className="fixed z-[90] rounded-xl shadow-2xl border border-slate-700 bg-slate-900 overflow-hidden flex flex-col"
-      style={{ left: pos.x, top: pos.y, width: w, height: h }}
-    >
-      {/* Barra de título (área de arrasto) */}
+      {recError}
+      {invitePopover}
       <div
-        onPointerDown={onDragDown}
-        onPointerMove={onDragMove}
-        onPointerUp={onDragUp}
-        className={`flex items-center gap-1.5 px-2.5 h-12 flex-shrink-0 bg-slate-800 text-slate-100 select-none touch-none ${maximized ? '' : 'cursor-move'}`}
+        className="fixed z-[90] rounded-xl shadow-2xl border border-slate-700 bg-slate-900 overflow-hidden flex flex-col"
+        style={{ left: pos.x, top: pos.y, width: w, height: h }}
       >
-        <span className="relative flex h-2 w-2 flex-shrink-0">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
-        </span>
-        <Video size={14} className="text-slate-300 flex-shrink-0" />
-        <span className="text-xs font-medium truncate flex-1" title={activeCall.title}>
-          {activeCall.title}
-        </span>
-        <GripHorizontal size={14} className="text-slate-500 flex-shrink-0" />
-
-        {/* Botão de Gravar */}
-        {!minimized && recordButton}
-        {!minimized && inviteButton}
-
-        <button
-          onClick={handlePopOut}
-          title="Abrir em janela separada"
-          className="p-1 rounded hover:bg-slate-700 text-slate-300 flex-shrink-0"
+        {/* Barra de título (área de arrasto) */}
+        <div
+          onPointerDown={onDragDown}
+          onPointerMove={onDragMove}
+          onPointerUp={onDragUp}
+          className={`flex items-center gap-1.5 px-2.5 h-12 flex-shrink-0 bg-slate-800 text-slate-100 select-none touch-none ${maximized ? '' : 'cursor-move'}`}
         >
-          <ExternalLink size={13} />
-        </button>
-        {!minimized && (
+          <span className="relative flex h-2 w-2 flex-shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+          </span>
+          <Video size={14} className="text-slate-300 flex-shrink-0" />
+          <span className="text-xs font-medium truncate flex-1" title={activeCall.title}>
+            {activeCall.title}
+          </span>
+          <GripHorizontal size={14} className="text-slate-500 flex-shrink-0" />
+
+          {/* Botão de Gravar */}
+          {!minimized && recordButton}
+          {!minimized && inviteButton}
+
           <button
-            onClick={toggleMaximize}
-            title={maximized ? 'Restaurar tamanho' : 'Maximizar'}
+            onClick={handlePopOut}
+            title="Abrir em janela separada"
             className="p-1 rounded hover:bg-slate-700 text-slate-300 flex-shrink-0"
           >
-            {maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            <ExternalLink size={13} />
           </button>
+          {!minimized && (
+            <button
+              onClick={toggleMaximize}
+              title={maximized ? 'Restaurar tamanho' : 'Maximizar'}
+              className="p-1 rounded hover:bg-slate-700 text-slate-300 flex-shrink-0"
+            >
+              {maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            </button>
+          )}
+          <button
+            onClick={toggleMinimize}
+            title={minimized ? 'Expandir' : 'Minimizar'}
+            className="p-1 rounded hover:bg-slate-700 text-slate-300 flex-shrink-0"
+          >
+            {minimized ? <Maximize2 size={13} /> : <Minus size={13} />}
+          </button>
+          <button
+            onClick={endCall}
+            title="Sair da chamada"
+            className="p-1 rounded hover:bg-red-600 text-red-400 hover:text-white flex-shrink-0"
+          >
+            <PhoneOff size={13} />
+          </button>
+        </div>
+
+        {/* Corpo: iframe do Jitsi. Permanece montado mesmo minimizado (mantém a chamada viva). */}
+        <div className={minimized ? 'hidden' : 'flex-1 min-h-0 bg-black'}>
+          <JitsiMeeting
+            key={activeCall.room}
+            domain={domain}
+            roomName={activeCall.room}
+            userInfo={displayName ? { displayName, email: user?.mail ?? '' } : undefined}
+            configOverwrite={{
+              prejoinPageEnabled: false, // Jitsi antigo
+              prejoinConfig: { enabled: false }, // Jitsi novo (renomeado)
+              startWithAudioMuted: activeCall.kind === 'daily',
+              disableDeepLinking: true,
+              disableInviteFunctions: false,
+            }}
+            interfaceConfigOverwrite={{
+              MOBILE_APP_PROMO: false,
+              SHOW_JITSI_WATERMARK: false,
+              DISABLE_JOIN_LEAVE_NOTIFICATIONS: false,
+            }}
+            getIFrameRef={(node) => {
+              node.style.height = '100%';
+              node.style.width = '100%';
+            }}
+            onReadyToClose={endCall}
+          />
+        </div>
+
+        {/* Alça de redimensionamento (canto inferior direito) */}
+        {!minimized && (
+          <div
+            onPointerDown={onResizeDown}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+            title="Arraste para redimensionar"
+            className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize touch-none z-10"
+            style={{
+              background: 'linear-gradient(135deg, transparent 50%, rgba(148,163,184,0.6) 50%)',
+            }}
+          />
         )}
-        <button
-          onClick={toggleMinimize}
-          title={minimized ? 'Expandir' : 'Minimizar'}
-          className="p-1 rounded hover:bg-slate-700 text-slate-300 flex-shrink-0"
-        >
-          {minimized ? <Maximize2 size={13} /> : <Minus size={13} />}
-        </button>
-        <button
-          onClick={endCall}
-          title="Sair da chamada"
-          className="p-1 rounded hover:bg-red-600 text-red-400 hover:text-white flex-shrink-0"
-        >
-          <PhoneOff size={13} />
-        </button>
       </div>
-
-      {/* Corpo: iframe do Jitsi. Permanece montado mesmo minimizado (mantém a chamada viva). */}
-      <div className={minimized ? 'hidden' : 'flex-1 min-h-0 bg-black'}>
-        <JitsiMeeting
-          key={activeCall.room}
-          domain={domain}
-          roomName={activeCall.room}
-          userInfo={displayName ? { displayName, email: user?.mail ?? '' } : undefined}
-          configOverwrite={{
-            prejoinPageEnabled: false,          // Jitsi antigo
-            prejoinConfig: { enabled: false },  // Jitsi novo (renomeado)
-            startWithAudioMuted: activeCall.kind === 'daily',
-            disableDeepLinking: true,
-            disableInviteFunctions: false,
-          }}
-          interfaceConfigOverwrite={{
-            MOBILE_APP_PROMO: false,
-            SHOW_JITSI_WATERMARK: false,
-            DISABLE_JOIN_LEAVE_NOTIFICATIONS: false,
-          }}
-          getIFrameRef={(node) => {
-            node.style.height = '100%';
-            node.style.width = '100%';
-          }}
-          onReadyToClose={endCall}
-        />
-      </div>
-
-      {/* Alça de redimensionamento (canto inferior direito) */}
-      {!minimized && (
-        <div
-          onPointerDown={onResizeDown}
-          onPointerMove={onResizeMove}
-          onPointerUp={onResizeUp}
-          title="Arraste para redimensionar"
-          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize touch-none z-10"
-          style={{
-            background: 'linear-gradient(135deg, transparent 50%, rgba(148,163,184,0.6) 50%)',
-          }}
-        />
-      )}
-    </div>
     </>
   );
 }

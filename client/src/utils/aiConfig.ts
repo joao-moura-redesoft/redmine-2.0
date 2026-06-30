@@ -54,5 +54,7 @@ export async function migrateLegacyAIKeys(): Promise<void> {
       if (keys[p] && !status[p]) await saveAIKey(p, keys[p] as string);
     }
     localStorage.removeItem('rk_ai_keys');
-  } catch { /* ignora */ }
+  } catch {
+    /* ignora */
+  }
 }

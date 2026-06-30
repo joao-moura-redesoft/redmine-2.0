@@ -15,24 +15,33 @@ function authFromReq(req) {
 }
 
 // Heartbeat: entra na sala e mantém presença viva (chamado periodicamente).
-router.post('/jitsi/presence/heartbeat', handle(async (req, res) => {
-  const { room, displayName } = req.body || {};
-  if (!room) return res.status(400).json({ error: 'room obrigatório' });
-  presence.touch(room, displayName, authFromReq(req));
-  res.json({ ok: true });
-}));
+router.post(
+  '/jitsi/presence/heartbeat',
+  handle(async (req, res) => {
+    const { room, displayName } = req.body || {};
+    if (!room) return res.status(400).json({ error: 'room obrigatório' });
+    presence.touch(room, displayName, authFromReq(req));
+    res.json({ ok: true });
+  }),
+);
 
 // Saída explícita; se a sala esvaziar, dispara o auto-logging no Redmine.
-router.post('/jitsi/presence/leave', handle(async (req, res) => {
-  const { room, displayName } = req.body || {};
-  if (!room) return res.status(400).json({ error: 'room obrigatório' });
-  await presence.leave(room, displayName, authFromReq(req));
-  res.json({ ok: true });
-}));
+router.post(
+  '/jitsi/presence/leave',
+  handle(async (req, res) => {
+    const { room, displayName } = req.body || {};
+    if (!room) return res.status(400).json({ error: 'room obrigatório' });
+    await presence.leave(room, displayName, authFromReq(req));
+    res.json({ ok: true });
+  }),
+);
 
 // Salas ativas (consumido pelo polling do frontend para o badge AO VIVO).
-router.get('/jitsi/presence', handle(async (req, res) => {
-  res.json({ rooms: presence.activeRooms() });
-}));
+router.get(
+  '/jitsi/presence',
+  handle(async (req, res) => {
+    res.json({ rooms: presence.activeRooms() });
+  }),
+);
 
 module.exports = router;

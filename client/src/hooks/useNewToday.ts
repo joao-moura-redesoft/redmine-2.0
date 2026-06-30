@@ -21,12 +21,16 @@ export function useNewToday(issues: Issue[] | undefined) {
     const today = todayKey();
 
     let store: Record<string, string> = {};
-    try { store = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { store = {}; }
+    try {
+      store = JSON.parse(localStorage.getItem(KEY) || '{}');
+    } catch {
+      store = {};
+    }
 
     const firstRun = Object.keys(store).length === 0;
     let changed = false;
 
-    issues.forEach(i => {
+    issues.forEach((i) => {
       if (!(String(i.id) in store)) {
         // No primeiro uso, marca tudo como antigo para não alertar a base inteira
         store[String(i.id)] = firstRun ? '1970-01-01' : today;
@@ -36,7 +40,7 @@ export function useNewToday(issues: Issue[] | undefined) {
 
     if (changed) localStorage.setItem(KEY, JSON.stringify(store));
 
-    setNewToday(issues.filter(i => store[String(i.id)] === today));
+    setNewToday(issues.filter((i) => store[String(i.id)] === today));
   }, [issues]);
 
   return newToday;

@@ -50,13 +50,16 @@ export function MeetingSummaryModal({ isOpen, onClose, audioBlob, call }: Props)
         setStep('error');
         let msg = err.response?.data?.error || err.message || 'Erro ao transcrever áudio.';
         if (msg === 'AI_NOT_CONFIGURED') {
-          msg = 'Nenhum provedor de IA configurado. Vá em Configurações (⚙️) -> IA e defina uma chave de API.';
+          msg =
+            'Nenhum provedor de IA configurado. Vá em Configurações (⚙️) -> IA e defina uma chave de API.';
         }
         setErrorMsg(msg);
       }
     })();
 
-    return () => { isCancelled = true; };
+    return () => {
+      isCancelled = true;
+    };
   }, [isOpen, audioBlob, call]);
 
   // Reseta ao fechar
@@ -95,14 +98,16 @@ export function MeetingSummaryModal({ isOpen, onClose, audioBlob, call }: Props)
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
-        
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
           <div className="flex items-center gap-2 text-slate-800 dark:text-slate-100 font-semibold">
             <FileText size={18} className="text-blue-500" />
             <span>Resumo da Reunião</span>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"
+          >
             <X size={18} />
           </button>
         </div>
@@ -113,7 +118,10 @@ export function MeetingSummaryModal({ isOpen, onClose, audioBlob, call }: Props)
             <div className="flex flex-col items-center justify-center py-12 text-slate-500 dark:text-slate-400">
               <Loader2 size={40} className="animate-spin mb-4 text-blue-500" />
               <p className="text-sm font-medium">Transcrevendo o áudio (Whisper)...</p>
-              <p className="text-xs mt-2 opacity-70 max-w-xs text-center">Isso pode levar alguns minutos dependendo do tamanho da gravação e qualidade da rede.</p>
+              <p className="text-xs mt-2 opacity-70 max-w-xs text-center">
+                Isso pode levar alguns minutos dependendo do tamanho da gravação e qualidade da
+                rede.
+              </p>
             </div>
           )}
 
@@ -134,10 +142,15 @@ export function MeetingSummaryModal({ isOpen, onClose, audioBlob, call }: Props)
           {step === 'done' && (
             <div className="space-y-6">
               <div>
-                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">Ata / Resumo</h3>
+                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">
+                  Ata / Resumo
+                </h3>
                 <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
                   {summary ? (
-                    <Markdown text={summary} className="text-sm text-slate-700 dark:text-slate-300" />
+                    <Markdown
+                      text={summary}
+                      className="text-sm text-slate-700 dark:text-slate-300"
+                    />
                   ) : (
                     <span className="text-sm italic opacity-50">Nenhum resumo gerado.</span>
                   )}
@@ -146,7 +159,9 @@ export function MeetingSummaryModal({ isOpen, onClose, audioBlob, call }: Props)
 
               {transcript && (
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">Transcrição Bruta</h3>
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">
+                    Transcrição Bruta
+                  </h3>
                   <div className="bg-slate-100 dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 h-32 overflow-y-auto font-mono">
                     {transcript}
                   </div>
@@ -173,7 +188,13 @@ export function MeetingSummaryModal({ isOpen, onClose, audioBlob, call }: Props)
                 disabled={isPosting || posted}
                 className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
-                {posted ? <CheckCircle size={16} /> : (isPosting ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />)}
+                {posted ? (
+                  <CheckCircle size={16} />
+                ) : isPosting ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <FileText size={16} />
+                )}
                 {posted ? 'Nota Salva!' : 'Salvar na Tarefa'}
               </button>
             )}

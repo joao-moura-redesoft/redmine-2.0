@@ -82,7 +82,7 @@ function mdToTx(md) {
   return s;
 }
 
-const LONG_NOTES = \`h1. Estimativa Técnica: Tarefa #89521: Controle de Validade de Acesso
+const LONG_NOTES = `h1. Estimativa Técnica: Tarefa #89521: Controle de Validade de Acesso
 
 h2. 1. Levantamento Técnico
 

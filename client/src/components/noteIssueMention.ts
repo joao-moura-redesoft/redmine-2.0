@@ -46,7 +46,10 @@ export const IssueMention = Extension.create<IssueMentionOptions>({
             const target = event.target as HTMLElement | null;
             if (target?.classList?.contains('note-issue-link')) {
               const id = Number(target.getAttribute('data-issue-id'));
-              if (id && onIssueClick) { onIssueClick(id); return true; }
+              if (id && onIssueClick) {
+                onIssueClick(id);
+                return true;
+              }
             }
             return false;
           },

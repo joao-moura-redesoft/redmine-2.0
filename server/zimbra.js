@@ -98,8 +98,13 @@ async function resolveMailCreds(req) {
     try {
       const uid = await getMyUserId(req);
       const ad = uid ? getAd(uid) : null;
-      if (ad) { user = ad.user; password = ad.pass; }
-    } catch { /* sem credenciais no cofre */ }
+      if (ad) {
+        user = ad.user;
+        password = ad.pass;
+      }
+    } catch {
+      /* sem credenciais no cofre */
+    }
   }
   return { host, user, password };
 }
@@ -108,9 +113,11 @@ async function resolveMailCreds(req) {
 async function tokenFor(req) {
   const { host, user, password } = await resolveMailCreds(req);
   if (!user || !password) {
-    const err = new Error('Sem credenciais de e-mail. Faça login com usuário e senha, ou configure o e-mail nas Configurações.');
+    const err = new Error(
+      'Sem credenciais de e-mail. Faça login com usuário e senha, ou configure o e-mail nas Configurações.',
+    );
     err.statusCode = 412; // Precondition Failed
-    err.isSafe = true;     // mensagem intencional: o errorMiddleware deve preservá-la
+    err.isSafe = true; // mensagem intencional: o errorMiddleware deve preservá-la
     throw err;
   }
   return { host, user, password, token: await authenticate(host, user, password) };
@@ -139,8 +146,8 @@ async function mailSoap(req, namespace, requestName, payload) {
 // Extrai endereços de um array `e` do Zimbra (t: f=from, t=to, c=cc, b=bcc).
 function pickAddr(emails, type) {
   return (emails || [])
-    .filter(e => e.t === type)
-    .map(e => ({ address: e.a, name: e.p || e.d || e.a }));
+    .filter((e) => e.t === type)
+    .map((e) => ({ address: e.a, name: e.p || e.d || e.a }));
 }
 
 // Mensagem "slim" para a listagem.
@@ -168,7 +175,8 @@ function walkParts(part, acc) {
   for (const p of parts) {
     const ct = (p.ct || '').toLowerCase();
     const isInlineImage = p.ci && ct.startsWith('image/');
-    const isAttachment = !isInlineImage && (p.cd === 'attachment' || (p.filename && p.cd !== 'inline'));
+    const isAttachment =
+      !isInlineImage && (p.cd === 'attachment' || (p.filename && p.cd !== 'inline'));
     if (isInlineImage) {
       acc.inline.push({ ci: String(p.ci).replace(/[<>]/g, ''), part: p.part });
     } else if (isAttachment && p.filename) {
@@ -269,9 +277,8 @@ async function getMessage(req, id, { markRead = true } = {}) {
   });
   const m = resp.m?.[0] || resp.m;
   // Cria sessão de curta duração (1h) para autorizar downloads de anexos desta mensagem.
-  const sessionToken = (user && password)
-    ? createSession({ kind: 'mail', host, user, password }, MAIL_TTL_MS)
-    : null;
+  const sessionToken =
+    user && password ? createSession({ kind: 'mail', host, user, password }, MAIL_TTL_MS) : null;
   return fullMessage(m, sessionToken);
 }
 
@@ -299,7 +306,8 @@ async function actOnMessage(req, id, op, target) {
 async function sendMessage(req, { to, cc, subject, text, html, inReplyTo }) {
   const e = [];
   for (const addr of (Array.isArray(to) ? to : [to]).filter(Boolean)) e.push({ t: 't', a: addr });
-  for (const addr of (Array.isArray(cc) ? cc : cc ? [cc] : []).filter(Boolean)) e.push({ t: 'c', a: addr });
+  for (const addr of (Array.isArray(cc) ? cc : cc ? [cc] : []).filter(Boolean))
+    e.push({ t: 'c', a: addr });
   const mp = html
     ? { ct: 'text/html', content: { _content: html } }
     : { ct: 'text/plain', content: { _content: text || '' } };
@@ -322,23 +330,23 @@ async function sendMessage(req, { to, cc, subject, text, html, inReplyTo }) {
 function slimAppointment(appt) {
   const baseDur = Number(appt.dur) || 0;
   const insts = Array.isArray(appt.inst) ? appt.inst : appt.inst ? [appt.inst] : [{}];
-  return insts.map(inst => {
+  return insts.map((inst) => {
     const start = Number(inst.s ?? appt.s);
     const dur = Number(inst.dur ?? baseDur) || 0;
     const hasStart = Number.isFinite(start);
     return {
-      id: appt.id,                         // id do item de calendário
-      invId: appt.invId ?? null,           // id do convite (para responder)
+      id: appt.id, // id do item de calendário
+      invId: appt.invId ?? null, // id do convite (para responder)
       uid: appt.uid ?? null,
       compNum: Number(appt.compNum) || 0,
       subject: appt.name || appt.su || '(sem título)',
-      start: hasStart ? start : null,      // epoch ms
+      start: hasStart ? start : null, // epoch ms
       end: hasStart ? start + dur : null,
       durationMs: dur,
       allDay: !!appt.allDay,
       location: appt.loc || '',
-      status: appt.status || '',           // TENT | CONF | CANC
-      ptst: appt.ptst || '',               // participação: NE|AC|TE|DE|...
+      status: appt.status || '', // TENT | CONF | CANC
+      ptst: appt.ptst || '', // participação: NE|AC|TE|DE|...
       organizer: appt.or ? { address: appt.or.a, name: appt.or.d || appt.or.a } : null,
       isOrganizer: appt.isOrg === 1 || appt.isOrg === true,
       snippet: appt.fr || '',
@@ -356,7 +364,7 @@ async function listAppointments(req, { start, end, raw = false } = {}) {
     types: 'appointment',
     calExpandInstStart: s,
     calExpandInstEnd: e,
-    query: 'inid:10',          // calendário padrão (system folder id 10)
+    query: 'inid:10', // calendário padrão (system folder id 10)
     sortBy: 'none',
     limit: 1000,
     offset: 0,
@@ -365,7 +373,7 @@ async function listAppointments(req, { start, end, raw = false } = {}) {
   const appts = resp.appt ? (Array.isArray(resp.appt) ? resp.appt : [resp.appt]) : [];
   return appts
     .flatMap(slimAppointment)
-    .filter(ev => ev.start != null && ev.start >= s && ev.start <= e)
+    .filter((ev) => ev.start != null && ev.start >= s && ev.start <= e)
     .sort((a, b) => a.start - b.start);
 }
 
@@ -374,7 +382,12 @@ async function listAppointments(req, { start, end, raw = false } = {}) {
 async function replyToInvite(req, { id, verb, compNum = 0 }) {
   const VERBS = { ACCEPT: 'ACCEPT', DECLINE: 'DECLINE', TENTATIVE: 'TENTATIVE' };
   const v = VERBS[String(verb).toUpperCase()];
-  if (!v) { const err = new Error('verb inválido (ACCEPT|DECLINE|TENTATIVE)'); err.statusCode = 400; err.isSafe = true; throw err; }
+  if (!v) {
+    const err = new Error('verb inválido (ACCEPT|DECLINE|TENTATIVE)');
+    err.statusCode = 400;
+    err.isSafe = true;
+    throw err;
+  }
   await mailSoap(req, 'urn:zimbraMail', 'SendInviteReplyRequest', {
     id: String(id),
     compNum: Number(compNum) || 0,
@@ -427,22 +440,25 @@ async function getAppointmentAttendees(req, id, { raw = false } = {}) {
   let comp = null;
   for (const inv of invs) {
     const comps = Array.isArray(inv.comp) ? inv.comp : inv.comp ? [inv.comp] : [];
-    const withAt = comps.find(c => c.at) || comps[0];
-    if (withAt) { comp = withAt; if (withAt.at) break; }
+    const withAt = comps.find((c) => c.at) || comps[0];
+    if (withAt) {
+      comp = withAt;
+      if (withAt.at) break;
+    }
   }
   if (!comp) return { organizer: null, attendees: [] };
   const ats = Array.isArray(comp.at) ? comp.at : comp.at ? [comp.at] : [];
   const or = comp.or;
   return {
     organizer: or ? { address: or.a, name: or.d || or.a } : null,
-    attendees: ats.map(at => slimAttendee(at, me)),
+    attendees: ats.map((at) => slimAttendee(at, me)),
   };
 }
 
 // Conta de não-lidos da Inbox — para o sino de notificações.
 async function unreadCount(req) {
   const folders = await listFolders(req);
-  const inbox = folders.find(f => f.name === 'Inbox' || f.path === '/Inbox');
+  const inbox = folders.find((f) => f.name === 'Inbox' || f.path === '/Inbox');
   return { unread: inbox?.unread || 0, inboxTotal: inbox?.total || 0 };
 }
 

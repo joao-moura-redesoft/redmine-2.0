@@ -1,5 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchNotes, createNote, updateNote, deleteNote, type Note, type NotePatch } from '../api/notes';
+import {
+  fetchNotes,
+  createNote,
+  updateNote,
+  deleteNote,
+  type Note,
+  type NotePatch,
+} from '../api/notes';
 import { getStoredAuth } from '../api/redmine';
 
 const KEY = ['notes'];
@@ -41,8 +48,7 @@ export function useCreateNote() {
     },
     // Reconcilia a nota otimista com a versão do servidor (mesmo id).
     onSuccess: (note, _patch, ctx) => {
-      qc.setQueryData<Note[]>(KEY, (old = []) =>
-        old.map(n => (n.id === ctx?.id ? note : n)));
+      qc.setQueryData<Note[]>(KEY, (old = []) => old.map((n) => (n.id === ctx?.id ? note : n)));
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(KEY, ctx.prev);
@@ -59,7 +65,8 @@ export function useUpdateNote() {
       await qc.cancelQueries({ queryKey: KEY });
       const prev = qc.getQueryData<Note[]>(KEY);
       qc.setQueryData<Note[]>(KEY, (old = []) =>
-        old.map(n => n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n));
+        old.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n)),
+      );
       return { prev };
     },
     onError: (_e, _v, ctx) => {
@@ -75,7 +82,7 @@ export function useDeleteNote() {
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: KEY });
       const prev = qc.getQueryData<Note[]>(KEY);
-      qc.setQueryData<Note[]>(KEY, (old = []) => old.filter(n => n.id !== id));
+      qc.setQueryData<Note[]>(KEY, (old = []) => old.filter((n) => n.id !== id));
       return { prev };
     },
     onError: (_e, _v, ctx) => {

@@ -21,7 +21,10 @@ export function getTalkPrefs(): TalkPrefs {
     if (!raw) return { ...DEFAULT_TALK_PREFS };
     const p = JSON.parse(raw);
     return {
-      groupMentionsOnly: typeof p?.groupMentionsOnly === 'boolean' ? p.groupMentionsOnly : DEFAULT_TALK_PREFS.groupMentionsOnly,
+      groupMentionsOnly:
+        typeof p?.groupMentionsOnly === 'boolean'
+          ? p.groupMentionsOnly
+          : DEFAULT_TALK_PREFS.groupMentionsOnly,
       realtime: typeof p?.realtime === 'boolean' ? p.realtime : DEFAULT_TALK_PREFS.realtime,
     };
   } catch {

@@ -12,7 +12,9 @@ export function getJitsiDomain(): string {
   try {
     const v = localStorage.getItem(DOMAIN_KEY);
     if (v && v.trim()) return v.trim();
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return DEFAULT_DOMAIN;
 }
 
@@ -53,13 +55,17 @@ export function issueIdFromRoom(room: string): number | null {
 // Sanitiza um nome livre para um nome de sala Jitsi válido (sem espaços/acentos).
 export function sanitizeRoom(name: string): string {
   return name
-    .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove acentos
-    .replace(/[^a-zA-Z0-9-_]/g, '-')                  // demais caracteres viram hífen
-    .replace(/-+/g, '-').replace(/^-|-$/g, '');
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // remove acentos
+    .replace(/[^a-zA-Z0-9-_]/g, '-') // demais caracteres viram hífen
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 // Sala avulsa (não vinculada a tarefa): B2Click-Sala-<slug | aleatório>
 export function makeAdHocRoom(name?: string): string {
   const slug = name ? sanitizeRoom(name) : '';
-  return slug ? `${ROOM_PREFIX}-Sala-${slug}` : `${ROOM_PREFIX}-Sala-${Math.random().toString(36).slice(2, 8)}`;
+  return slug
+    ? `${ROOM_PREFIX}-Sala-${slug}`
+    : `${ROOM_PREFIX}-Sala-${Math.random().toString(36).slice(2, 8)}`;
 }

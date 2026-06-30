@@ -24,7 +24,7 @@ export function useTalkNotifications() {
     const newPrevRooms = new Map<string, number>();
     const { groupMentionsOnly } = getTalkPrefs();
 
-    rooms.forEach(room => {
+    rooms.forEach((room) => {
       const lastMsg = room.lastMessage;
       const currentLastId = lastMsg?.id ?? 0;
       newPrevRooms.set(room.token, currentLastId);
@@ -41,10 +41,10 @@ export function useTalkNotifications() {
         !!lastMsg &&
         currentLastId > prevLastId &&
         room.unreadMessages > 0 &&
-        lastMsg.actorId !== myId &&          // não notifica as próprias mensagens
-        lastMsg.messageType === 'comment' &&  // ignora mensagens de sistema
-        !talkMute.isMuted(room.token) &&      // respeita salas silenciadas
-        !document.hasFocus();                 // aba aberta mas sem foco
+        lastMsg.actorId !== myId && // não notifica as próprias mensagens
+        lastMsg.messageType === 'comment' && // ignora mensagens de sistema
+        !talkMute.isMuted(room.token) && // respeita salas silenciadas
+        !document.hasFocus(); // aba aberta mas sem foco
 
       if (isNew) {
         const sender = lastMsg.actorDisplayName || 'Nova mensagem';

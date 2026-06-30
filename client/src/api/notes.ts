@@ -5,7 +5,7 @@ import { createAuthedClient } from './client';
 export interface Note {
   id: string;
   title: string;
-  body: string;            // markdown
+  body: string; // markdown
   tags: string[];
   pinned: boolean;
   color: string | null;
@@ -15,8 +15,9 @@ export interface Note {
   updatedAt: number;
 }
 
-export type NotePatch = Partial<Pick<Note,
-  'title' | 'body' | 'tags' | 'pinned' | 'color' | 'linkedIssueId' | 'linkedProjectId'>>;
+export type NotePatch = Partial<
+  Pick<Note, 'title' | 'body' | 'tags' | 'pinned' | 'color' | 'linkedIssueId' | 'linkedProjectId'>
+>;
 
 // Id gerado no cliente para permitir criação otimista (sem flicker nem troca
 // de id quando o servidor responde).

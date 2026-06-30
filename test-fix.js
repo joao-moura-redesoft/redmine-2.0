@@ -8,8 +8,8 @@ const api = axios.create({
   baseURL: URL,
   headers: {
     'X-Redmine-API-Key': KEY,
-    'Content-Type': 'application/json'
-  }
+    'Content-Type': 'application/json',
+  },
 });
 
 // REMOVIDO: caracteres unicode especiais (↔ e —)
@@ -57,16 +57,16 @@ h3. 1.3 Infraestrutura de Auditoria
 `;
 
 async function test() {
-  console.log("\\nTeste fix 4: sem Unicode mas COM @@Tabela");
+  console.log('\\nTeste fix 4: sem Unicode mas COM @@Tabela');
   try {
     const res = await api.put(`/issues/${ISSUE_ID}.json`, {
       issue: {
-        notes: LONG_NOTES
-      }
+        notes: LONG_NOTES,
+      },
     });
-    console.log("Teste fix sucesso:", res.status);
+    console.log('Teste fix sucesso:', res.status);
   } catch (err) {
-    console.log("Teste fix falhou:", err.response?.status, err.response?.data || err.message);
+    console.log('Teste fix falhou:', err.response?.status, err.response?.data || err.message);
   }
 }
 

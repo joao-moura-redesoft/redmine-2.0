@@ -8,25 +8,27 @@ const api = axios.create({
   baseURL: URL,
   headers: {
     'X-Redmine-API-Key': KEY,
-    'Content-Type': 'application/json'
-  }
+    'Content-Type': 'application/json',
+  },
 });
 
 async function test() {
-  console.log("\nTeste trailing slash: tudo (notes + number + YYYY-MM-DD)");
+  console.log('\nTeste trailing slash: tudo (notes + number + YYYY-MM-DD)');
   try {
     const res = await api.put(`/issues/${ISSUE_ID}.json`, {
       issue: {
-        notes: ".",
+        notes: '.',
         estimated_hours: 26,
-        custom_fields: [
-          { id: 228, value: "2026-08-08" }
-        ]
-      }
+        custom_fields: [{ id: 228, value: '2026-08-08' }],
+      },
     });
-    console.log("Teste trailing slash sucesso:", res.status);
+    console.log('Teste trailing slash sucesso:', res.status);
   } catch (err) {
-    console.log("Teste trailing slash falhou:", err.response?.status, err.response?.data || err.message);
+    console.log(
+      'Teste trailing slash falhou:',
+      err.response?.status,
+      err.response?.data || err.message,
+    );
   }
 }
 

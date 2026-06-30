@@ -8,7 +8,7 @@ const DEFAULT_KEY = '';
 function buildAuthHeaders(key, username, password) {
   if (username && password) {
     const token = Buffer.from(`${username}:${password}`).toString('base64');
-    return { 'Authorization': `Basic ${token}` };
+    return { Authorization: `Basic ${token}` };
   }
   return { 'X-Redmine-API-Key': key };
 }

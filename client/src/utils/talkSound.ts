@@ -2,9 +2,12 @@
 // Centralizado aqui para que exista uma única fonte de "alerta sonoro".
 export function playNotificationBeep() {
   try {
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    const ctx = new (
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+    )();
     const play = (freq: number, start: number, dur: number) => {
-      const osc  = ctx.createOscillator();
+      const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -17,10 +20,15 @@ export function playNotificationBeep() {
       osc.stop(start + dur);
     };
     const go = () => {
-      play(880, ctx.currentTime,        0.18);  // nota 1 — sol5
+      play(880, ctx.currentTime, 0.18); // nota 1 — sol5
       play(1100, ctx.currentTime + 0.12, 0.22); // nota 2 — dó6 (ascendente)
       setTimeout(() => ctx.close(), 600);
     };
-    ctx.state === 'suspended' ? ctx.resume().then(go).catch(() => {}) : go();
+    ctx.state === 'suspended'
+      ? ctx
+          .resume()
+          .then(go)
+          .catch(() => {})
+      : go();
   } catch {}
 }

@@ -49,20 +49,24 @@ export function useActivityNotifications(
   // ── Novas atribuições ──────────────────────────────────────────────────
   useEffect(() => {
     if (!assignedIssues) return;
-    const ids = new Set(assignedIssues.map(i => i.id));
-    if (seenAssigned.current === null) { seenAssigned.current = ids; return; }
+    const ids = new Set(assignedIssues.map((i) => i.id));
+    if (seenAssigned.current === null) {
+      seenAssigned.current = ids;
+      return;
+    }
 
-    const novos = assignedIssues.filter(i =>
-      !seenAssigned.current!.has(i.id) &&
-      !wasRecentlyMutated(i.id) &&
-      i.author.id !== currentUserId,
+    const novos = assignedIssues.filter(
+      (i) =>
+        !seenAssigned.current!.has(i.id) &&
+        !wasRecentlyMutated(i.id) &&
+        i.author.id !== currentUserId,
     );
     seenAssigned.current = ids;
     if (novos.length === 0) return;
 
     const now = new Date();
-    setNotifications(prev => [
-      ...novos.map(issue => ({
+    setNotifications((prev) => [
+      ...novos.map((issue) => ({
         id: `a-${issue.id}-${now.getTime()}`,
         type: 'assigned' as NotifType,
         issue,
@@ -70,7 +74,7 @@ export function useActivityNotifications(
       })),
       ...prev,
     ]);
-    novos.forEach(issue =>
+    novos.forEach((issue) =>
       notify('📋 Nova tarefa atribuída a você', {
         body: issueBody(issue),
         tag: `rk-a-${issue.id}`,
@@ -81,18 +85,21 @@ export function useActivityNotifications(
   // ── Novos pedidos de revisão ───────────────────────────────────────────
   useEffect(() => {
     if (!reviewIssues) return;
-    const ids = new Set(reviewIssues.map(i => i.id));
-    if (seenReview.current === null) { seenReview.current = ids; return; }
+    const ids = new Set(reviewIssues.map((i) => i.id));
+    if (seenReview.current === null) {
+      seenReview.current = ids;
+      return;
+    }
 
-    const novos = reviewIssues.filter(i =>
-      !seenReview.current!.has(i.id) && !wasRecentlyMutated(i.id),
+    const novos = reviewIssues.filter(
+      (i) => !seenReview.current!.has(i.id) && !wasRecentlyMutated(i.id),
     );
     seenReview.current = ids;
     if (novos.length === 0) return;
 
     const now = new Date();
-    setNotifications(prev => [
-      ...novos.map(issue => ({
+    setNotifications((prev) => [
+      ...novos.map((issue) => ({
         id: `r-${issue.id}-${now.getTime()}`,
         type: 'review' as NotifType,
         issue,
@@ -100,7 +107,7 @@ export function useActivityNotifications(
       })),
       ...prev,
     ]);
-    novos.forEach(issue =>
+    novos.forEach((issue) =>
       notify('🔍 Pedido de revisão', {
         body: issueBody(issue),
         tag: `rk-r-${issue.id}`,
@@ -111,10 +118,13 @@ export function useActivityNotifications(
   // ── Atividade em tarefas monitoradas/observadas ────────────────────────
   useEffect(() => {
     if (!activityIssues) return;
-    const map = new Map(activityIssues.map(i => [i.id, i.updated_on]));
-    if (lastUpdated.current === null) { lastUpdated.current = map; return; }
+    const map = new Map(activityIssues.map((i) => [i.id, i.updated_on]));
+    if (lastUpdated.current === null) {
+      lastUpdated.current = map;
+      return;
+    }
 
-    const changed = activityIssues.filter(i => {
+    const changed = activityIssues.filter((i) => {
       const prev = lastUpdated.current!.get(i.id);
       return prev !== undefined && prev !== i.updated_on && !wasRecentlyMutated(i.id);
     });
@@ -122,8 +132,8 @@ export function useActivityNotifications(
     if (changed.length === 0) return;
 
     const now = new Date();
-    setNotifications(prev => [
-      ...changed.map(issue => ({
+    setNotifications((prev) => [
+      ...changed.map((issue) => ({
         id: `c-${issue.id}-${now.getTime()}`,
         type: 'activity' as NotifType,
         issue,
@@ -131,7 +141,7 @@ export function useActivityNotifications(
       })),
       ...prev,
     ]);
-    changed.forEach(issue =>
+    changed.forEach((issue) =>
       notify('💬 Nova atividade em tarefa que você acompanha', {
         body: issueBody(issue),
         tag: `rk-c-${issue.id}-${issue.updated_on}`,
@@ -142,16 +152,19 @@ export function useActivityNotifications(
   // ── Menções a mim em notas ─────────────────────────────────────────────
   useEffect(() => {
     if (!mentions) return;
-    const ids = new Set(mentions.map(m => m.journalId));
-    if (seenMentions.current === null) { seenMentions.current = ids; return; }
+    const ids = new Set(mentions.map((m) => m.journalId));
+    if (seenMentions.current === null) {
+      seenMentions.current = ids;
+      return;
+    }
 
-    const novos = mentions.filter(m => !seenMentions.current!.has(m.journalId));
+    const novos = mentions.filter((m) => !seenMentions.current!.has(m.journalId));
     seenMentions.current = ids;
     if (novos.length === 0) return;
 
     const now = new Date();
-    setNotifications(prev => [
-      ...novos.map(m => ({
+    setNotifications((prev) => [
+      ...novos.map((m) => ({
         id: `m-${m.journalId}`,
         type: 'mention' as NotifType,
         issue: m.issue,
@@ -161,7 +174,7 @@ export function useActivityNotifications(
       })),
       ...prev,
     ]);
-    novos.forEach(m =>
+    novos.forEach((m) =>
       notify('💬 Você foi mencionado', {
         body: `${m.author?.name ? `${m.author.name}: ` : ''}${m.snippet}`,
         tag: `rk-m-${m.journalId}`,
@@ -169,8 +182,7 @@ export function useActivityNotifications(
     );
   }, [mentions, notify]);
 
-  const dismiss = (id: string) =>
-    setNotifications(prev => prev.filter(n => n.id !== id));
+  const dismiss = (id: string) => setNotifications((prev) => prev.filter((n) => n.id !== id));
   const dismissAll = () => setNotifications([]);
 
   return { notifications, dismiss, dismissAll };

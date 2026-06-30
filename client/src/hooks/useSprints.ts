@@ -1,8 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  fetchSprints, createSprint, updateSprint, deleteSprint, reorderSprints,
-  addIssueToSprint, removeIssueFromSprint,
-  type Sprint, type SprintPatch,
+  fetchSprints,
+  createSprint,
+  updateSprint,
+  deleteSprint,
+  reorderSprints,
+  addIssueToSprint,
+  removeIssueFromSprint,
+  type Sprint,
+  type SprintPatch,
 } from '../api/sprints';
 import { getStoredAuth } from '../api/redmine';
 
@@ -43,8 +49,7 @@ export function useCreateSprint() {
       return { prev, id: optimistic.id };
     },
     onSuccess: (sprint, _patch, ctx) => {
-      qc.setQueryData<Sprint[]>(KEY, (old = []) =>
-        old.map(s => (s.id === ctx?.id ? sprint : s)));
+      qc.setQueryData<Sprint[]>(KEY, (old = []) => old.map((s) => (s.id === ctx?.id ? sprint : s)));
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(KEY, ctx.prev);
@@ -60,7 +65,8 @@ export function useUpdateSprint() {
       await qc.cancelQueries({ queryKey: KEY });
       const prev = qc.getQueryData<Sprint[]>(KEY);
       qc.setQueryData<Sprint[]>(KEY, (old = []) =>
-        old.map(s => s.id === id ? { ...s, ...patch, updatedAt: Date.now() } : s));
+        old.map((s) => (s.id === id ? { ...s, ...patch, updatedAt: Date.now() } : s)),
+      );
       return { prev };
     },
     onError: (_e, _v, ctx) => {
@@ -76,7 +82,7 @@ export function useDeleteSprint() {
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: KEY });
       const prev = qc.getQueryData<Sprint[]>(KEY);
-      qc.setQueryData<Sprint[]>(KEY, (old = []) => old.filter(s => s.id !== id));
+      qc.setQueryData<Sprint[]>(KEY, (old = []) => old.filter((s) => s.id !== id));
       return { prev };
     },
     onError: (_e, _v, ctx) => {
@@ -95,7 +101,8 @@ export function useReorderSprints() {
       const prev = qc.getQueryData<Sprint[]>(KEY);
       const pos = new Map(ids.map((id, i) => [id, i]));
       qc.setQueryData<Sprint[]>(KEY, (old = []) =>
-        [...old].sort((a, b) => (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity)));
+        [...old].sort((a, b) => (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity)),
+      );
       return { prev };
     },
     onError: (_e, _v, ctx) => {
@@ -115,22 +122,25 @@ export function useAddIssueToSprint() {
       await qc.cancelQueries({ queryKey: KEY });
       const prev = qc.getQueryData<Sprint[]>(KEY);
       qc.setQueryData<Sprint[]>(KEY, (old = []) =>
-        old.map(s => {
+        old.map((s) => {
           if (s.id === sprintId) {
             return s.issueIds.includes(issueId)
               ? s
               : { ...s, issueIds: [...s.issueIds, issueId], updatedAt: Date.now() };
           }
           return s.issueIds.includes(issueId)
-            ? { ...s, issueIds: s.issueIds.filter(id => id !== issueId), updatedAt: Date.now() }
+            ? { ...s, issueIds: s.issueIds.filter((id) => id !== issueId), updatedAt: Date.now() }
             : s;
-        }));
+        }),
+      );
       return { prev };
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(KEY, ctx.prev);
     },
-    onSettled: () => { qc.invalidateQueries({ queryKey: KEY }); },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: KEY });
+    },
   });
 }
 
@@ -143,9 +153,12 @@ export function useRemoveIssueFromSprint() {
       await qc.cancelQueries({ queryKey: KEY });
       const prev = qc.getQueryData<Sprint[]>(KEY);
       qc.setQueryData<Sprint[]>(KEY, (old = []) =>
-        old.map(s => s.id === sprintId
-          ? { ...s, issueIds: s.issueIds.filter(id => id !== issueId), updatedAt: Date.now() }
-          : s));
+        old.map((s) =>
+          s.id === sprintId
+            ? { ...s, issueIds: s.issueIds.filter((id) => id !== issueId), updatedAt: Date.now() }
+            : s,
+        ),
+      );
       return { prev };
     },
     onError: (_e, _v, ctx) => {

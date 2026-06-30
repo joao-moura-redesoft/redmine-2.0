@@ -13,7 +13,7 @@ function userBoards(userId) {
 }
 
 function removeBoard(userId, id) {
-  boardsStore[userId] = userBoards(userId).filter(b => b.id !== id);
+  boardsStore[userId] = userBoards(userId).filter((b) => b.id !== id);
   saveBoards();
 }
 

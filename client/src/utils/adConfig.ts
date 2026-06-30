@@ -2,7 +2,10 @@ import axios from 'axios';
 import { getStoredAuth } from '../api/redmine';
 import { getSecretsStatus, refreshSecretsStatus } from './secretsStatus';
 
-export interface ADCreds { username: string; password: string; }
+export interface ADCreds {
+  username: string;
+  password: string;
+}
 
 // Grava as credenciais AD no cofre cifrado do servidor (não mais no localStorage).
 export async function saveADCreds(creds: ADCreds): Promise<void> {
@@ -43,11 +46,17 @@ export async function migrateLegacyADCreds(): Promise<void> {
     let legacyFromMail: { username: string; password: string } | null = null;
     try {
       const mail = JSON.parse(localStorage.getItem('rk_mail_config') || '{}');
-      if (mail?.user && mail?.password) legacyFromMail = { username: mail.user, password: mail.password };
+      if (mail?.user && mail?.password)
+        legacyFromMail = { username: mail.user, password: mail.password };
       if (mail && ('user' in mail || 'password' in mail)) {
-        localStorage.setItem('rk_mail_config', JSON.stringify(mail.host ? { host: mail.host } : {}));
+        localStorage.setItem(
+          'rk_mail_config',
+          JSON.stringify(mail.host ? { host: mail.host } : {}),
+        );
       }
-    } catch { /* ignora */ }
+    } catch {
+      /* ignora */
+    }
 
     const raw = localStorage.getItem('rk_ad_creds');
     const p = raw ? JSON.parse(raw) : legacyFromMail;
@@ -55,5 +64,7 @@ export async function migrateLegacyADCreds(): Promise<void> {
       await saveADCreds({ username: p.username, password: p.password });
     }
     localStorage.removeItem('rk_ad_creds');
-  } catch { /* ignora */ }
+  } catch {
+    /* ignora */
+  }
 }

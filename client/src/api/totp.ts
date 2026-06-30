@@ -2,7 +2,11 @@
 // recebe o código atual já calculado, nunca a semente.
 import axios from 'axios';
 
-export interface TotpEntry { id: string; name: string; code: string; }
+export interface TotpEntry {
+  id: string;
+  name: string;
+  code: string;
+}
 
 export async function listTotp(): Promise<{ accounts: TotpEntry[]; remaining: number }> {
   const { data } = await axios.get('/api/secrets/totp');
@@ -25,9 +29,15 @@ export async function migrateLegacyTotp(): Promise<void> {
     const list = JSON.parse(raw) as { name: string; secret: string }[];
     for (const a of list) {
       if (a?.name && a?.secret) {
-        try { await addTotp(a.name, a.secret); } catch { /* ignora duplicados/erros */ }
+        try {
+          await addTotp(a.name, a.secret);
+        } catch {
+          /* ignora duplicados/erros */
+        }
       }
     }
     localStorage.removeItem('totp_accounts');
-  } catch { /* ignora */ }
+  } catch {
+    /* ignora */
+  }
 }

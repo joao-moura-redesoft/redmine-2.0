@@ -23,7 +23,10 @@ export function fuzzyScore(text: string, query: string): number {
   for (const c of q) {
     let found = -1;
     for (let j = ti; j < t.length; j++) {
-      if (t[j] === c) { found = j; break; }
+      if (t[j] === c) {
+        found = j;
+        break;
+      }
     }
     if (found === -1) return -1;
     streak = found === ti ? streak + 1 : 0;

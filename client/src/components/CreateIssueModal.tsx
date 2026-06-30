@@ -1,8 +1,30 @@
 import { useState, useRef } from 'react';
-import { X, Plus, Paperclip, Image as ImageIcon, Loader2, AlertCircle, Sparkles, BookTemplate, Trash2, Save } from 'lucide-react';
-import { getTemplates, saveTemplate, deleteTemplate, type IssueTemplate } from '../utils/issueTemplates';
+import {
+  X,
+  Plus,
+  Paperclip,
+  Image as ImageIcon,
+  Loader2,
+  AlertCircle,
+  Sparkles,
+  BookTemplate,
+  Trash2,
+  Save,
+} from 'lucide-react';
+import {
+  getTemplates,
+  saveTemplate,
+  deleteTemplate,
+  type IssueTemplate,
+} from '../utils/issueTemplates';
 import { useQueryClient } from '@tanstack/react-query';
-import { useCreateIssue, useProjects, useTrackers, usePriorities, useProjectMembers } from '../hooks/useRedmine';
+import {
+  useCreateIssue,
+  useProjects,
+  useTrackers,
+  usePriorities,
+  useProjectMembers,
+} from '../hooks/useRedmine';
 import { redmineApi } from '../api/redmine';
 import { markdownToTextile } from '../utils/markdownToTextile';
 import { getAIKey } from '../utils/aiConfig';
@@ -49,15 +71,18 @@ export function CreateIssueModal({ onClose }: Props) {
 
   const addFiles = (list: FileList | File[]) => {
     const arr = Array.from(list);
-    if (arr.length) setFiles(f => [...f, ...arr]);
+    if (arr.length) setFiles((f) => [...f, ...arr]);
   };
-  const removeFile = (i: number) => setFiles(f => f.filter((_, idx) => idx !== i));
+  const removeFile = (i: number) => setFiles((f) => f.filter((_, idx) => idx !== i));
 
   const buildPayload = async (targetProjectId: number) => {
     const uploads = [];
     for (const f of files) {
-      try { uploads.push(await redmineApi.uploadFile(f)); }
-      catch { throw new Error(`Falha ao enviar o arquivo "${f.name}". Verifique o tamanho (máx 50 MB).`); }
+      try {
+        uploads.push(await redmineApi.uploadFile(f));
+      } catch {
+        throw new Error(`Falha ao enviar o arquivo "${f.name}". Verifique o tamanho (máx 50 MB).`);
+      }
     }
     return {
       subject: subject.trim(),
@@ -79,12 +104,12 @@ export function CreateIssueModal({ onClose }: Props) {
       const suggestion = await redmineApi.suggestFields(
         subject,
         description,
-        trackers?.map(t => ({ id: t.id, name: t.name })) ?? [],
-        priorities?.map(p => ({ id: p.id, name: p.name })) ?? [],
+        trackers?.map((t) => ({ id: t.id, name: t.name })) ?? [],
+        priorities?.map((p) => ({ id: p.id, name: p.name })) ?? [],
       );
-      if (suggestion.tracker_id)  setTrackerId(suggestion.tracker_id);
+      if (suggestion.tracker_id) setTrackerId(suggestion.tracker_id);
       if (suggestion.priority_id) setPriorityId(suggestion.priority_id);
-      if (suggestion.reasoning)   setAiReasoning(suggestion.reasoning);
+      if (suggestion.reasoning) setAiReasoning(suggestion.reasoning);
     } catch {
       setAiReasoning('Não foi possível sugerir campos. Tente novamente.');
     } finally {
@@ -96,10 +121,16 @@ export function CreateIssueModal({ onClose }: Props) {
     const status: number | undefined = err?.response?.status;
     const redmineErrors: string[] = err?.response?.data?.errors;
     if (redmineErrors?.length) return setError(redmineErrors.join('\n'));
-    if (status === 403) { setError('Sem permissão para criar tarefas neste projeto.'); setForceCreate(true); return; }
-    if (status === 422) return setError('O Redmine rejeitou a tarefa. Verifique os campos obrigatórios do projeto.');
+    if (status === 403) {
+      setError('Sem permissão para criar tarefas neste projeto.');
+      setForceCreate(true);
+      return;
+    }
+    if (status === 422)
+      return setError('O Redmine rejeitou a tarefa. Verifique os campos obrigatórios do projeto.');
     if (status === 404) return setError('Projeto não encontrado. Tente recarregar a página.');
-    if (!navigator.onLine || err?.code === 'ERR_NETWORK') return setError('Sem conexão com o servidor.');
+    if (!navigator.onLine || err?.code === 'ERR_NETWORK')
+      return setError('Sem conexão com o servidor.');
     setError(err?.response?.data?.error ?? err?.message ?? 'Erro desconhecido ao criar a tarefa.');
   };
 
@@ -126,7 +157,9 @@ export function CreateIssueModal({ onClose }: Props) {
     setUploading(true);
     try {
       // Chama a API diretamente para não invalidar o cache entre as duas operações
-      const created = await redmineApi.createIssue(await buildPayload(intermediateProjectId as number));
+      const created = await redmineApi.createIssue(
+        await buildPayload(intermediateProjectId as number),
+      );
       await redmineApi.updateIssue(created.id, { project_id: projectId });
       // Invalida só depois que a tarefa já está no projeto certo
       await qc.invalidateQueries({ queryKey: ['issues'] });
@@ -139,14 +172,20 @@ export function CreateIssueModal({ onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
         className="bg-white rounded-xl shadow-2xl w-full max-w-lg"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-5 border-b border-slate-200">
           <h2 className="text-base font-semibold text-slate-900">Nova Tarefa</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+          >
             <X size={18} className="text-slate-500" />
           </button>
         </div>
@@ -160,7 +199,7 @@ export function CreateIssueModal({ onClose }: Props) {
                 <div className="relative">
                   <button
                     type="button"
-                    onClick={() => setShowTemplates(v => !v)}
+                    onClick={() => setShowTemplates((v) => !v)}
                     className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 transition-colors"
                     title="Templates"
                   >
@@ -174,8 +213,11 @@ export function CreateIssueModal({ onClose }: Props) {
                       {templates.length === 0 && (
                         <p className="px-3 py-2 text-xs text-slate-400">Nenhum template ainda.</p>
                       )}
-                      {templates.map(t => (
-                        <div key={t.id} className="flex items-center gap-1 px-2 py-1.5 hover:bg-slate-50 group">
+                      {templates.map((t) => (
+                        <div
+                          key={t.id}
+                          className="flex items-center gap-1 px-2 py-1.5 hover:bg-slate-50 group"
+                        >
                           <button
                             type="button"
                             onClick={() => {
@@ -191,7 +233,10 @@ export function CreateIssueModal({ onClose }: Props) {
                           </button>
                           <button
                             type="button"
-                            onClick={() => { deleteTemplate(t.id); setTemplates(getTemplates()); }}
+                            onClick={() => {
+                              deleteTemplate(t.id);
+                              setTemplates(getTemplates());
+                            }}
                             className="p-0.5 rounded text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"
                           >
                             <Trash2 size={11} />
@@ -204,8 +249,8 @@ export function CreateIssueModal({ onClose }: Props) {
                             <input
                               autoFocus
                               value={newTemplateName}
-                              onChange={e => setNewTemplateName(e.target.value)}
-                              onKeyDown={e => {
+                              onChange={(e) => setNewTemplateName(e.target.value)}
+                              onKeyDown={(e) => {
                                 if (e.key === 'Enter' && newTemplateName.trim()) {
                                   const t: IssueTemplate = {
                                     id: Date.now().toString(),
@@ -229,13 +274,22 @@ export function CreateIssueModal({ onClose }: Props) {
                               type="button"
                               onClick={() => {
                                 if (!newTemplateName.trim()) return;
-                                saveTemplate({ id: Date.now().toString(), name: newTemplateName.trim(), subject, description,
+                                saveTemplate({
+                                  id: Date.now().toString(),
+                                  name: newTemplateName.trim(),
+                                  subject,
+                                  description,
                                   ...(trackerId ? { tracker_id: trackerId as number } : {}),
-                                  ...(priorityId ? { priority_id: priorityId as number } : {}) });
-                                setTemplates(getTemplates()); setSavingTemplate(false); setNewTemplateName('');
+                                  ...(priorityId ? { priority_id: priorityId as number } : {}),
+                                });
+                                setTemplates(getTemplates());
+                                setSavingTemplate(false);
+                                setNewTemplateName('');
                               }}
                               className="px-2 py-1 bg-blue-600 text-white text-[10px] rounded"
-                            >OK</button>
+                            >
+                              OK
+                            </button>
                           </div>
                         ) : (
                           <button
@@ -258,9 +312,11 @@ export function CreateIssueModal({ onClose }: Props) {
                     title="Sugerir tracker e prioridade com IA"
                     className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 disabled:opacity-40 transition-colors"
                   >
-                    {aiSuggesting
-                      ? <Loader2 size={11} className="animate-spin" />
-                      : <Sparkles size={11} />}
+                    {aiSuggesting ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={11} />
+                    )}
                     {aiSuggesting ? 'Sugerindo…' : 'Sugerir com IA'}
                   </button>
                 )}
@@ -269,7 +325,11 @@ export function CreateIssueModal({ onClose }: Props) {
             <input
               type="text"
               value={subject}
-              onChange={e => { setSubject(e.target.value); setError(null); setAiReasoning(null); }}
+              onChange={(e) => {
+                setSubject(e.target.value);
+                setError(null);
+                setAiReasoning(null);
+              }}
               placeholder="Descreva brevemente a tarefa..."
               required
               autoFocus
@@ -282,13 +342,19 @@ export function CreateIssueModal({ onClose }: Props) {
               <label className="block text-xs font-medium text-slate-700 mb-1">Projeto *</label>
               <select
                 value={projectId}
-                onChange={e => { setProjectId(e.target.value ? Number(e.target.value) : ''); setAssignedTo(''); setError(null); }}
+                onChange={(e) => {
+                  setProjectId(e.target.value ? Number(e.target.value) : '');
+                  setAssignedTo('');
+                  setError(null);
+                }}
                 required
                 className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
                 <option value="">Selecionar...</option>
-                {projects?.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                {projects?.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -297,12 +363,14 @@ export function CreateIssueModal({ onClose }: Props) {
               <label className="block text-xs font-medium text-slate-700 mb-1">Tracker</label>
               <select
                 value={trackerId}
-                onChange={e => setTrackerId(e.target.value ? Number(e.target.value) : '')}
+                onChange={(e) => setTrackerId(e.target.value ? Number(e.target.value) : '')}
                 className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
                 <option value="">Padrão</option>
-                {trackers?.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
+                {trackers?.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -311,12 +379,14 @@ export function CreateIssueModal({ onClose }: Props) {
               <label className="block text-xs font-medium text-slate-700 mb-1">Prioridade</label>
               <select
                 value={priorityId}
-                onChange={e => setPriorityId(e.target.value ? Number(e.target.value) : '')}
+                onChange={(e) => setPriorityId(e.target.value ? Number(e.target.value) : '')}
                 className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
                 <option value="">Padrão</option>
-                {priorities?.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+                {priorities?.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -326,7 +396,7 @@ export function CreateIssueModal({ onClose }: Props) {
               <input
                 type="date"
                 value={dueDate}
-                onChange={e => setDueDate(e.target.value)}
+                onChange={(e) => setDueDate(e.target.value)}
                 className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -350,13 +420,16 @@ export function CreateIssueModal({ onClose }: Props) {
             <label className="block text-xs font-medium text-slate-700 mb-1">Atribuído para</label>
             <select
               value={assignedTo}
-              onChange={e => setAssignedTo(e.target.value ? Number(e.target.value) : '')}
+              onChange={(e) => setAssignedTo(e.target.value ? Number(e.target.value) : '')}
               disabled={!projectId}
               className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">{projectId ? 'Ninguém' : 'Selecione um projeto primeiro'}</option>
-              {members?.map(m => (
-                <option key={m.id} value={m.id}>{m.name}{m.team ? ` · ${m.team}` : ''}</option>
+              {members?.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                  {m.team ? ` · ${m.team}` : ''}
+                </option>
               ))}
             </select>
           </div>
@@ -374,15 +447,21 @@ export function CreateIssueModal({ onClose }: Props) {
             </div>
             <textarea
               value={description}
-              onChange={e => setDescription(e.target.value)}
-              onDragOver={e => e.preventDefault()}
-              onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); }}
-              onPaste={e => {
+              onChange={(e) => setDescription(e.target.value)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+              }}
+              onPaste={(e) => {
                 const imgs = Array.from(e.clipboardData.items)
-                  .filter(i => i.type.startsWith('image/'))
-                  .map(i => i.getAsFile())
+                  .filter((i) => i.type.startsWith('image/'))
+                  .map((i) => i.getAsFile())
                   .filter((f): f is File => !!f);
-                if (imgs.length) { e.preventDefault(); addFiles(imgs); }
+                if (imgs.length) {
+                  e.preventDefault();
+                  addFiles(imgs);
+                }
               }}
               placeholder="Detalhes opcionais… (arraste ou cole imagens para anexar)"
               rows={3}
@@ -391,11 +470,22 @@ export function CreateIssueModal({ onClose }: Props) {
             {files.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {files.map((f, i) => (
-                  <span key={i} className="inline-flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 rounded-md pl-2 pr-1 py-1">
-                    {f.type.startsWith('image/') ? <ImageIcon size={12} /> : <Paperclip size={12} />}
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 rounded-md pl-2 pr-1 py-1"
+                  >
+                    {f.type.startsWith('image/') ? (
+                      <ImageIcon size={12} />
+                    ) : (
+                      <Paperclip size={12} />
+                    )}
                     <span className="max-w-40 truncate">{f.name}</span>
                     <span className="text-slate-400">{fmtSize(f.size)}</span>
-                    <button type="button" onClick={() => removeFile(i)} className="text-slate-400 hover:text-red-500 ml-0.5">
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      className="text-slate-400 hover:text-red-500 ml-0.5"
+                    >
                       <X size={12} />
                     </button>
                   </span>
@@ -407,7 +497,10 @@ export function CreateIssueModal({ onClose }: Props) {
               type="file"
               multiple
               className="hidden"
-              onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }}
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files);
+                e.target.value = '';
+              }}
             />
           </div>
 
@@ -425,23 +518,32 @@ export function CreateIssueModal({ onClose }: Props) {
                 Sem permissão direta neste projeto.
               </p>
               <p className="text-xs text-amber-700">
-                Selecione um projeto intermediário onde você tem permissão de criação.
-                A tarefa será criada lá e movida automaticamente para o projeto desejado.
+                Selecione um projeto intermediário onde você tem permissão de criação. A tarefa será
+                criada lá e movida automaticamente para o projeto desejado.
               </p>
               <select
                 value={intermediateProjectId}
-                onChange={e => setIntermediateProjectId(e.target.value ? Number(e.target.value) : '')}
+                onChange={(e) =>
+                  setIntermediateProjectId(e.target.value ? Number(e.target.value) : '')
+                }
                 className="w-full text-sm border border-amber-300 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
               >
                 <option value="">Selecionar projeto intermediário…</option>
-                {projects?.filter(p => p.id !== projectId).map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
+                {projects
+                  ?.filter((p) => p.id !== projectId)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
               </select>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => { setForceCreate(false); setError(null); }}
+                  onClick={() => {
+                    setForceCreate(false);
+                    setError(null);
+                  }}
                   className="flex-1 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-100 rounded-lg transition-colors border border-amber-200"
                 >
                   Cancelar
@@ -452,9 +554,13 @@ export function CreateIssueModal({ onClose }: Props) {
                   disabled={!intermediateProjectId || uploading || createIssue.isPending}
                   className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white text-xs font-medium rounded-lg transition-colors"
                 >
-                  {uploading || createIssue.isPending
-                    ? <><Loader2 size={12} className="animate-spin" /> Criando…</>
-                    : 'Criar e mover automaticamente'}
+                  {uploading || createIssue.isPending ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin" /> Criando…
+                    </>
+                  ) : (
+                    'Criar e mover automaticamente'
+                  )}
                 </button>
               </div>
             </div>
@@ -473,8 +579,16 @@ export function CreateIssueModal({ onClose }: Props) {
               disabled={createIssue.isPending || uploading || !subject.trim() || !projectId}
               className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
             >
-              {uploading || createIssue.isPending ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-              {uploading && files.length > 0 ? 'Enviando anexos…' : uploading || createIssue.isPending ? 'Criando…' : 'Criar Tarefa'}
+              {uploading || createIssue.isPending ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Plus size={15} />
+              )}
+              {uploading && files.length > 0
+                ? 'Enviando anexos…'
+                : uploading || createIssue.isPending
+                  ? 'Criando…'
+                  : 'Criar Tarefa'}
             </button>
           </div>
         </form>

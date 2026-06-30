@@ -1,10 +1,10 @@
-name: "Security CI"
+name: 'Security CI'
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ['main', 'master']
   pull_request:
-    branches: [ "main", "master" ]
+    branches: ['main', 'master']
   schedule:
     - cron: '0 0 * * 0' # Run weekly on Sundays
 
@@ -20,51 +20,52 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'javascript-typescript' ]
+        language: ['javascript-typescript']
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v3
-      with:
-        languages: ${{ matrix.language }}
-        # If you wish to specify custom queries, you can do so here or in a config file.
-        # queries: security-extended,security-and-quality
-        
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
-      with:
-        category: "/language:${{matrix.language}}"
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # If you wish to specify custom queries, you can do so here or in a config file.
+          # queries: security-extended,security-and-quality
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{matrix.language}}'
 
   dependency-audit-and-build:
     name: NPM Audit & Build Check
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 18 # You can update to 20 if that's what your project uses
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18 # You can update to 20 if that's what your project uses
 
-    - name: Install Root/Server Dependencies
-      run: npm install # Using install instead of ci in case package-lock is out of sync initially
-      
-    - name: Run npm audit (Root/Server)
-      # Fails only on high or critical vulnerabilities
-      run: npm audit --audit-level=high
+      - name: Install Root/Server Dependencies
+        run: npm install # Using install instead of ci in case package-lock is out of sync initially
 
-    - name: Install Client Dependencies
-      run: npm install
-      working-directory: ./client
+      - name: Run npm audit (Root/Server)
+        # Fails only on high or critical vulnerabilities
+        run: npm audit --audit-level=high
 
-    - name: Run npm audit (Client)
-      run: npm audit --audit-level=high
-      working-directory: ./client
+      - name: Install Client Dependencies
+        run: npm install
+        working-directory: ./client
 
-    - name: Verify Client Build
-      run: npm run build
-      working-directory: ./client
+      - name: Run npm audit (Client)
+        # Fails only on high/critical, omitting devDependencies (like Vite/esbuild) since they don't go to production bundle
+        run: npm audit --audit-level=high --omit=dev
+        working-directory: ./client
+
+      - name: Verify Client Build
+        run: npm run build
+        working-directory: ./client

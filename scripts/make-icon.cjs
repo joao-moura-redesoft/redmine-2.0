@@ -23,8 +23,17 @@ function renderPng(size) {
   fs.copyFileSync(svgPath, path.join(pub, 'favicon.svg'));
 
   // Ícone do executável (multi-resolução)
-  const ico = await pngToIco([renderPng(256), renderPng(128), renderPng(64), renderPng(32), renderPng(16)]);
+  const ico = await pngToIco([
+    renderPng(256),
+    renderPng(128),
+    renderPng(64),
+    renderPng(32),
+    renderPng(16),
+  ]);
   fs.writeFileSync(path.join(root, 'build', 'bluemine.ico'), ico);
 
   console.log('Ícones gerados: icon-512/192.png, favicon.svg, build/bluemine.ico');
-})().catch(e => { console.error('Erro ao gerar ícones:', e); process.exit(1); });
+})().catch((e) => {
+  console.error('Erro ao gerar ícones:', e);
+  process.exit(1);
+});

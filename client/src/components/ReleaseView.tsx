@@ -13,7 +13,7 @@ const CF_NOTA = 213;
 const RELEASE_STATUSES = new Set([36, 29]); // Pendente Atualização, Pendente Fechamento
 
 function cfStr(issue: Issue, id: number): string {
-  const v = issue.custom_fields?.find(f => f.id === id)?.value;
+  const v = issue.custom_fields?.find((f) => f.id === id)?.value;
   if (!v) return '';
   return Array.isArray(v) ? v.join(', ') : v;
 }
@@ -32,9 +32,9 @@ export function ReleaseView({ onIssueClick }: Props) {
 
   // Tarefas que vão pra release, agrupadas por Impacto
   const groups = useMemo(() => {
-    const candidates = (issues ?? []).filter(i => RELEASE_STATUSES.has(i.status.id));
+    const candidates = (issues ?? []).filter((i) => RELEASE_STATUSES.has(i.status.id));
     const byImpacto = new Map<string, Issue[]>();
-    candidates.forEach(i => {
+    candidates.forEach((i) => {
       const imp = cfStr(i, CF_IMPACTO) || 'Sem impacto';
       (byImpacto.get(imp) ?? byImpacto.set(imp, []).get(imp)!).push(i);
     });
@@ -44,9 +44,12 @@ export function ReleaseView({ onIssueClick }: Props) {
   const total = groups.reduce((n, [, arr]) => n + arr.length, 0);
 
   const copyNotes = () => {
-    const text = groups.map(([imp, arr]) =>
-      `[${imp}]\n${arr.map(i => `- #${i.id} ${i.subject}${cfStr(i, CF_NOTA) ? ` — ${cfStr(i, CF_NOTA)}` : ''}`).join('\n')}`
-    ).join('\n\n');
+    const text = groups
+      .map(
+        ([imp, arr]) =>
+          `[${imp}]\n${arr.map((i) => `- #${i.id} ${i.subject}${cfStr(i, CF_NOTA) ? ` — ${cfStr(i, CF_NOTA)}` : ''}`).join('\n')}`,
+      )
+      .join('\n\n');
     navigator.clipboard?.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
@@ -56,7 +59,9 @@ export function ReleaseView({ onIssueClick }: Props) {
     <div className="max-w-4xl mx-auto">
       <div className="mb-4 flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">{mode === 'release' ? 'Release' : 'Burndown & Velocity'}</h2>
+          <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+            {mode === 'release' ? 'Release' : 'Burndown & Velocity'}
+          </h2>
           <p className="text-sm text-slate-500 mt-0.5">
             {mode === 'release'
               ? 'O que vai na próxima versão — tarefas em atualização/fechamento (já confirmadas), por impacto.'
@@ -66,29 +71,47 @@ export function ReleaseView({ onIssueClick }: Props) {
             <button
               onClick={() => setMode('release')}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition-colors ${mode === 'release' ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400' : 'text-slate-500'}`}
-            ><Rocket size={12} /> Notas de release</button>
+            >
+              <Rocket size={12} /> Notas de release
+            </button>
             <button
               onClick={() => setMode('burndown')}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-md font-medium transition-colors ${mode === 'burndown' ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400' : 'text-slate-500'}`}
-            ><TrendingDown size={12} /> Burndown</button>
+            >
+              <TrendingDown size={12} /> Burndown
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {mode === 'release' && total > 0 && (
-            <button onClick={copyNotes} className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100">
-              {copied ? <Check size={13} /> : <Copy size={13} />}{copied ? 'Copiado!' : 'Copiar notas'}
+            <button
+              onClick={copyNotes}
+              className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+            >
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+              {copied ? 'Copiado!' : 'Copiar notas'}
             </button>
           )}
           <select
             value={projectId ?? ''}
-            onChange={e => setProjectId(e.target.value ? Number(e.target.value) : undefined)}
+            onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : undefined)}
             className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400 max-w-64"
           >
-            <option value="">{mode === 'burndown' ? 'Selecione um projeto' : 'Todos os projetos'}</option>
-            {(projects ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            <option value="">
+              {mode === 'burndown' ? 'Selecione um projeto' : 'Todos os projetos'}
+            </option>
+            {(projects ?? []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
           </select>
           {mode === 'release' && (
-            <button onClick={() => refetch()} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Atualizar">
+            <button
+              onClick={() => refetch()}
+              className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+              title="Atualizar"
+            >
               <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} />
             </button>
           )}
@@ -96,13 +119,17 @@ export function ReleaseView({ onIssueClick }: Props) {
       </div>
 
       {mode === 'burndown' ? (
-        <VersionBurndown projectId={projectId} />
+        <VersionBurndown projectId={projectId} onIssueClick={onIssueClick} />
       ) : isLoading ? (
-        <div className="flex items-center justify-center py-20 text-slate-400"><RefreshCw size={20} className="animate-spin" /></div>
+        <div className="flex items-center justify-center py-20 text-slate-400">
+          <RefreshCw size={20} className="animate-spin" />
+        </div>
       ) : total === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-slate-400">
           <Rocket size={30} className="mb-3 opacity-30" />
-          <p className="text-sm">Nada em atualização/fechamento {projectId ? 'neste projeto' : 'em nenhum projeto'}.</p>
+          <p className="text-sm">
+            Nada em atualização/fechamento {projectId ? 'neste projeto' : 'em nenhum projeto'}.
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -114,7 +141,7 @@ export function ReleaseView({ onIssueClick }: Props) {
                 <span className="text-xs text-slate-400">· {arr.length}</span>
               </div>
               <div className="divide-y divide-slate-50">
-                {arr.map(issue => {
+                {arr.map((issue) => {
                   const nota = cfStr(issue, CF_NOTA);
                   return (
                     <button
@@ -122,12 +149,18 @@ export function ReleaseView({ onIssueClick }: Props) {
                       onClick={() => onIssueClick(issue.id)}
                       className="w-full text-left flex items-start gap-2.5 px-4 py-2 hover:bg-blue-50 transition-colors group"
                     >
-                      <span className="text-xs font-medium text-slate-400 flex-shrink-0 mt-0.5 w-12">#{issue.id}</span>
+                      <span className="text-xs font-medium text-slate-400 flex-shrink-0 mt-0.5 w-12">
+                        #{issue.id}
+                      </span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm text-slate-700 group-hover:text-blue-700 truncate">{issue.subject}</p>
+                        <p className="text-sm text-slate-700 group-hover:text-blue-700 truncate">
+                          {issue.subject}
+                        </p>
                         {nota && <p className="text-xs text-slate-400 truncate">{nota}</p>}
                       </div>
-                      <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">{issue.status.name}</span>
+                      <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">
+                        {issue.status.name}
+                      </span>
                     </button>
                   );
                 })}

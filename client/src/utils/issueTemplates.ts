@@ -10,15 +10,18 @@ export interface IssueTemplate {
 const KEY = 'issue-templates';
 
 export function getTemplates(): IssueTemplate[] {
-  try { return JSON.parse(localStorage.getItem(KEY) ?? '[]') as IssueTemplate[]; }
-  catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(KEY) ?? '[]') as IssueTemplate[];
+  } catch {
+    return [];
+  }
 }
 
 export function saveTemplate(t: IssueTemplate): void {
-  const all = getTemplates().filter(x => x.id !== t.id);
+  const all = getTemplates().filter((x) => x.id !== t.id);
   localStorage.setItem(KEY, JSON.stringify([...all, t]));
 }
 
 export function deleteTemplate(id: string): void {
-  localStorage.setItem(KEY, JSON.stringify(getTemplates().filter(x => x.id !== id)));
+  localStorage.setItem(KEY, JSON.stringify(getTemplates().filter((x) => x.id !== id)));
 }

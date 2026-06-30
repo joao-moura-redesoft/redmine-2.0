@@ -24,14 +24,21 @@ async function resolveWikiCreds(req) {
     try {
       const uid = await getMyUserId(req);
       const ad = uid ? getAd(uid) : null;
-      if (ad) { user = ad.user; pass = ad.pass; }
-    } catch { /* sem credenciais no cofre */ }
+      if (ad) {
+        user = ad.user;
+        pass = ad.pass;
+      }
+    } catch {
+      /* sem credenciais no cofre */
+    }
   }
   if (user && pass) lastWikiCreds = { host, user, pass };
   return { host, user, pass };
 }
 
-function getLastWikiCreds() { return lastWikiCreds; }
+function getLastWikiCreds() {
+  return lastWikiCreds;
+}
 
 function basicAuth(user, pass) {
   if (!user || !pass) return {};
@@ -39,7 +46,8 @@ function basicAuth(user, pass) {
 }
 
 async function dokuGet(host, user, pass, path) {
-  if (!user || !pass) throw Object.assign(new Error('credentials_required'), { code: 'WIKI_NO_CREDS' });
+  if (!user || !pass)
+    throw Object.assign(new Error('credentials_required'), { code: 'WIKI_NO_CREDS' });
   const url = `https://${host}${path}`;
   const { data } = await axios.get(url, {
     headers: { ...basicAuth(user, pass) },
@@ -52,7 +60,14 @@ async function dokuGet(host, user, pass, path) {
 // --- Parsers HTML ---
 
 function stripTags(html) {
-  return html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'").trim();
+  return html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .trim();
 }
 
 // Extrai os resultados da página de busca do DokuWiki.
@@ -74,7 +89,9 @@ function parseSearchHTML(html) {
     if (!idMatch) continue;
 
     const id = idMatch[1];
-    const title = titleMatch ? stripTags(titleMatch[1]) : id.split(':').pop()?.replace(/_/g, ' ') || id;
+    const title = titleMatch
+      ? stripTags(titleMatch[1])
+      : id.split(':').pop()?.replace(/_/g, ' ') || id;
     const ns = id.includes(':') ? id.split(':').slice(0, -1).join(':') : '';
     const mtime = dtimeMatch ? Math.floor(new Date(dtimeMatch[1]).getTime() / 1000) : 0;
     const snippet = snippetMatch ? stripTags(snippetMatch[1]).slice(0, 200) : '';
@@ -85,14 +102,22 @@ function parseSearchHTML(html) {
 }
 
 function decodeHtmlEntities(s) {
-  return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'");
 }
 
 // Reescreve links relativos para absolutos e imagens para o proxy local (auth necessária)
 function rewriteLinks(html, host) {
   const base = `https://${host}`;
   return html
-    .replace(/href="\/doku\.php\?([^"]+)"/g, `href="${base}/doku.php?$1" target="_blank" rel="noreferrer"`)
+    .replace(
+      /href="\/doku\.php\?([^"]+)"/g,
+      `href="${base}/doku.php?$1" target="_blank" rel="noreferrer"`,
+    )
     .replace(/href="(\/[^"]+)"/g, `href="${base}$1" target="_blank" rel="noreferrer"`)
     .replace(/src="(\/[^"]+)"/g, (_, path) => {
       const mediaUrl = `https://${host}${decodeHtmlEntities(path)}`;
@@ -120,7 +145,7 @@ function extractPageContent(html) {
   const firstSectionH1 = html.indexOf('<h1 class="sectionedit', tagEnd);
   const firstH1 = html.indexOf('<h1', tagEnd);
   const firstLevel = html.indexOf('<div class="level', tagEnd);
-  const candidates = [firstSectionH1, firstH1, firstLevel].filter(n => n !== -1);
+  const candidates = [firstSectionH1, firstH1, firstLevel].filter((n) => n !== -1);
   const wikiStart = candidates.length ? Math.min(...candidates) : tagEnd;
 
   // Termina antes do footer ou do cookie banner (que aparece no final da área de conteúdo)
@@ -139,7 +164,9 @@ function extractPageContent(html) {
 async function getPageHTML(req, id) {
   const { host, user, pass } = await resolveWikiCreds(req);
   // Página completa para incluir output de plugins (checkmarks, etc.)
-  const raw = String(await dokuGet(host, user, pass, `/doku.php?id=${encodeURIComponent(id)}`) || '');
+  const raw = String(
+    (await dokuGet(host, user, pass, `/doku.php?id=${encodeURIComponent(id)}`)) || '',
+  );
   const content = extractPageContent(raw);
   const sanitized = content
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')

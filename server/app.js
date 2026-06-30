@@ -23,31 +23,43 @@ function buildApp() {
   // produção (Jitsi/Wiki/Drive), troque CSP_ENFORCE=1 para passar a bloquear.
   const cspDirectives = {
     defaultSrc: ["'self'"],
-    scriptSrc: ["'self'", 'https:'],            // Jitsi external_api (domínio configurável)
-    styleSrc: ["'self'", "'unsafe-inline'"],    // estilos inline do React/libs
+    scriptSrc: ["'self'", 'https:'], // Jitsi external_api (domínio configurável)
+    styleSrc: ["'self'", "'unsafe-inline'"], // estilos inline do React/libs
     imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
     fontSrc: ["'self'", 'data:'],
-    connectSrc: ["'self'", 'https:', 'wss:'],   // /api, SSE, Jitsi (wss)
-    mediaSrc: ["'self'", 'blob:', 'data:'],     // áudio/voz (object URLs)
-    frameSrc: ["'self'", 'https:'],             // Jitsi + viewer.diagrams.net
-    workerSrc: ["'self'", 'blob:'],             // service worker + workers blob
+    connectSrc: ["'self'", 'https:', 'wss:'], // /api, SSE, Jitsi (wss)
+    mediaSrc: ["'self'", 'blob:', 'data:'], // áudio/voz (object URLs)
+    frameSrc: ["'self'", 'https:'], // Jitsi + viewer.diagrams.net
+    workerSrc: ["'self'", 'blob:'], // service worker + workers blob
     objectSrc: ["'none'"],
     baseUri: ["'self'"],
     frameAncestors: ["'self'"],
     formAction: ["'self'"],
   };
-  app.use(helmet({
-    contentSecurityPolicy: {
-      useDefaults: false,
-      directives: cspDirectives,
-      reportOnly: process.env.CSP_ENFORCE !== '1',
-    },
-    hsts: false,
-    crossOriginEmbedderPolicy: false,
-  }));
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: false,
+        directives: cspDirectives,
+        reportOnly: process.env.CSP_ENFORCE !== '1',
+      },
+      hsts: false,
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
 
   // AJUSTADO: Adicionado suporte para a porta 3001 onde o front+back rodarão juntos
-  app.use(cors({ origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3001', 'http://127.0.0.1:3001'], credentials: true }));
+  app.use(
+    cors({
+      origin: [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:3001',
+        'http://127.0.0.1:3001',
+      ],
+      credentials: true,
+    }),
+  );
   app.use(express.json());
   app.use(cookieParser());
 

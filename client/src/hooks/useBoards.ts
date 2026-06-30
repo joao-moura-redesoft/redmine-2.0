@@ -1,7 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  fetchBoards, createBoard, updateBoard, deleteBoard,
-  type Board, type BoardPatch,
+  fetchBoards,
+  createBoard,
+  updateBoard,
+  deleteBoard,
+  type Board,
+  type BoardPatch,
 } from '../api/boards';
 import { getStoredAuth } from '../api/redmine';
 
@@ -35,8 +39,7 @@ export function useCreateBoard() {
       return { prev, id: optimistic.id };
     },
     onSuccess: (board, _patch, ctx) => {
-      qc.setQueryData<Board[]>(KEY, (old = []) =>
-        old.map(b => (b.id === ctx?.id ? board : b)));
+      qc.setQueryData<Board[]>(KEY, (old = []) => old.map((b) => (b.id === ctx?.id ? board : b)));
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(KEY, ctx.prev);
@@ -52,7 +55,8 @@ export function useUpdateBoard() {
       await qc.cancelQueries({ queryKey: KEY });
       const prev = qc.getQueryData<Board[]>(KEY);
       qc.setQueryData<Board[]>(KEY, (old = []) =>
-        old.map(b => b.id === id ? { ...b, ...patch, updatedAt: Date.now() } : b));
+        old.map((b) => (b.id === id ? { ...b, ...patch, updatedAt: Date.now() } : b)),
+      );
       return { prev };
     },
     onError: (_e, _v, ctx) => {
@@ -68,7 +72,7 @@ export function useDeleteBoard() {
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: KEY });
       const prev = qc.getQueryData<Board[]>(KEY);
-      qc.setQueryData<Board[]>(KEY, (old = []) => old.filter(b => b.id !== id));
+      qc.setQueryData<Board[]>(KEY, (old = []) => old.filter((b) => b.id !== id));
       return { prev };
     },
     onError: (_e, _v, ctx) => {

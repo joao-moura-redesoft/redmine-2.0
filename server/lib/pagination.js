@@ -3,7 +3,9 @@
 // Busca TODAS as páginas de um recurso paginado (genérico).
 async function fetchAllPages(redmine, path, key, params, max = 2000) {
   const limit = 100;
-  let offset = 0, all = [], total = Infinity;
+  let offset = 0,
+    all = [],
+    total = Infinity;
   while (offset < total && all.length < max) {
     const { data } = await redmine.get(path, { params: { ...params, limit, offset } });
     if (data.total_count != null) total = data.total_count;
@@ -23,8 +25,11 @@ async function mapLimit(items, limit, fn) {
   async function worker() {
     while (i < items.length) {
       const idx = i++;
-      try { out[idx] = await fn(items[idx], idx); }
-      catch { out[idx] = null; }
+      try {
+        out[idx] = await fn(items[idx], idx);
+      } catch {
+        out[idx] = null;
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
@@ -36,7 +41,9 @@ async function mapLimit(items, limit, fn) {
 async function fetchAllIssues(redmine, params) {
   const limit = 100;
   const MAX = 2000;
-  let offset = 0, all = [], total = Infinity;
+  let offset = 0,
+    all = [],
+    total = Infinity;
   while (offset < total && all.length < MAX) {
     const { data } = await redmine.get('/issues.json', { params: { ...params, limit, offset } });
     if (data.total_count != null) total = data.total_count;

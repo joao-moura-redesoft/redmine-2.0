@@ -14,7 +14,7 @@ function userSprints(userId) {
 
 // Remove uma sprint do usuário (reatribui o array filtrado no store).
 function removeSprint(userId, id) {
-  sprintsStore[userId] = userSprints(userId).filter(s => s.id !== id);
+  sprintsStore[userId] = userSprints(userId).filter((s) => s.id !== id);
   saveSprints();
 }
 

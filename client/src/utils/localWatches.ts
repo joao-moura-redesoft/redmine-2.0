@@ -13,7 +13,7 @@ function read(): number[] {
   try {
     const raw = localStorage.getItem(KEY);
     const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr.filter(n => typeof n === 'number') : [];
+    return Array.isArray(arr) ? arr.filter((n) => typeof n === 'number') : [];
   } catch {
     return [];
   }
@@ -23,19 +23,26 @@ let current = read();
 const listeners = new Set<() => void>();
 
 function emit() {
-  listeners.forEach(l => l());
+  listeners.forEach((l) => l());
 }
 
 function write(ids: number[]) {
   current = ids;
-  try { localStorage.setItem(KEY, JSON.stringify(ids)); } catch { /* quota/private mode */ }
+  try {
+    localStorage.setItem(KEY, JSON.stringify(ids));
+  } catch {
+    /* quota/private mode */
+  }
   emit();
 }
 
 // Sincroniza entre abas do navegador
 if (typeof window !== 'undefined') {
-  window.addEventListener('storage', e => {
-    if (e.key === KEY) { current = read(); emit(); }
+  window.addEventListener('storage', (e) => {
+    if (e.key === KEY) {
+      current = read();
+      emit();
+    }
   });
 }
 
@@ -43,10 +50,12 @@ export const localWatches = {
   getIds: () => current,
   isWatching: (id: number) => current.includes(id),
   toggle: (id: number) =>
-    write(current.includes(id) ? current.filter(x => x !== id) : [...current, id]),
+    write(current.includes(id) ? current.filter((x) => x !== id) : [...current, id]),
   subscribe: (cb: () => void) => {
     listeners.add(cb);
-    return () => { listeners.delete(cb); };
+    return () => {
+      listeners.delete(cb);
+    };
   },
 };
 

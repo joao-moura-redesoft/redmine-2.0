@@ -10,9 +10,9 @@ const axios = require('axios');
 // }
 const rooms = new Map();
 
-const TTL_MS = 90 * 1000;        // participante sem heartbeat por 90s vira "fantasma"
-const SWEEP_MS = 30 * 1000;      // varredura periódica
-const MIN_LOG_MS = 60 * 1000;    // não auto-loga reuniões com menos de 1 min
+const TTL_MS = 90 * 1000; // participante sem heartbeat por 90s vira "fantasma"
+const SWEEP_MS = 30 * 1000; // varredura periódica
+const MIN_LOG_MS = 60 * 1000; // não auto-loga reuniões com menos de 1 min
 
 function issueIdFromRoom(room) {
   const m = /^B2Click-Issue-(\d+)$/.exec(room || '');
@@ -29,7 +29,13 @@ function touch(room, name, auth) {
   const now = Date.now();
   let r = rooms.get(room);
   if (!r) {
-    r = { issueId: issueIdFromRoom(room), startedAt: now, names: new Set(), participants: new Map(), auth };
+    r = {
+      issueId: issueIdFromRoom(room),
+      startedAt: now,
+      names: new Set(),
+      participants: new Map(),
+      auth,
+    };
     rooms.set(room, r);
   }
   // Mantém o auth mais recente válido (usado para finalizar via TTL, sem request).
@@ -67,14 +73,20 @@ async function finalize(room, auth) {
   try {
     await postNote(auth, r.issueId, notes);
   } catch (e) {
-    console.error('[jitsiPresence] falha ao auto-logar reunião', r.issueId, e.response?.status || e.message);
+    console.error(
+      '[jitsiPresence] falha ao auto-logar reunião',
+      r.issueId,
+      e.response?.status || e.message,
+    );
   }
 }
 
 function postNote(auth, issueId, notes) {
   const headers = { 'Content-Type': 'application/json' };
   if (auth.key) headers['X-Redmine-API-Key'] = auth.key;
-  else headers['Authorization'] = 'Basic ' + Buffer.from(`${auth.user}:${auth.pass}`).toString('base64');
+  else
+    headers['Authorization'] =
+      'Basic ' + Buffer.from(`${auth.user}:${auth.pass}`).toString('base64');
   return axios.put(`${auth.url}/issues/${issueId}.json`, { issue: { notes } }, { headers });
 }
 
@@ -101,7 +113,7 @@ function activeRooms() {
       room,
       issueId: r.issueId,
       count: r.participants.size,
-      participants: [...r.participants.values()].map(p => p.name),
+      participants: [...r.participants.values()].map((p) => p.name),
     });
   }
   return out;

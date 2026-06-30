@@ -1,21 +1,21 @@
 version: 2
 updates:
   # Maintain dependencies for npm (root / server)
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 10
-    
+
   # Maintain dependencies for npm (client)
-  - package-ecosystem: "npm"
-    directory: "/client"
+  - package-ecosystem: 'npm'
+    directory: '/client'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
     open-pull-requests-limit: 10
 
   # Maintain github actions
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'

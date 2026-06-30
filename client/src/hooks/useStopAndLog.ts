@@ -30,10 +30,14 @@ const MIN_HOURS = 0.02;
 export function useStopAndLog() {
   const { data: activities } = useTimeEntryActivities();
   const createEntry = useCreateTimeEntry();
-  const defaultActivity = activities?.find(a => a.is_default) ?? activities?.[0];
+  const defaultActivity = activities?.find((a) => a.is_default) ?? activities?.[0];
 
   const logHours = useCallback(
-    async (issueId: number, hours: number, opts?: { activityId?: number; comments?: string }): Promise<LogResult> => {
+    async (
+      issueId: number,
+      hours: number,
+      opts?: { activityId?: number; comments?: string },
+    ): Promise<LogResult> => {
       const activityId = opts?.activityId ?? defaultActivity?.id;
       if (!hours || hours < MIN_HOURS || !activityId) {
         return { logged: false, hours };
@@ -51,7 +55,7 @@ export function useStopAndLog() {
         return { logged: false, hours };
       }
     },
-    [defaultActivity, createEntry]
+    [defaultActivity, createEntry],
   );
 
   return { logHours, isLogging: createEntry.isPending, defaultActivity };

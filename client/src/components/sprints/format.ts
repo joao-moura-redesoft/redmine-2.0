@@ -1,11 +1,17 @@
 import type { Issue } from '../../types/redmine';
 
+// "Pendente revisão" não é um status is_closed no Redmine, mas para fins de
+// progresso de sprint o time considera a tarefa concluída (trabalho entregue,
+// só aguardando revisão). Conta como feita nas barras de progresso e no visual.
+const DONE_FOR_SPRINT = /pendente\s*revis/i;
+
 // "Fechada" de forma confiável: o is_closed embutido na issue da listagem do
 // Redmine nem sempre vem, então conferimos também contra o conjunto de IDs de
 // status fechados (vindo de /issue_statuses via useStatuses).
 export function isClosedStatus(issue: Issue, closedIds?: Set<number>): boolean {
   if (issue.status?.is_closed) return true;
-  if (closedIds && issue.status?.id != null) return closedIds.has(issue.status.id);
+  if (closedIds && issue.status?.id != null && closedIds.has(issue.status.id)) return true;
+  if (issue.status?.name && DONE_FOR_SPRINT.test(issue.status.name)) return true;
   return false;
 }
 
@@ -17,7 +23,10 @@ export function daysLeftFrom(endDate: string | null): number | null {
 }
 
 function fmtDay(iso: string): string {
-  return new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+  return new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+  });
 }
 
 export function fmtRange(start: string | null, end: string | null): string | null {

@@ -12,7 +12,9 @@ function startOfWeek(d: Date): Date {
   return x;
 }
 
-function label(d: Date) { return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }); }
+function label(d: Date) {
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
 
 interface Props {
   open: Issue[] | undefined;
@@ -30,13 +32,13 @@ export function ThroughputChart({ open, completed }: Props) {
     const closed = new Map<string, number>();
 
     const allForCreated = new Map<number, Issue>();
-    [...(open ?? []), ...(completed ?? [])].forEach(i => allForCreated.set(i.id, i));
+    [...(open ?? []), ...(completed ?? [])].forEach((i) => allForCreated.set(i.id, i));
 
-    allForCreated.forEach(i => {
+    allForCreated.forEach((i) => {
       const k = weekKey(i.created_on);
       if (k) created.set(k, (created.get(k) || 0) + 1);
     });
-    (completed ?? []).forEach(i => {
+    (completed ?? []).forEach((i) => {
       const k = weekKey(i.closed_on || i.updated_on);
       if (k) closed.set(k, (closed.get(k) || 0) + 1);
     });
@@ -47,19 +49,26 @@ export function ThroughputChart({ open, completed }: Props) {
       const d = new Date(thisWeek);
       d.setDate(d.getDate() - i * 7);
       const key = d.toISOString().split('T')[0];
-      weeks.push({ key, label: label(d), created: created.get(key) || 0, closed: closed.get(key) || 0 });
+      weeks.push({
+        key,
+        label: label(d),
+        created: created.get(key) || 0,
+        closed: closed.get(key) || 0,
+      });
     }
     return weeks;
   }, [open, completed]);
 
-  const max = Math.max(1, ...data.map(d => Math.max(d.created, d.closed)));
+  const max = Math.max(1, ...data.map((d) => Math.max(d.created, d.closed)));
   const totalCreated = data.reduce((s, d) => s + d.created, 0);
   const totalClosed = data.reduce((s, d) => s + d.closed, 0);
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-slate-700">Criadas vs concluídas — últimas {WEEKS} semanas</h3>
+        <h3 className="text-sm font-semibold text-slate-700">
+          Criadas vs concluídas — últimas {WEEKS} semanas
+        </h3>
         <div className="flex items-center gap-3 text-xs">
           <span className="flex items-center gap-1.5 text-slate-500">
             <span className="w-2.5 h-2.5 rounded-sm bg-blue-500" /> Criadas ({totalCreated})
@@ -71,7 +80,7 @@ export function ThroughputChart({ open, completed }: Props) {
       </div>
 
       <div className="flex items-end justify-between gap-3 h-40">
-        {data.map(d => (
+        {data.map((d) => (
           <div key={d.key} className="flex-1 flex flex-col items-center gap-1 group/bar">
             <div className="w-full flex items-end justify-center gap-1 h-32">
               <div
@@ -89,7 +98,9 @@ export function ThroughputChart({ open, completed }: Props) {
           </div>
         ))}
       </div>
-      <p className="text-xs text-slate-400 mt-2 text-center">Início de cada semana (segunda-feira)</p>
+      <p className="text-xs text-slate-400 mt-2 text-center">
+        Início de cada semana (segunda-feira)
+      </p>
     </div>
   );
 }

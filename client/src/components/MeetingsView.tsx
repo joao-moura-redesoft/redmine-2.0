@@ -36,7 +36,12 @@ export function MeetingsView({ onIssueClick }: { onIssueClick?: (id: number) => 
 
   const enter = (room: string, title: string) => {
     const issueId = issueIdFromRoom(room);
-    startCall({ room, title, kind: issueId ? 'task' : room === DAILY_ROOM ? 'daily' : 'adhoc', issueId: issueId ?? undefined });
+    startCall({
+      room,
+      title,
+      kind: issueId ? 'task' : room === DAILY_ROOM ? 'daily' : 'adhoc',
+      issueId: issueId ?? undefined,
+    });
   };
 
   return (
@@ -55,18 +60,22 @@ export function MeetingsView({ onIssueClick }: { onIssueClick?: (id: number) => 
             className="flex flex-col items-start gap-2 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-blue-300 hover:shadow-sm transition-all text-left"
           >
             <CalendarClock size={18} className="text-blue-600" />
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Reunião Diária</span>
+            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Reunião Diária
+            </span>
             <span className="text-xs text-slate-400">Sala fixa da daily/standup</span>
           </button>
 
           {/* Nova avulsa */}
           <div className="flex flex-col gap-2 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
             <Plus size={18} className="text-emerald-600" />
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Nova reunião</span>
+            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Nova reunião
+            </span>
             <input
               value={newName}
-              onChange={e => setNewName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && createAdHoc()}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && createAdHoc()}
               placeholder="Nome (opcional)"
               className="w-full text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-400"
             />
@@ -81,11 +90,13 @@ export function MeetingsView({ onIssueClick }: { onIssueClick?: (id: number) => 
           {/* Entrar por nome */}
           <div className="flex flex-col gap-2 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
             <LogIn size={18} className="text-violet-600" />
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Entrar por nome</span>
+            <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Entrar por nome
+            </span>
             <input
               value={joinName}
-              onChange={e => setJoinName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && joinByName()}
+              onChange={(e) => setJoinName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && joinByName()}
               placeholder="Nome exato da sala"
               className="w-full text-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-800 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-violet-400"
             />
@@ -103,7 +114,9 @@ export function MeetingsView({ onIssueClick }: { onIssueClick?: (id: number) => 
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Radio size={15} className="text-red-500" />
-            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Salas ativas agora</h2>
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Salas ativas agora
+            </h2>
             <span className="text-xs text-slate-400">{rooms.length}</span>
           </div>
 
@@ -114,7 +127,7 @@ export function MeetingsView({ onIssueClick }: { onIssueClick?: (id: number) => 
             </div>
           ) : (
             <div className="space-y-2">
-              {rooms.map(r => {
+              {rooms.map((r) => {
                 const here = activeCall?.room === r.room || poppedOut?.room === r.room;
                 const label = roomLabel(r.room);
                 const issueId = r.issueId;
@@ -130,7 +143,9 @@ export function MeetingsView({ onIssueClick }: { onIssueClick?: (id: number) => 
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{label}</span>
+                        <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+                          {label}
+                        </span>
                         {issueId != null && onIssueClick && (
                           <button
                             onClick={() => onIssueClick(issueId)}

@@ -1,12 +1,29 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  Bold, Italic, Heading2, List, Code, Link2, Paperclip, Send, X, Eye, Pencil, Image as ImageIcon, AtSign, Sparkles, Loader2,
+  Bold,
+  Italic,
+  Heading2,
+  List,
+  Code,
+  Link2,
+  Paperclip,
+  Send,
+  X,
+  Eye,
+  Pencil,
+  Image as ImageIcon,
+  AtSign,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { Markdown } from './Markdown';
 import { redmineApi } from '../api/redmine';
 import { getAIKey } from '../utils/aiConfig';
 
-interface Member { id: number; name: string; }
+interface Member {
+  id: number;
+  name: string;
+}
 
 interface Props {
   onSubmit: (text: string, files: File[]) => void;
@@ -32,7 +49,14 @@ function detectMention(value: string, caret: number): { query: string; start: nu
   return { query: m[2], start: caret - m[2].length - 1 };
 }
 
-export function CommentComposer({ onSubmit, sending, draftKey, members = [], injectText, aiContext }: Props) {
+export function CommentComposer({
+  onSubmit,
+  sending,
+  draftKey,
+  members = [],
+  injectText,
+  aiContext,
+}: Props) {
   const [text, setText] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [preview, setPreview] = useState(false);
@@ -49,8 +73,15 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
   // Carrega rascunho ao abrir (por tarefa)
   useEffect(() => {
     if (!storageKey) return;
-    try { const d = localStorage.getItem(storageKey); setText(d ?? ''); } catch { /* ignore */ }
-    setFiles([]); setPreview(false); setMention(null);
+    try {
+      const d = localStorage.getItem(storageKey);
+      setText(d ?? '');
+    } catch {
+      /* ignore */
+    }
+    setFiles([]);
+    setPreview(false);
+    setMention(null);
   }, [storageKey]);
 
   // Injeta texto externo (ex: rascunho gerado por IA) quando prop muda
@@ -67,11 +98,13 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
     try {
       if (text.trim()) localStorage.setItem(storageKey, text);
       else localStorage.removeItem(storageKey);
-    } catch { /* quota */ }
+    } catch {
+      /* quota */
+    }
   }, [text, storageKey]);
 
   const mentionMatches = mention
-    ? members.filter(m => m.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)
+    ? members.filter((m) => m.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)
     : [];
 
   // Auto-resize do textarea
@@ -85,9 +118,9 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
 
   const addFiles = (list: FileList | File[]) => {
     const arr = Array.from(list);
-    if (arr.length) setFiles(f => [...f, ...arr]);
+    if (arr.length) setFiles((f) => [...f, ...arr]);
   };
-  const removeFile = (i: number) => setFiles(f => f.filter((_, idx) => idx !== i));
+  const removeFile = (i: number) => setFiles((f) => f.filter((_, idx) => idx !== i));
 
   const submit = () => {
     if ((!text.trim() && files.length === 0) || sending) return;
@@ -96,7 +129,13 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
     setFiles([]);
     setPreview(false);
     setMention(null);
-    if (storageKey) { try { localStorage.removeItem(storageKey); } catch { /* ignore */ } }
+    if (storageKey) {
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {
+        /* ignore */
+      }
+    }
   };
 
   // Insere "@Nome " no lugar da menção em digitação
@@ -110,14 +149,18 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
     setText(next);
     setMention(null);
     const pos = before.length + insert.length;
-    requestAnimationFrame(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = pos; });
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = pos;
+    });
   };
 
   // Insere markdown ao redor da seleção
   const surround = (pre: string, post: string, placeholder: string) => {
     const ta = taRef.current;
     if (!ta) return;
-    const s = ta.selectionStart, e = ta.selectionEnd;
+    const s = ta.selectionStart,
+      e = ta.selectionEnd;
     const sel = text.slice(s, e) || placeholder;
     const next = text.slice(0, s) + pre + sel + post + text.slice(e);
     setText(next);
@@ -135,7 +178,10 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
     const lineStart = text.lastIndexOf('\n', s - 1) + 1;
     const next = text.slice(0, lineStart) + prefix + text.slice(lineStart);
     setText(next);
-    requestAnimationFrame(() => { ta.focus(); ta.selectionStart = ta.selectionEnd = s + prefix.length; });
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = s + prefix.length;
+    });
   };
 
   const tools = [
@@ -150,25 +196,45 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
   return (
     <div
       className={`border rounded-lg bg-white transition-colors ${dragOver ? 'border-blue-400 ring-2 ring-blue-200' : 'border-slate-200'}`}
-      onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
       onDragLeave={() => setDragOver(false)}
-      onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+      }}
     >
       {/* Toolbar */}
       <div className="flex items-center gap-0.5 px-2 py-1 border-b border-slate-100">
-        {tools.map(t => (
-          <button key={t.title} type="button" onClick={t.action} title={t.title}
-            className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-700">
+        {tools.map((t) => (
+          <button
+            key={t.title}
+            type="button"
+            onClick={t.action}
+            title={t.title}
+            className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          >
             <t.icon size={14} />
           </button>
         ))}
-        <button type="button" onClick={() => fileRef.current?.click()} title="Anexar arquivo"
-          className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-700">
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          title="Anexar arquivo"
+          className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+        >
           <Paperclip size={14} />
         </button>
         <div className="flex-1" />
-        <button type="button" onClick={() => setPreview(p => !p)} title={preview ? 'Editar' : 'Pré-visualizar'}
-          className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${preview ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>
+        <button
+          type="button"
+          onClick={() => setPreview((p) => !p)}
+          title={preview ? 'Editar' : 'Pré-visualizar'}
+          className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${preview ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
+        >
           {preview ? <Pencil size={12} /> : <Eye size={12} />}
           {preview ? 'Editar' : 'Prévia'}
         </button>
@@ -177,35 +243,61 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
       {/* Corpo: editor ou prévia */}
       {preview ? (
         <div className="px-3 py-2 min-h-16 max-h-64 overflow-y-auto">
-          {text.trim()
-            ? <Markdown text={text} className="text-sm" />
-            : <p className="text-sm text-slate-300 italic">Nada para pré-visualizar.</p>}
+          {text.trim() ? (
+            <Markdown text={text} className="text-sm" />
+          ) : (
+            <p className="text-sm text-slate-300 italic">Nada para pré-visualizar.</p>
+          )}
         </div>
       ) : (
         <div className="relative">
           <textarea
             ref={taRef}
             value={text}
-            onChange={e => {
+            onChange={(e) => {
               setText(e.target.value);
               setMidx(0);
-              setMention(members.length ? detectMention(e.target.value, e.target.selectionStart) : null);
+              setMention(
+                members.length ? detectMention(e.target.value, e.target.selectionStart) : null,
+              );
             }}
-            onPaste={e => {
+            onPaste={(e) => {
               const imgs = Array.from(e.clipboardData.items)
-                .filter(i => i.type.startsWith('image/'))
-                .map(i => i.getAsFile())
+                .filter((i) => i.type.startsWith('image/'))
+                .map((i) => i.getAsFile())
                 .filter((f): f is File => !!f);
-              if (imgs.length) { e.preventDefault(); addFiles(imgs); }
-            }}
-            onKeyDown={e => {
-              if (mention && mentionMatches.length) {
-                if (e.key === 'ArrowDown') { e.preventDefault(); setMidx(i => Math.min(i + 1, mentionMatches.length - 1)); return; }
-                if (e.key === 'ArrowUp') { e.preventDefault(); setMidx(i => Math.max(i - 1, 0)); return; }
-                if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(mentionMatches[midx].name); return; }
-                if (e.key === 'Escape') { e.preventDefault(); setMention(null); return; }
+              if (imgs.length) {
+                e.preventDefault();
+                addFiles(imgs);
               }
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); }
+            }}
+            onKeyDown={(e) => {
+              if (mention && mentionMatches.length) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setMidx((i) => Math.min(i + 1, mentionMatches.length - 1));
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setMidx((i) => Math.max(i - 1, 0));
+                  return;
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
+                  insertMention(mentionMatches[midx].name);
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setMention(null);
+                  return;
+                }
+              }
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                submit();
+              }
             }}
             placeholder="Escreva em Markdown… (@ menciona alguém · convertido para o Redmine ao enviar)"
             rows={2}
@@ -236,11 +328,17 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
       {files.length > 0 && (
         <div className="flex flex-wrap gap-1.5 px-3 pb-2">
           {files.map((f, i) => (
-            <span key={i} className="inline-flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 rounded-md pl-2 pr-1 py-1">
+            <span
+              key={i}
+              className="inline-flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 rounded-md pl-2 pr-1 py-1"
+            >
               {f.type.startsWith('image/') ? <ImageIcon size={12} /> : <Paperclip size={12} />}
               <span className="max-w-40 truncate">{f.name}</span>
               <span className="text-slate-400">{fmtSize(f.size)}</span>
-              <button onClick={() => removeFile(i)} className="text-slate-400 hover:text-red-500 ml-0.5">
+              <button
+                onClick={() => removeFile(i)}
+                className="text-slate-400 hover:text-red-500 ml-0.5"
+              >
                 <X size={12} />
               </button>
             </span>
@@ -253,7 +351,10 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
         <div className="mx-3 mb-2 flex items-start gap-2 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg px-3 py-2 text-xs text-purple-700 dark:text-purple-300">
           <Sparkles size={12} className="mt-0.5 flex-shrink-0 text-purple-500" />
           <span className="flex-1 whitespace-pre-wrap">{aiFeedback}</span>
-          <button onClick={() => setAiFeedback(null)} className="text-purple-400 hover:text-purple-600 flex-shrink-0">
+          <button
+            onClick={() => setAiFeedback(null)}
+            className="text-purple-400 hover:text-purple-600 flex-shrink-0"
+          >
             <X size={12} />
           </button>
         </div>
@@ -273,7 +374,11 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
                 setAiReviewing(true);
                 setAiFeedback(null);
                 try {
-                  const fb = await redmineApi.reviewNote(text, aiContext.subject, aiContext.statusName);
+                  const fb = await redmineApi.reviewNote(
+                    text,
+                    aiContext.subject,
+                    aiContext.statusName,
+                  );
                   setAiFeedback(fb);
                 } catch {
                   setAiFeedback('Não foi possível revisar a nota agora.');
@@ -284,7 +389,11 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
               disabled={aiReviewing}
               className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-700 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/30 disabled:opacity-40 transition-colors"
             >
-              {aiReviewing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+              {aiReviewing ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Sparkles size={12} />
+              )}
               {aiReviewing ? 'Revisando…' : 'Revisar com IA'}
             </button>
           )}
@@ -304,7 +413,10 @@ export function CommentComposer({ onSubmit, sending, draftKey, members = [], inj
         type="file"
         multiple
         className="hidden"
-        onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }}
+        onChange={(e) => {
+          if (e.target.files) addFiles(e.target.files);
+          e.target.value = '';
+        }}
       />
     </div>
   );

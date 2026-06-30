@@ -16,8 +16,8 @@ export interface EditField {
   type: 'select' | 'multiselect' | 'date' | 'textarea' | 'text' | 'number' | 'bool';
   options?: { value: string; label: string }[];
   kind: 'standard' | 'custom';
-  cfId?: number;   // quando kind === 'custom'
-  name?: string;   // quando kind === 'standard' (ex.: 'estimated_hours')
+  cfId?: number; // quando kind === 'custom'
+  name?: string; // quando kind === 'standard' (ex.: 'estimated_hours')
 }
 
 export interface JournalDetail {

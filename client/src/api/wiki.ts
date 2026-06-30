@@ -25,11 +25,10 @@ const wikiAxios = axios.create({ baseURL: '/' });
 
 export const wikiApi = {
   search: (q: string): Promise<WikiSearchResult[]> =>
-    wikiAxios.get('/api/wiki/search', { params: { q } }).then(r => r.data.results),
+    wikiAxios.get('/api/wiki/search', { params: { q } }).then((r) => r.data.results),
 
   getPage: (id: string): Promise<WikiPageContent> =>
-    wikiAxios.get('/api/wiki/page', { params: { id } }).then(r => r.data),
+    wikiAxios.get('/api/wiki/page', { params: { id } }).then((r) => r.data),
 
-  pageUrl: (id: string) =>
-    `https://wiki.redesoft.com.br/doku.php?id=${encodeURIComponent(id)}`,
+  pageUrl: (id: string) => `https://wiki.redesoft.com.br/doku.php?id=${encodeURIComponent(id)}`,
 };

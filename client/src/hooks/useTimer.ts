@@ -8,8 +8,11 @@ interface TimerState {
 }
 
 function load(): TimerState | null {
-  try { return JSON.parse(localStorage.getItem(TIMER_KEY) || 'null'); }
-  catch { return null; }
+  try {
+    return JSON.parse(localStorage.getItem(TIMER_KEY) || 'null');
+  } catch {
+    return null;
+  }
 }
 
 function fmt(secs: number): string {
@@ -35,7 +38,10 @@ export function useTimer() {
   const [elapsed, setElapsed] = useState(() => elapsedFromState(load()));
 
   useEffect(() => {
-    if (!state) { setElapsed(0); return; }
+    if (!state) {
+      setElapsed(0);
+      return;
+    }
     const tick = () =>
       setElapsed(Math.floor((Date.now() - new Date(state.startedAt).getTime()) / 1000));
     tick();

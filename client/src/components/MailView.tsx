@@ -1,8 +1,25 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
-  Mail, Inbox, Send, Trash2, FileEdit, AlertOctagon, Search, RefreshCw,
-  Paperclip, X, Reply, ReplyAll, MailOpen, Loader2, Circle, ArrowLeft, PenSquare, Star, Undo2,
+  Mail,
+  Inbox,
+  Send,
+  Trash2,
+  FileEdit,
+  AlertOctagon,
+  Search,
+  RefreshCw,
+  Paperclip,
+  X,
+  Reply,
+  ReplyAll,
+  MailOpen,
+  Loader2,
+  Circle,
+  ArrowLeft,
+  PenSquare,
+  Star,
+  Undo2,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -11,29 +28,40 @@ import { needsMailConfig } from '../utils/mailConfig';
 
 // Ícone e ordem amigável por pasta do Zimbra.
 const FOLDER_META: Record<string, { label: string; icon: React.ReactNode; order: number }> = {
-  Inbox:  { label: 'Entrada',    icon: <Inbox size={15} />,        order: 0 },
-  Sent:   { label: 'Enviados',   icon: <Send size={15} />,         order: 1 },
-  Drafts: { label: 'Rascunhos',  icon: <FileEdit size={15} />,     order: 2 },
-  Junk:   { label: 'Spam',       icon: <AlertOctagon size={15} />, order: 3 },
-  Trash:  { label: 'Lixeira',    icon: <Trash2 size={15} />,       order: 4 },
+  Inbox: { label: 'Entrada', icon: <Inbox size={15} />, order: 0 },
+  Sent: { label: 'Enviados', icon: <Send size={15} />, order: 1 },
+  Drafts: { label: 'Rascunhos', icon: <FileEdit size={15} />, order: 2 },
+  Junk: { label: 'Spam', icon: <AlertOctagon size={15} />, order: 3 },
+  Trash: { label: 'Lixeira', icon: <Trash2 size={15} />, order: 4 },
 };
 
 function fmtDate(ms: number): string {
   const d = new Date(ms);
   const now = Date.now();
-  if (now - ms < 20 * 60 * 60 * 1000) return formatDistanceToNow(d, { addSuffix: true, locale: ptBR });
+  if (now - ms < 20 * 60 * 60 * 1000)
+    return formatDistanceToNow(d, { addSuffix: true, locale: ptBR });
   return format(d, "d 'de' MMM", { locale: ptBR });
 }
 
-interface ComposeSeed { to: string; cc?: string; subject: string; body: string; inReplyTo?: string }
+interface ComposeSeed {
+  to: string;
+  cc?: string;
+  subject: string;
+  body: string;
+  inReplyTo?: string;
+}
 
 // Remove tags e decodifica entidades básicas, para citar um corpo HTML em texto.
 function htmlToText(html: string): string {
   return html
     .replace(/<\s*(br|\/p|\/div|\/tr|\/li)\s*\/?\s*>/gi, '\n')
     .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -42,9 +70,14 @@ function htmlToText(html: string): string {
 function buildReply(msg: MailMessageFull, all: boolean, me?: string): ComposeSeed {
   const original = (msg.text || htmlToText(msg.html || '')).slice(0, 5000);
   const when = format(new Date(msg.date), "d/MM/yyyy 'às' HH:mm", { locale: ptBR });
-  const quoted = original.split('\n').map(l => `> ${l}`).join('\n');
+  const quoted = original
+    .split('\n')
+    .map((l) => `> ${l}`)
+    .join('\n');
   const ccList = all
-    ? [...msg.to, ...msg.cc].map(a => a.address).filter(a => a && a !== me && a !== msg.from.address)
+    ? [...msg.to, ...msg.cc]
+        .map((a) => a.address)
+        .filter((a) => a && a !== me && a !== msg.from.address)
     : [];
   return {
     to: msg.from.address,
@@ -71,11 +104,16 @@ function MailViewInner() {
   const [limit, setLimit] = useState(40);
   const [compose, setCompose] = useState<ComposeSeed | null>(null);
 
-  const foldersQuery = useQuery({ queryKey: ['mail', 'folders'], queryFn: mailApi.getFolders, staleTime: 60_000 });
+  const foldersQuery = useQuery({
+    queryKey: ['mail', 'folders'],
+    queryFn: mailApi.getFolders,
+    staleTime: 60_000,
+  });
 
   const listQuery = useQuery({
     queryKey: ['mail', 'list', activeSearch ? `search:${activeSearch}` : folder, limit],
-    queryFn: () => activeSearch ? mailApi.search(activeSearch, limit) : mailApi.getMessages(folder, limit),
+    queryFn: () =>
+      activeSearch ? mailApi.search(activeSearch, limit) : mailApi.getMessages(folder, limit),
     staleTime: 30_000,
   });
 
@@ -83,17 +121,31 @@ function MailViewInner() {
 
   const folders = useMemo(() => {
     const list = foldersQuery.data ?? [];
-    return [...list].sort((a, b) =>
-      (FOLDER_META[a.name]?.order ?? 99) - (FOLDER_META[b.name]?.order ?? 99) || a.name.localeCompare(b.name));
+    return [...list].sort(
+      (a, b) =>
+        (FOLDER_META[a.name]?.order ?? 99) - (FOLDER_META[b.name]?.order ?? 99) ||
+        a.name.localeCompare(b.name),
+    );
   }, [foldersQuery.data]);
 
   const runSearch = () => {
     setActiveSearch(searchTerm.trim());
-    setSelectedId(null); setLimit(40);
+    setSelectedId(null);
+    setLimit(40);
   };
-  const clearSearch = () => { setSearchTerm(''); setActiveSearch(''); setLimit(40); };
+  const clearSearch = () => {
+    setSearchTerm('');
+    setActiveSearch('');
+    setLimit(40);
+  };
 
-  const selectFolder = (f: string) => { setFolder(f); setActiveSearch(''); setSearchTerm(''); setSelectedId(null); setLimit(40); };
+  const selectFolder = (f: string) => {
+    setFolder(f);
+    setActiveSearch('');
+    setSearchTerm('');
+    setSelectedId(null);
+    setLimit(40);
+  };
 
   return (
     <div className="h-full flex flex-col max-w-[1400px] mx-auto">
@@ -107,13 +159,19 @@ function MailViewInner() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') runSearch(); if (e.key === 'Escape') clearSearch(); }}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') runSearch();
+              if (e.key === 'Escape') clearSearch();
+            }}
             placeholder="Buscar e-mails…"
             className="w-full text-sm pl-9 pr-8 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
           {(searchTerm || activeSearch) && (
-            <button onClick={clearSearch} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            <button
+              onClick={clearSearch}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
               <X size={14} />
             </button>
           )}
@@ -125,7 +183,9 @@ function MailViewInner() {
           <PenSquare size={14} /> Escrever
         </button>
         <button
-          onClick={() => { qc.invalidateQueries({ queryKey: ['mail'] }); }}
+          onClick={() => {
+            qc.invalidateQueries({ queryKey: ['mail'] });
+          }}
           title="Atualizar"
           className="p-1.5 text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
         >
@@ -137,10 +197,13 @@ function MailViewInner() {
       <div className="flex-1 min-h-0 flex gap-3">
         {/* Pastas */}
         <div className="w-44 flex-shrink-0 space-y-0.5">
-          {foldersQuery.isLoading && <p className="text-xs text-slate-400 px-3 py-2">Carregando…</p>}
-          {folders.map(f => {
+          {foldersQuery.isLoading && (
+            <p className="text-xs text-slate-400 px-3 py-2">Carregando…</p>
+          )}
+          {folders.map((f) => {
             const meta = FOLDER_META[f.name];
-            const isActive = !activeSearch && (folder === f.name || folder === f.name.toLowerCase());
+            const isActive =
+              !activeSearch && (folder === f.name || folder === f.name.toLowerCase());
             return (
               <button
                 key={f.id}
@@ -154,7 +217,9 @@ function MailViewInner() {
                 <span className="flex-shrink-0">{meta?.icon ?? <Mail size={15} />}</span>
                 <span className="flex-1 truncate">{meta?.label ?? f.name}</span>
                 {f.unread > 0 && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500 text-white">{f.unread}</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500 text-white">
+                    {f.unread}
+                  </span>
                 )}
               </button>
             );
@@ -162,14 +227,21 @@ function MailViewInner() {
         </div>
 
         {/* Lista de mensagens */}
-        <div className={`${selectedId ? 'hidden lg:block lg:w-80' : 'flex-1'} flex-shrink-0 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-900`}>
+        <div
+          className={`${selectedId ? 'hidden lg:block lg:w-80' : 'flex-1'} flex-shrink-0 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-900`}
+        >
           <div className="h-full overflow-y-auto scrollbar-thin">
             {listQuery.isLoading ? (
-              <div className="flex items-center justify-center h-40 text-slate-400"><Loader2 className="animate-spin" size={20} /></div>
+              <div className="flex items-center justify-center h-40 text-slate-400">
+                <Loader2 className="animate-spin" size={20} />
+              </div>
             ) : listQuery.isError ? (
               <div className="p-6 text-center text-sm text-red-500">
-                Não foi possível carregar os e-mails.<br />
-                <span className="text-xs text-slate-400">Verifique suas credenciais do Zimbra.</span>
+                Não foi possível carregar os e-mails.
+                <br />
+                <span className="text-xs text-slate-400">
+                  Verifique suas credenciais do Zimbra.
+                </span>
               </div>
             ) : messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 text-slate-400">
@@ -178,12 +250,17 @@ function MailViewInner() {
               </div>
             ) : (
               <>
-                {messages.map(m => (
-                  <MessageRow key={m.id} m={m} selected={selectedId === m.id} onClick={() => setSelectedId(m.id)} />
+                {messages.map((m) => (
+                  <MessageRow
+                    key={m.id}
+                    m={m}
+                    selected={selectedId === m.id}
+                    onClick={() => setSelectedId(m.id)}
+                  />
                 ))}
                 {listQuery.data?.more && (
                   <button
-                    onClick={() => setLimit(l => l + 40)}
+                    onClick={() => setLimit((l) => l + 40)}
                     disabled={listQuery.isFetching}
                     className="w-full py-3 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors flex items-center justify-center gap-1.5"
                   >
@@ -224,14 +301,25 @@ function MailViewInner() {
         <ComposeModal
           initial={compose}
           onClose={() => setCompose(null)}
-          onSent={() => { setCompose(null); qc.invalidateQueries({ queryKey: ['mail'] }); }}
+          onSent={() => {
+            setCompose(null);
+            qc.invalidateQueries({ queryKey: ['mail'] });
+          }}
         />
       )}
     </div>
   );
 }
 
-function MessageRow({ m, selected, onClick }: { m: MailMessageSummary; selected: boolean; onClick: () => void }) {
+function MessageRow({
+  m,
+  selected,
+  onClick,
+}: {
+  m: MailMessageSummary;
+  selected: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
@@ -240,17 +328,23 @@ function MessageRow({ m, selected, onClick }: { m: MailMessageSummary; selected:
       }`}
     >
       <div className="flex items-center gap-2">
-        {m.unread
-          ? <Circle size={8} className="text-blue-500 fill-blue-500 flex-shrink-0" />
-          : <span className="w-2 flex-shrink-0" />}
-        <span className={`flex-1 truncate text-sm ${m.unread ? 'font-semibold text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400'}`}>
+        {m.unread ? (
+          <Circle size={8} className="text-blue-500 fill-blue-500 flex-shrink-0" />
+        ) : (
+          <span className="w-2 flex-shrink-0" />
+        )}
+        <span
+          className={`flex-1 truncate text-sm ${m.unread ? 'font-semibold text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400'}`}
+        >
           {m.from.name || m.from.address}
         </span>
         {m.flagged && <Star size={12} className="text-amber-400 fill-amber-400 flex-shrink-0" />}
         {m.hasAttachment && <Paperclip size={12} className="text-slate-400 flex-shrink-0" />}
         <span className="text-[11px] text-slate-400 flex-shrink-0">{fmtDate(m.date)}</span>
       </div>
-      <p className={`text-sm truncate mt-0.5 ${m.unread ? 'font-medium text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}`}>
+      <p
+        className={`text-sm truncate mt-0.5 ${m.unread ? 'font-medium text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400'}`}
+      >
         {m.subject}
       </p>
       <p className="text-xs text-slate-400 truncate mt-0.5">{m.snippet}</p>
@@ -258,7 +352,14 @@ function MessageRow({ m, selected, onClick }: { m: MailMessageSummary; selected:
   );
 }
 
-function MessageReader({ id, inTrash, onClose, onReply, onChanged, onActed }: {
+function MessageReader({
+  id,
+  inTrash,
+  onClose,
+  onReply,
+  onChanged,
+  onActed,
+}: {
   id: string;
   inTrash: boolean;
   onClose: () => void;
@@ -273,13 +374,16 @@ function MessageReader({ id, inTrash, onClose, onReply, onChanged, onActed }: {
   });
 
   const actMut = useMutation({
-    mutationFn: ({ op, target }: { op: string; close: boolean; target?: string | number }) => mailApi.action(id, op, target),
+    mutationFn: ({ op, target }: { op: string; close: boolean; target?: string | number }) =>
+      mailApi.action(id, op, target),
     onSuccess: (_d, v) => onActed(v.close),
   });
 
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   useEffect(() => {
-    const observer = new MutationObserver(() => setIsDark(document.documentElement.classList.contains('dark')));
+    const observer = new MutationObserver(() =>
+      setIsDark(document.documentElement.classList.contains('dark')),
+    );
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => observer.disconnect();
   }, []);
@@ -292,10 +396,15 @@ function MessageReader({ id, inTrash, onClose, onReply, onChanged, onActed }: {
   }, [id, loaded]);
 
   if (isLoading || !msg) {
-    return <div className="flex items-center justify-center h-full text-slate-400"><Loader2 className="animate-spin" size={22} /></div>;
+    return (
+      <div className="flex items-center justify-center h-full text-slate-400">
+        <Loader2 className="animate-spin" size={22} />
+      </div>
+    );
   }
 
-  const act = (op: string, close: boolean, target?: string | number) => actMut.mutate({ op, close, target });
+  const act = (op: string, close: boolean, target?: string | number) =>
+    actMut.mutate({ op, close, target });
 
   // Zimbra substitui src por dfsrc para bloquear imagens externas. Vamos restaurar para exibi-las.
   const htmlContent = msg.html ? msg.html.replace(/dfsrc=/g, 'src=') : '';
@@ -308,42 +417,99 @@ function MessageReader({ id, inTrash, onClose, onReply, onChanged, onActed }: {
     <div className="h-full flex flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-1 px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
-        <button onClick={onClose} className="lg:hidden p-1 text-slate-400 hover:text-slate-600 mr-1"><ArrowLeft size={16} /></button>
-        <button onClick={() => onReply(msg, false)} className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors">
+        <button
+          onClick={onClose}
+          className="lg:hidden p-1 text-slate-400 hover:text-slate-600 mr-1"
+        >
+          <ArrowLeft size={16} />
+        </button>
+        <button
+          onClick={() => onReply(msg, false)}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+        >
           <Reply size={13} /> Responder
         </button>
-        {(msg.to.length + msg.cc.length) > 1 && (
-          <button onClick={() => onReply(msg, true)} className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+        {msg.to.length + msg.cc.length > 1 && (
+          <button
+            onClick={() => onReply(msg, true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+          >
             <ReplyAll size={13} /> Todos
           </button>
         )}
         <div className="flex-1" />
-        <button onClick={() => act('flag', false)} title="Sinalizar" className="p-1.5 text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Star size={15} /></button>
-        <button onClick={() => act('!read', true)} title="Marcar como não lida" className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><MailOpen size={15} /></button>
+        <button
+          onClick={() => act('flag', false)}
+          title="Sinalizar"
+          className="p-1.5 text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+        >
+          <Star size={15} />
+        </button>
+        <button
+          onClick={() => act('!read', true)}
+          title="Marcar como não lida"
+          className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+        >
+          <MailOpen size={15} />
+        </button>
         {inTrash ? (
           <>
-            <button onClick={() => act('move', true, 2)} className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors">
+            <button
+              onClick={() => act('move', true, 2)}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-colors"
+            >
               <Undo2 size={13} /> Restaurar
             </button>
-            <button onClick={() => { if (window.confirm('Excluir esta mensagem definitivamente? Esta ação não pode ser desfeita.')) act('delete', true); }} title="Excluir definitivamente" className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Trash2 size={15} /></button>
+            <button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    'Excluir esta mensagem definitivamente? Esta ação não pode ser desfeita.',
+                  )
+                )
+                  act('delete', true);
+              }}
+              title="Excluir definitivamente"
+              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+            >
+              <Trash2 size={15} />
+            </button>
           </>
         ) : (
-          <button onClick={() => act('trash', true)} title="Mover para lixeira" className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"><Trash2 size={15} /></button>
+          <button
+            onClick={() => act('trash', true)}
+            title="Mover para lixeira"
+            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+          >
+            <Trash2 size={15} />
+          </button>
         )}
-        <button onClick={onClose} className="hidden lg:block p-1 ml-1 text-slate-400 hover:text-slate-600"><X size={16} /></button>
+        <button
+          onClick={onClose}
+          className="hidden lg:block p-1 ml-1 text-slate-400 hover:text-slate-600"
+        >
+          <X size={16} />
+        </button>
       </div>
 
       {/* Cabeçalho */}
       <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
-        <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">{msg.subject}</h3>
+        <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+          {msg.subject}
+        </h3>
         <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
-          <p><span className="font-medium text-slate-700 dark:text-slate-300">{msg.from.name || msg.from.address}</span> &lt;{msg.from.address}&gt;</p>
-          <p>para {msg.to.map(t => t.name || t.address).join(', ')}</p>
+          <p>
+            <span className="font-medium text-slate-700 dark:text-slate-300">
+              {msg.from.name || msg.from.address}
+            </span>{' '}
+            &lt;{msg.from.address}&gt;
+          </p>
+          <p>para {msg.to.map((t) => t.name || t.address).join(', ')}</p>
           <p>{format(new Date(msg.date), "d 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR })}</p>
         </div>
         {msg.attachments.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
-            {msg.attachments.map(a => (
+            {msg.attachments.map((a) => (
               <a
                 key={a.part}
                 href={mailApi.attachmentUrl(msg.id, a.part, msg.sessionToken)}
@@ -371,7 +537,11 @@ function MessageReader({ id, inTrash, onClose, onReply, onChanged, onActed }: {
   );
 }
 
-function ComposeModal({ initial, onClose, onSent }: {
+function ComposeModal({
+  initial,
+  onClose,
+  onSent,
+}: {
   initial: ComposeSeed;
   onClose: () => void;
   onSent: () => void;
@@ -381,45 +551,67 @@ function ComposeModal({ initial, onClose, onSent }: {
   const [subject, setSubject] = useState(initial.subject);
   const [body, setBody] = useState(initial.body);
   const [error, setError] = useState('');
-  const split = (s: string) => s.split(/[,;]/).map(x => x.trim()).filter(Boolean);
+  const split = (s: string) =>
+    s
+      .split(/[,;]/)
+      .map((x) => x.trim())
+      .filter(Boolean);
 
   const sendMut = useMutation({
-    mutationFn: () => mailApi.send({
-      to: split(to),
-      cc: split(cc),
-      subject,
-      text: body,
-      inReplyTo: initial.inReplyTo,
-    }),
+    mutationFn: () =>
+      mailApi.send({
+        to: split(to),
+        cc: split(cc),
+        subject,
+        text: body,
+        inReplyTo: initial.inReplyTo,
+      }),
     onSuccess: onSent,
     onError: (e: any) => setError(e?.response?.data?.error || 'Falha ao enviar.'),
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
-      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden" onClick={e => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 dark:border-slate-800">
-          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{initial.inReplyTo ? 'Responder' : 'Nova mensagem'}</h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"><X size={16} /></button>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+            {initial.inReplyTo ? 'Responder' : 'Nova mensagem'}
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <X size={16} />
+          </button>
         </div>
         <div className="p-5 space-y-3">
           <input
-            value={to} onChange={e => setTo(e.target.value)}
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
             placeholder="Para (separe por vírgula)"
             className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
           <input
-            value={cc} onChange={e => setCc(e.target.value)}
+            value={cc}
+            onChange={(e) => setCc(e.target.value)}
             placeholder="Cc (opcional)"
             className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
           <input
-            value={subject} onChange={e => setSubject(e.target.value)}
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
             placeholder="Assunto"
             className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
           <textarea
-            value={body} onChange={e => setBody(e.target.value)}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
             placeholder="Escreva sua mensagem…"
             rows={10}
             className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
@@ -427,13 +619,25 @@ function ComposeModal({ initial, onClose, onSent }: {
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-100 dark:border-slate-800">
-          <button onClick={onClose} className="px-3 py-1.5 text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">Cancelar</button>
           <button
-            onClick={() => { setError(''); sendMut.mutate(); }}
+            onClick={onClose}
+            className="px-3 py-1.5 text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={() => {
+              setError('');
+              sendMut.mutate();
+            }}
             disabled={!to.trim() || sendMut.isPending}
             className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg transition-colors"
           >
-            {sendMut.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            {sendMut.isPending ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Send size={14} />
+            )}
             Enviar
           </button>
         </div>
@@ -446,10 +650,12 @@ function MailConfigNeeded() {
   return (
     <div className="flex flex-col items-center justify-center h-full text-center max-w-sm mx-auto">
       <Mail size={36} className="text-slate-300 dark:text-slate-600 mb-3" />
-      <h3 className="text-base font-semibold text-slate-700 dark:text-slate-200">Configure seu e-mail</h3>
+      <h3 className="text-base font-semibold text-slate-700 dark:text-slate-200">
+        Configure seu e-mail
+      </h3>
       <p className="text-sm text-slate-500 dark:text-slate-400 mt-1.5">
-        Como você entrou com chave de API, precisamos da sua conta do Zimbra.
-        Abra <strong>Configurações</strong> e preencha a seção <strong>E-mail</strong>.
+        Como você entrou com chave de API, precisamos da sua conta do Zimbra. Abra{' '}
+        <strong>Configurações</strong> e preencha a seção <strong>E-mail</strong>.
       </p>
       <p className="text-xs text-slate-400 mt-3">
         Dica: se entrar com usuário e senha do Redmine, o e-mail funciona automaticamente.
@@ -459,5 +665,8 @@ function MailConfigNeeded() {
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+  return s.replace(
+    /[&<>"]/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!,
+  );
 }

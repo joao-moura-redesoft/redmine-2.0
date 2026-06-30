@@ -18,36 +18,38 @@ function isPrivateIp(ip) {
 
   if (addr.includes('.')) {
     const p = addr.split('.').map(Number);
-    if (p.length !== 4 || p.some(n => Number.isNaN(n) || n < 0 || n > 255)) return true;
+    if (p.length !== 4 || p.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
     const [a, b] = p;
-    if (a === 10) return true;                        // 10.0.0.0/8
-    if (a === 127) return true;                       // loopback
-    if (a === 0) return true;                         // 0.0.0.0/8
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 127) return true; // loopback
+    if (a === 0) return true; // 0.0.0.0/8
     if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-    if (a === 192 && b === 168) return true;          // 192.168.0.0/16
-    if (a === 169 && b === 254) return true;          // link-local / metadata
-    if (a === 100 && b >= 64 && b <= 127) return true;// CGNAT 100.64.0.0/10
-    if (a >= 224) return true;                        // multicast/reservado
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 169 && b === 254) return true; // link-local / metadata
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64.0.0/10
+    if (a >= 224) return true; // multicast/reservado
     return false;
   }
 
   // IPv6
-  if (addr === '::1' || addr === '::') return true;   // loopback / unspecified
-  if (addr.startsWith('fe80')) return true;           // link-local
+  if (addr === '::1' || addr === '::') return true; // loopback / unspecified
+  if (addr.startsWith('fe80')) return true; // link-local
   if (addr.startsWith('fc') || addr.startsWith('fd')) return true; // ULA fc00::/7
-  if (addr.startsWith('ff')) return true;             // multicast
+  if (addr.startsWith('ff')) return true; // multicast
   return false;
 }
 
 function safeLookup(hostname, options, callback) {
   const cb = typeof options === 'function' ? options : callback;
-  const opts = typeof options === 'function' ? {} : (options || {});
+  const opts = typeof options === 'function' ? {} : options || {};
   dns.lookup(hostname, { ...opts, all: true }, (err, addresses) => {
     if (err) return cb(err);
     const list = Array.isArray(addresses) ? addresses : [addresses];
     for (const a of list) {
       if (isPrivateIp(a.address)) {
-        return cb(Object.assign(new Error('SSRF bloqueado: destino interno'), { code: 'ESSRFBLOCKED' }));
+        return cb(
+          Object.assign(new Error('SSRF bloqueado: destino interno'), { code: 'ESSRFBLOCKED' }),
+        );
       }
     }
     const first = list[0];

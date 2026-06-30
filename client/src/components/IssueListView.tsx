@@ -7,25 +7,33 @@ import type { Issue } from '../types/redmine';
 /* ── Status badge color ── */
 function statusColor(name: string): string {
   const n = name.toLowerCase();
-  if (n.includes('andamento'))                          return 'bg-blue-100 text-blue-700';
-  if (n.includes('revisão') || n.includes('revisao'))   return 'bg-purple-100 text-purple-700';
-  if (n.includes('teste'))                              return 'bg-yellow-100 text-yellow-800';
+  if (n.includes('andamento')) return 'bg-blue-100 text-blue-700';
+  if (n.includes('revisão') || n.includes('revisao')) return 'bg-purple-100 text-purple-700';
+  if (n.includes('teste')) return 'bg-yellow-100 text-yellow-800';
   if (n.includes('integração') || n.includes('integracao')) return 'bg-indigo-100 text-indigo-700';
-  if (n.includes('fechamento'))                         return 'bg-green-100 text-green-700';
-  if (n.includes('impedido'))                           return 'bg-red-100 text-red-700';
-  if (n.includes('cancelad') || n.includes('fechad'))   return 'bg-slate-100 text-slate-500';
+  if (n.includes('fechamento')) return 'bg-green-100 text-green-700';
+  if (n.includes('impedido')) return 'bg-red-100 text-red-700';
+  if (n.includes('cancelad') || n.includes('fechad')) return 'bg-slate-100 text-slate-500';
   if (n.includes('correção') || n.includes('correcao')) return 'bg-orange-100 text-orange-700';
-  if (n.includes('pendente'))                           return 'bg-amber-100 text-amber-700';
+  if (n.includes('pendente')) return 'bg-amber-100 text-amber-700';
   return 'bg-slate-100 text-slate-600';
 }
 
 const PRIORITY_DOT: Record<string, string> = {
-  Imediata: 'bg-red-700', Urgente: 'bg-red-500', Alta: 'bg-orange-500',
-  Normal: 'bg-blue-500', Baixa: 'bg-slate-400',
+  Imediata: 'bg-red-700',
+  Urgente: 'bg-red-500',
+  Alta: 'bg-orange-500',
+  Normal: 'bg-blue-500',
+  Baixa: 'bg-slate-400',
 };
 
 /* ── Single issue row ── */
-function IssueRow({ issue, onClick, showAssignee, focused }: {
+function IssueRow({
+  issue,
+  onClick,
+  showAssignee,
+  focused,
+}: {
   issue: Issue;
   onClick: (id: number) => void;
   showAssignee?: boolean;
@@ -38,7 +46,9 @@ function IssueRow({ issue, onClick, showAssignee, focused }: {
       className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left group border-b border-slate-100 last:border-0 ${focused ? 'bg-blue-50 ring-1 ring-inset ring-blue-400' : ''}`}
     >
       {/* Priority dot */}
-      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOT[issue.priority.name] ?? 'bg-slate-400'}`} />
+      <span
+        className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOT[issue.priority.name] ?? 'bg-slate-400'}`}
+      />
 
       {/* Tracker */}
       <span className="text-xs font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">
@@ -52,7 +62,9 @@ function IssueRow({ issue, onClick, showAssignee, focused }: {
       </span>
 
       {/* Status */}
-      <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${statusColor(issue.status.name)}`}>
+      <span
+        className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${statusColor(issue.status.name)}`}
+      >
         {issue.status.name}
       </span>
 
@@ -77,7 +89,13 @@ function IssueRow({ issue, onClick, showAssignee, focused }: {
 }
 
 /* ── Collapsible status group ── */
-function StatusGroup({ name, issues, onIssueClick, showAssignee, focusedIssueId }: {
+function StatusGroup({
+  name,
+  issues,
+  onIssueClick,
+  showAssignee,
+  focusedIssueId,
+}: {
   name: string;
   issues: Issue[];
   onIssueClick: (id: number) => void;
@@ -88,12 +106,20 @@ function StatusGroup({ name, issues, onIssueClick, showAssignee, focusedIssueId 
   return (
     <div className="mb-3 border border-slate-200 rounded-xl overflow-hidden">
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-2 px-4 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors"
       >
-        {open ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
-        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColor(name)}`}>{name}</span>
-        <span className="text-xs text-slate-400 font-medium">{issues.length} tarefa{issues.length !== 1 ? 's' : ''}</span>
+        {open ? (
+          <ChevronDown size={14} className="text-slate-400" />
+        ) : (
+          <ChevronRight size={14} className="text-slate-400" />
+        )}
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColor(name)}`}>
+          {name}
+        </span>
+        <span className="text-xs text-slate-400 font-medium">
+          {issues.length} tarefa{issues.length !== 1 ? 's' : ''}
+        </span>
       </button>
       {open && (
         <div className="bg-white">
@@ -104,11 +130,19 @@ function StatusGroup({ name, issues, onIssueClick, showAssignee, focusedIssueId 
             <span className="text-xs text-slate-400 w-10 flex-shrink-0">#ID</span>
             <span className="text-xs text-slate-400 flex-1">Título</span>
             <span className="text-xs text-slate-400 w-36 flex-shrink-0">Status</span>
-            {showAssignee && <span className="text-xs text-slate-400 w-28 flex-shrink-0 text-right">Responsável</span>}
-            <span className="text-xs text-slate-400 w-32 flex-shrink-0 text-right hidden md:block">Projeto</span>
-            <span className="text-xs text-slate-400 w-24 flex-shrink-0 text-right hidden lg:block">Atualizado</span>
+            {showAssignee && (
+              <span className="text-xs text-slate-400 w-28 flex-shrink-0 text-right">
+                Responsável
+              </span>
+            )}
+            <span className="text-xs text-slate-400 w-32 flex-shrink-0 text-right hidden md:block">
+              Projeto
+            </span>
+            <span className="text-xs text-slate-400 w-24 flex-shrink-0 text-right hidden lg:block">
+              Atualizado
+            </span>
           </div>
-          {issues.map(issue => (
+          {issues.map((issue) => (
             <IssueRow
               key={issue.id}
               issue={issue}
@@ -136,14 +170,18 @@ interface Props {
 }
 
 export function IssueListView({
-  issues, isLoading, isFetching, onRefetch, onIssueClick,
+  issues,
+  isLoading,
+  isFetching,
+  onRefetch,
+  onIssueClick,
   showAssignee = false,
   emptyMessage = 'Nenhuma tarefa encontrada.',
   focusedIssueId,
 }: Props) {
   const [search, setSearch] = useState('');
 
-  const filtered = (issues ?? []).filter(i => {
+  const filtered = (issues ?? []).filter((i) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return i.subject.toLowerCase().includes(q) || String(i.id).includes(q);
@@ -159,9 +197,16 @@ export function IssueListView({
 
   // Ordem preferida de exibição dos grupos
   const STATUS_ORDER = [
-    'Em andamento', 'Pendente Correção', 'Pendente Revisão', 'Pendente Teste',
-    'Pendente Integração', 'Pendente Atualização', 'Pendente Fechamento',
-    'Pendente Desenvolvimento', 'Pendente Análise', 'Impedido',
+    'Em andamento',
+    'Pendente Correção',
+    'Pendente Revisão',
+    'Pendente Teste',
+    'Pendente Integração',
+    'Pendente Atualização',
+    'Pendente Fechamento',
+    'Pendente Desenvolvimento',
+    'Pendente Análise',
+    'Impedido',
   ];
   const sortedGroups = Object.entries(groups).sort(([a], [b]) => {
     const ia = STATUS_ORDER.indexOf(a);
@@ -190,17 +235,22 @@ export function IssueListView({
           <input
             type="text"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar por título ou #ID..."
             className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
               <X size={13} />
             </button>
           )}
         </div>
-        <span className="text-sm text-slate-400">{filtered.length} tarefa{filtered.length !== 1 ? 's' : ''}</span>
+        <span className="text-sm text-slate-400">
+          {filtered.length} tarefa{filtered.length !== 1 ? 's' : ''}
+        </span>
         <button
           onClick={onRefetch}
           disabled={isFetching}
@@ -213,7 +263,9 @@ export function IssueListView({
 
       {/* Groups */}
       {sortedGroups.length === 0 ? (
-        <div className="flex items-center justify-center h-48 text-slate-400 text-sm">{emptyMessage}</div>
+        <div className="flex items-center justify-center h-48 text-slate-400 text-sm">
+          {emptyMessage}
+        </div>
       ) : (
         sortedGroups.map(([status, statusIssues]) => (
           <StatusGroup

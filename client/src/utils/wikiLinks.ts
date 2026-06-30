@@ -9,7 +9,11 @@ export interface WikiLink {
 type Store = Record<string, WikiLink[]>;
 
 function load(): Store {
-  try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; }
+  try {
+    return JSON.parse(localStorage.getItem(KEY) || '{}');
+  } catch {
+    return {};
+  }
 }
 
 function save(store: Store) {
@@ -25,7 +29,7 @@ export const wikiLinks = {
     const store = load();
     const key = String(issueId);
     const existing = store[key] ?? [];
-    if (existing.some(l => l.id === link.id)) return;
+    if (existing.some((l) => l.id === link.id)) return;
     store[key] = [...existing, link];
     save(store);
   },
@@ -33,7 +37,7 @@ export const wikiLinks = {
   remove(issueId: number, linkId: string) {
     const store = load();
     const key = String(issueId);
-    store[key] = (store[key] ?? []).filter(l => l.id !== linkId);
+    store[key] = (store[key] ?? []).filter((l) => l.id !== linkId);
     if (store[key].length === 0) delete store[key];
     save(store);
   },

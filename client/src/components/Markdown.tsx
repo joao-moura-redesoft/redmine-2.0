@@ -27,7 +27,11 @@ export function inlineImageNames(text?: string): Set<string> {
     const file = m[1];
     if (/^https?:\/\//i.test(file)) continue; // URL externa, não é anexo
     names.add(file);
-    try { names.add(decodeURIComponent(file)); } catch { /* mantém */ }
+    try {
+      names.add(decodeURIComponent(file));
+    } catch {
+      /* mantém */
+    }
   }
   return names;
 }
@@ -35,7 +39,9 @@ export function inlineImageNames(text?: string): Set<string> {
 function preprocess(text: string, attachments?: Attachment[]): string {
   if (!text) return '';
   const byName = new Map<string, Attachment>();
-  (attachments ?? []).forEach(a => { if (!byName.has(a.filename)) byName.set(a.filename, a); });
+  (attachments ?? []).forEach((a) => {
+    if (!byName.has(a.filename)) byName.set(a.filename, a);
+  });
 
   return text.replace(IMG_RE, (match, file: string) => {
     // URL externa → usa direto
@@ -43,7 +49,11 @@ function preprocess(text: string, attachments?: Attachment[]): string {
     // O texto pode vir URL-encodado (ex: %20 = espaço). Tenta casar pelo nome
     // decodificado e pelo cru, contra os nomes reais dos anexos.
     let decoded = file;
-    try { decoded = decodeURIComponent(file); } catch { /* mantém */ }
+    try {
+      decoded = decodeURIComponent(file);
+    } catch {
+      /* mantém */
+    }
     const att = byName.get(decoded) || byName.get(file);
     if (att) return `![${att.filename}](${attachmentUrl(att.id, att.filename)})`;
     return match; // não encontrou anexo: deixa como está
@@ -59,9 +69,6 @@ export function Markdown({ text, attachments, className = '', textile = false }:
   }, [text, attachments, textile]);
 
   return (
-    <div
-      className={`prose-redmine ${className}`}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className={`prose-redmine ${className}`} dangerouslySetInnerHTML={{ __html: html }} />
   );
 }

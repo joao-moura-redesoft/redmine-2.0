@@ -15,14 +15,24 @@
    Modo escuro — remapeia as superfícies dominantes.
    Mantém cores de destaque (blue/red/green/amber...) intactas.
    ─────────────────────────────────────────────── */
-html.dark body { background-color: #0f172a; color: #f1f5f9; }
+html.dark body {
+  background-color: #0f172a;
+  color: #f1f5f9;
+}
 
 /* Destaque ao pular para uma mensagem citada (Talk) */
 @keyframes talk-flash {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-  25%      { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); }
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+  25% {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5);
+  }
 }
-.talk-flash { animation: talk-flash 1.2s ease-out; }
+.talk-flash {
+  animation: talk-flash 1.2s ease-out;
+}
 
 /* Seletor de emoji (emoji-mart): compacto p/ caber na janela estreita do Talk.
    A área de rolagem interna é flex:1, então fixar a altura do host a encolhe. */
@@ -31,120 +41,275 @@ html.dark body { background-color: #0f172a; color: #f1f5f9; }
 }
 
 /* Overlays de arrastar/enviar arquivo (Talk) no modo escuro */
-html.dark .talk-drag-overlay { background-color: rgba(30,41,59,0.92) !important; border-color: #3b82f6 !important; }
-html.dark .talk-drag-overlay .text-blue-600 { color: #93c5fd !important; }
-html.dark .talk-upload-overlay { background-color: rgba(15,23,42,0.75) !important; }
-html.dark .talk-upload-overlay .text-slate-500 { color: #cbd5e1 !important; }
+html.dark .talk-drag-overlay {
+  background-color: rgba(30, 41, 59, 0.92) !important;
+  border-color: #3b82f6 !important;
+}
+html.dark .talk-drag-overlay .text-blue-600 {
+  color: #93c5fd !important;
+}
+html.dark .talk-upload-overlay {
+  background-color: rgba(15, 23, 42, 0.75) !important;
+}
+html.dark .talk-upload-overlay .text-slate-500 {
+  color: #cbd5e1 !important;
+}
 
 /* Bolha que menciona você (Talk): leve tom âmbar, legível nos dois modos */
-html.dark .talk-mention { background-color: #3f2d10 !important; }
-html.dark .talk-mention.text-slate-800 { color: #fde68a !important; }
+html.dark .talk-mention {
+  background-color: #3f2d10 !important;
+}
+html.dark .talk-mention.text-slate-800 {
+  color: #fde68a !important;
+}
 
 /* Citação de resposta (Talk): contraste explícito nos dois modos */
-.talk-quote { background-color: #e2e8f0; color: #475569; }   /* claro: slate-200 / slate-600 */
-.talk-quote:hover { background-color: #cbd5e1; }
-html.dark .talk-quote { background-color: #334155; color: #cbd5e1; }  /* escuro: slate-700 / slate-300 */
-html.dark .talk-quote:hover { background-color: #475569; }
+.talk-quote {
+  background-color: #e2e8f0;
+  color: #475569;
+} /* claro: slate-200 / slate-600 */
+.talk-quote:hover {
+  background-color: #cbd5e1;
+}
+html.dark .talk-quote {
+  background-color: #334155;
+  color: #cbd5e1;
+} /* escuro: slate-700 / slate-300 */
+html.dark .talk-quote:hover {
+  background-color: #475569;
+}
 
 /* Fundos */
-html.dark .bg-white { background-color: #1e293b !important; }      /* slate-800 */
-html.dark .bg-slate-50 { background-color: #0f172a !important; }   /* slate-900 */
-html.dark .bg-slate-100 { background-color: #1e293b !important; }
+html.dark .bg-white {
+  background-color: #1e293b !important;
+} /* slate-800 */
+html.dark .bg-slate-50 {
+  background-color: #0f172a !important;
+} /* slate-900 */
+html.dark .bg-slate-100 {
+  background-color: #1e293b !important;
+}
 /* Bolha de mensagem recebida no Talk: mais clara que o fundo da janela (#1e293b) */
-html.dark .talk-bubble-in { background-color: #334155 !important; }
-html.dark .talk-bubble-in.text-slate-800 { color: #e2e8f0 !important; }
+html.dark .talk-bubble-in {
+  background-color: #334155 !important;
+}
+html.dark .talk-bubble-in.text-slate-800 {
+  color: #e2e8f0 !important;
+}
 html.dark .bg-slate-50\/70,
 html.dark .bg-slate-50\/60,
 html.dark .bg-slate-50\/50,
-html.dark .bg-slate-50\/40 { background-color: rgba(15,23,42,0.6) !important; }
-html.dark .bg-slate-900 { background-color: #020617 !important; }  /* barra de seleção fica mais escura */
+html.dark .bg-slate-50\/40 {
+  background-color: rgba(15, 23, 42, 0.6) !important;
+}
+html.dark .bg-slate-900 {
+  background-color: #020617 !important;
+} /* barra de seleção fica mais escura */
 
 /* Bordas */
-html.dark .border-slate-200 { border-color: #334155 !important; }
-html.dark .border-slate-100 { border-color: #293548 !important; }
+html.dark .border-slate-200 {
+  border-color: #334155 !important;
+}
+html.dark .border-slate-100 {
+  border-color: #293548 !important;
+}
 html.dark .border-b,
-html.dark .border-t { border-color: #334155 !important; }
+html.dark .border-t {
+  border-color: #334155 !important;
+}
 
 /* Divisórias (divide-y/x) — não são remapeadas automaticamente no escuro */
-html.dark [class*="divide-slate-100"] > :not([hidden]) ~ :not([hidden]),
-html.dark [class*="divide-slate-200"] > :not([hidden]) ~ :not([hidden]) {
+html.dark [class*='divide-slate-100'] > :not([hidden]) ~ :not([hidden]),
+html.dark [class*='divide-slate-200'] > :not([hidden]) ~ :not([hidden]) {
   border-color: #293548 !important;
 }
 
 /* Texto */
-html.dark .text-slate-900 { color: #f1f5f9 !important; }
-html.dark .text-slate-800 { color: #e2e8f0 !important; }
-html.dark .text-slate-700 { color: #cbd5e1 !important; }
-html.dark .text-slate-600 { color: #94a3b8 !important; }
-html.dark .text-slate-500 { color: #94a3b8 !important; }
-html.dark .text-slate-400 { color: #64748b !important; }
+html.dark .text-slate-900 {
+  color: #f1f5f9 !important;
+}
+html.dark .text-slate-800 {
+  color: #e2e8f0 !important;
+}
+html.dark .text-slate-700 {
+  color: #cbd5e1 !important;
+}
+html.dark .text-slate-600 {
+  color: #94a3b8 !important;
+}
+html.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+html.dark .text-slate-400 {
+  color: #64748b !important;
+}
 
 /* Hover de superfícies neutras */
 html.dark .hover\:bg-slate-50:hover,
-html.dark .hover\:bg-slate-100:hover { background-color: #334155 !important; }
-html.dark .hover\:bg-slate-200:hover { background-color: #475569 !important; }
+html.dark .hover\:bg-slate-100:hover {
+  background-color: #334155 !important;
+}
+html.dark .hover\:bg-slate-200:hover {
+  background-color: #475569 !important;
+}
 
 /* Inputs */
-html.dark input, html.dark textarea, html.dark select {
+html.dark input,
+html.dark textarea,
+html.dark select {
   background-color: #0f172a !important;
   border-color: #334155 !important;
   color: #e2e8f0 !important;
 }
-html.dark input::placeholder, html.dark textarea::placeholder { color: #64748b !important; }
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b !important;
+}
 /* Inputs intencionalmente transparentes (ex: editor de notas estilo documento) */
-html.dark input.bg-transparent, html.dark textarea.bg-transparent { background-color: transparent !important; }
+html.dark input.bg-transparent,
+html.dark textarea.bg-transparent {
+  background-color: transparent !important;
+}
 
 /* Hover coloridos (dropdowns, linhas de lista) */
-html.dark .hover\:bg-blue-50:hover { background-color: rgba(59,130,246,0.16) !important; }
-html.dark .hover\:bg-green-50:hover { background-color: rgba(34,197,94,0.16) !important; }
-html.dark .hover\:bg-red-50:hover { background-color: rgba(239,68,68,0.16) !important; }
+html.dark .hover\:bg-blue-50:hover {
+  background-color: rgba(59, 130, 246, 0.16) !important;
+}
+html.dark .hover\:bg-green-50:hover {
+  background-color: rgba(34, 197, 94, 0.16) !important;
+}
+html.dark .hover\:bg-red-50:hover {
+  background-color: rgba(239, 68, 68, 0.16) !important;
+}
 
 /* ── Tags / badges pastel adaptadas ao escuro ──
    bg-*-100 (fundo) → translúcido escuro; text-*-600/700/800 → tom claro */
-html.dark .bg-blue-100   { background-color: rgba(59,130,246,0.20) !important; }
-html.dark .bg-green-100  { background-color: rgba(34,197,94,0.20) !important; }
-html.dark .bg-yellow-100 { background-color: rgba(234,179,8,0.20) !important; }
-html.dark .bg-amber-100  { background-color: rgba(245,158,11,0.20) !important; }
-html.dark .bg-orange-100 { background-color: rgba(249,115,22,0.20) !important; }
-html.dark .bg-red-100    { background-color: rgba(239,68,68,0.20) !important; }
-html.dark .bg-purple-100 { background-color: rgba(168,85,247,0.20) !important; }
-html.dark .bg-indigo-100 { background-color: rgba(99,102,241,0.20) !important; }
+html.dark .bg-blue-100 {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+}
+html.dark .bg-green-100 {
+  background-color: rgba(34, 197, 94, 0.2) !important;
+}
+html.dark .bg-yellow-100 {
+  background-color: rgba(234, 179, 8, 0.2) !important;
+}
+html.dark .bg-amber-100 {
+  background-color: rgba(245, 158, 11, 0.2) !important;
+}
+html.dark .bg-orange-100 {
+  background-color: rgba(249, 115, 22, 0.2) !important;
+}
+html.dark .bg-red-100 {
+  background-color: rgba(239, 68, 68, 0.2) !important;
+}
+html.dark .bg-purple-100 {
+  background-color: rgba(168, 85, 247, 0.2) !important;
+}
+html.dark .bg-indigo-100 {
+  background-color: rgba(99, 102, 241, 0.2) !important;
+}
 
 /* bg-*-50 (chips de alerta, cards de KPI) */
-html.dark .bg-blue-50   { background-color: rgba(59,130,246,0.12) !important; }
-html.dark .bg-green-50  { background-color: rgba(34,197,94,0.12) !important; }
-html.dark .bg-amber-50  { background-color: rgba(245,158,11,0.12) !important; }
-html.dark .bg-orange-50 { background-color: rgba(249,115,22,0.12) !important; }
-html.dark .bg-red-50    { background-color: rgba(239,68,68,0.12) !important; }
-html.dark .bg-purple-50 { background-color: rgba(168,85,247,0.12) !important; }
-html.dark .bg-cyan-50   { background-color: rgba(6,182,212,0.14) !important; }
-html.dark .bg-rose-50   { background-color: rgba(244,63,94,0.14) !important; }
-html.dark .bg-indigo-50 { background-color: rgba(99,102,241,0.12) !important; }
+html.dark .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+}
+html.dark .bg-green-50 {
+  background-color: rgba(34, 197, 94, 0.12) !important;
+}
+html.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+}
+html.dark .bg-orange-50 {
+  background-color: rgba(249, 115, 22, 0.12) !important;
+}
+html.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+}
+html.dark .bg-purple-50 {
+  background-color: rgba(168, 85, 247, 0.12) !important;
+}
+html.dark .bg-cyan-50 {
+  background-color: rgba(6, 182, 212, 0.14) !important;
+}
+html.dark .bg-rose-50 {
+  background-color: rgba(244, 63, 94, 0.14) !important;
+}
+html.dark .bg-indigo-50 {
+  background-color: rgba(99, 102, 241, 0.12) !important;
+}
 
 /* Banner "Novidades de hoje" — gradiente e itens no escuro */
-html.dark .from-blue-50 { --tw-gradient-from: rgba(59,130,246,0.10) var(--tw-gradient-from-position) !important; }
-html.dark .to-indigo-50 { --tw-gradient-to: rgba(99,102,241,0.10) var(--tw-gradient-to-position) !important; }
-html.dark .border-blue-200 { border-color: #1e3a5f !important; }
-html.dark .border-blue-100 { border-color: #1e3a5f !important; }
-html.dark .bg-white\/70 { background-color: rgba(30,41,59,0.6) !important; }
+html.dark .from-blue-50 {
+  --tw-gradient-from: rgba(59, 130, 246, 0.1) var(--tw-gradient-from-position) !important;
+}
+html.dark .to-indigo-50 {
+  --tw-gradient-to: rgba(99, 102, 241, 0.1) var(--tw-gradient-to-position) !important;
+}
+html.dark .border-blue-200 {
+  border-color: #1e3a5f !important;
+}
+html.dark .border-blue-100 {
+  border-color: #1e3a5f !important;
+}
+html.dark .bg-white\/70 {
+  background-color: rgba(30, 41, 59, 0.6) !important;
+}
 
 /* Texto colorido das tags → tons mais claros e legíveis */
-html.dark .text-blue-700,   html.dark .text-blue-600   { color: #93c5fd !important; }
-html.dark .text-green-700,  html.dark .text-green-600  { color: #86efac !important; }
-html.dark .text-yellow-800, html.dark .text-yellow-700 { color: #fde68a !important; }
-html.dark .text-amber-700,  html.dark .text-amber-600  { color: #fcd34d !important; }
-html.dark .text-orange-700, html.dark .text-orange-600 { color: #fdba74 !important; }
-html.dark .text-red-700,    html.dark .text-red-600    { color: #fca5a5 !important; }
-html.dark .text-purple-700, html.dark .text-purple-600 { color: #d8b4fe !important; }
-html.dark .text-indigo-700, html.dark .text-indigo-600 { color: #a5b4fc !important; }
-html.dark .text-cyan-600  { color: #67e8f9 !important; }
-html.dark .text-rose-600  { color: #fda4af !important; }
-html.dark .text-blue-800  { color: #93c5fd !important; }
+html.dark .text-blue-700,
+html.dark .text-blue-600 {
+  color: #93c5fd !important;
+}
+html.dark .text-green-700,
+html.dark .text-green-600 {
+  color: #86efac !important;
+}
+html.dark .text-yellow-800,
+html.dark .text-yellow-700 {
+  color: #fde68a !important;
+}
+html.dark .text-amber-700,
+html.dark .text-amber-600 {
+  color: #fcd34d !important;
+}
+html.dark .text-orange-700,
+html.dark .text-orange-600 {
+  color: #fdba74 !important;
+}
+html.dark .text-red-700,
+html.dark .text-red-600 {
+  color: #fca5a5 !important;
+}
+html.dark .text-purple-700,
+html.dark .text-purple-600 {
+  color: #d8b4fe !important;
+}
+html.dark .text-indigo-700,
+html.dark .text-indigo-600 {
+  color: #a5b4fc !important;
+}
+html.dark .text-cyan-600 {
+  color: #67e8f9 !important;
+}
+html.dark .text-rose-600 {
+  color: #fda4af !important;
+}
+html.dark .text-blue-800 {
+  color: #93c5fd !important;
+}
 
 /* Markdown no escuro */
-html.dark .prose-redmine code { @apply bg-slate-700 text-slate-100; }
-html.dark .prose-redmine strong { @apply text-slate-100; }
-html.dark .prose-redmine h1, html.dark .prose-redmine h2, html.dark .prose-redmine h3 { @apply text-slate-100; }
+html.dark .prose-redmine code {
+  @apply bg-slate-700 text-slate-100;
+}
+html.dark .prose-redmine strong {
+  @apply text-slate-100;
+}
+html.dark .prose-redmine h1,
+html.dark .prose-redmine h2,
+html.dark .prose-redmine h3 {
+  @apply text-slate-100;
+}
 
 @layer utilities {
   .scrollbar-thin {
@@ -181,159 +346,571 @@ html.dark .prose-redmine h1, html.dark .prose-redmine h2, html.dark .prose-redmi
   overflow-wrap: break-word;
   word-break: break-word;
 }
-.prose-redmine p { @apply mb-2; }
-.prose-redmine p:last-child { @apply mb-0; }
-.prose-redmine h1, .prose-redmine h2, .prose-redmine h3 { @apply font-semibold text-slate-800 mt-4 mb-2; }
-.prose-redmine h1 { @apply text-lg; }
-.prose-redmine h2 { @apply text-base; }
-.prose-redmine h3 { @apply text-sm; }
+.prose-redmine p {
+  @apply mb-2;
+}
+.prose-redmine p:last-child {
+  @apply mb-0;
+}
+.prose-redmine h1,
+.prose-redmine h2,
+.prose-redmine h3 {
+  @apply font-semibold text-slate-800 mt-4 mb-2;
+}
+.prose-redmine h1 {
+  @apply text-lg;
+}
+.prose-redmine h2 {
+  @apply text-base;
+}
+.prose-redmine h3 {
+  @apply text-sm;
+}
 /* Primeiro elemento sem margem no topo, pra não abrir um vão no início da nota/descrição */
-.prose-redmine > :first-child { @apply mt-0; }
-.prose-redmine ul { @apply list-disc pl-5 mb-2; }
-.prose-redmine ol { @apply list-decimal pl-5 mb-2; }
-.prose-redmine li { @apply mb-0.5; }
-.prose-redmine a { @apply text-blue-600 hover:underline; }
-.prose-redmine code { @apply bg-slate-200/70 text-slate-800 px-1 py-0.5 rounded text-xs font-mono; }
-.prose-redmine pre { @apply bg-slate-800 text-slate-100 p-3 rounded-lg overflow-x-auto mb-2 text-xs; }
-.prose-redmine pre code { @apply bg-transparent text-slate-100 p-0; }
-.prose-redmine blockquote { @apply border-l-2 border-slate-300 pl-3 text-slate-500 italic mb-2; }
-.prose-redmine strong { @apply font-semibold text-slate-800; }
-.prose-redmine table { @apply border-collapse mb-2; }
-.prose-redmine th, .prose-redmine td { @apply border border-slate-200 px-2 py-1 text-xs; }
-.prose-redmine img { @apply max-w-full rounded; }
+.prose-redmine > :first-child {
+  @apply mt-0;
+}
+.prose-redmine ul {
+  @apply list-disc pl-5 mb-2;
+}
+.prose-redmine ol {
+  @apply list-decimal pl-5 mb-2;
+}
+.prose-redmine li {
+  @apply mb-0.5;
+}
+.prose-redmine a {
+  @apply text-blue-600 hover:underline;
+}
+.prose-redmine code {
+  @apply bg-slate-200/70 text-slate-800 px-1 py-0.5 rounded text-xs font-mono;
+}
+.prose-redmine pre {
+  @apply bg-slate-800 text-slate-100 p-3 rounded-lg overflow-x-auto mb-2 text-xs;
+}
+.prose-redmine pre code {
+  @apply bg-transparent text-slate-100 p-0;
+}
+.prose-redmine blockquote {
+  @apply border-l-2 border-slate-300 pl-3 text-slate-500 italic mb-2;
+}
+.prose-redmine strong {
+  @apply font-semibold text-slate-800;
+}
+.prose-redmine table {
+  @apply border-collapse mb-2;
+}
+.prose-redmine th,
+.prose-redmine td {
+  @apply border border-slate-200 px-2 py-1 text-xs;
+}
+.prose-redmine img {
+  @apply max-w-full rounded;
+}
 
 /* ── Editor de notas (TipTap, estilo documento Notion) ───────────────────────── */
 /* Cores em hex (não @apply) para não colidir com os overrides globais .text-slate-* */
-.note-doc { font-size: 15px; line-height: 1.7; color: #334155; min-height: 320px; outline: none; }
-.note-doc:focus { outline: none; }
-.note-doc h1 { font-size: 1.5rem; font-weight: 700; color: #1e293b; margin: 1.25rem 0 0.25rem; }
-.note-doc h2 { font-size: 1.25rem; font-weight: 700; color: #1e293b; margin: 1rem 0 0.25rem; }
-.note-doc h3 { font-size: 1.125rem; font-weight: 600; color: #1e293b; margin: 0.75rem 0 0.125rem; }
-.note-doc p { margin: 0.375rem 0; }
-.note-doc ul { list-style: disc; padding-left: 1.25rem; margin: 0.375rem 0; }
-.note-doc ol { list-style: decimal; padding-left: 1.25rem; margin: 0.375rem 0; }
-.note-doc li { margin: 0.125rem 0; }
-.note-doc li > p { margin: 0; }
-.note-doc a { color: #2563eb; text-decoration: underline; }
-.note-doc code { background: #f1f5f9; color: #1e293b; padding: 0.0625rem 0.25rem; border-radius: 0.25rem; font-size: 13px; font-family: ui-monospace, monospace; }
-.note-doc pre { background: #1e293b; color: #f1f5f9; padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin: 0.5rem 0; font-size: 13px; }
-.note-doc pre code { background: transparent; padding: 0; color: inherit; }
-.note-doc blockquote { border-left: 2px solid #cbd5e1; padding-left: 0.75rem; color: #64748b; font-style: italic; margin: 0.5rem 0; }
-.note-doc strong { font-weight: 600; color: #1e293b; }
-.note-doc .note-issue-link { color: #2563eb; font-weight: 500; cursor: pointer; }
-.note-doc .note-issue-link:hover { text-decoration: underline; }
-html.dark .note-doc .note-issue-link { color: #93c5fd; }
-.note-doc hr { border: none; border-top: 1px solid #e2e8f0; margin: 0.75rem 0; }
+.note-doc {
+  font-size: 15px;
+  line-height: 1.7;
+  color: #334155;
+  min-height: 320px;
+  outline: none;
+}
+.note-doc:focus {
+  outline: none;
+}
+.note-doc h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 1.25rem 0 0.25rem;
+}
+.note-doc h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 1rem 0 0.25rem;
+}
+.note-doc h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0.75rem 0 0.125rem;
+}
+.note-doc p {
+  margin: 0.375rem 0;
+}
+.note-doc ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+  margin: 0.375rem 0;
+}
+.note-doc ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+  margin: 0.375rem 0;
+}
+.note-doc li {
+  margin: 0.125rem 0;
+}
+.note-doc li > p {
+  margin: 0;
+}
+.note-doc a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+.note-doc code {
+  background: #f1f5f9;
+  color: #1e293b;
+  padding: 0.0625rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 13px;
+  font-family: ui-monospace, monospace;
+}
+.note-doc pre {
+  background: #1e293b;
+  color: #f1f5f9;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+  font-size: 13px;
+}
+.note-doc pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.note-doc blockquote {
+  border-left: 2px solid #cbd5e1;
+  padding-left: 0.75rem;
+  color: #64748b;
+  font-style: italic;
+  margin: 0.5rem 0;
+}
+.note-doc strong {
+  font-weight: 600;
+  color: #1e293b;
+}
+.note-doc .note-issue-link {
+  color: #2563eb;
+  font-weight: 500;
+  cursor: pointer;
+}
+.note-doc .note-issue-link:hover {
+  text-decoration: underline;
+}
+html.dark .note-doc .note-issue-link {
+  color: #93c5fd;
+}
+.note-doc hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 0.75rem 0;
+}
 /* Checkboxes (TaskList) */
-.note-doc ul[data-type="taskList"] { list-style: none; padding-left: 0.125rem; margin: 0.375rem 0; }
-.note-doc ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5rem; margin: 0.125rem 0; }
-.note-doc ul[data-type="taskList"] li > label { margin-top: 0.2rem; flex-shrink: 0; user-select: none; }
-.note-doc ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
-.note-doc ul[data-type="taskList"] li > div > p { margin: 0; }
-.note-doc ul[data-type="taskList"] input[type="checkbox"] { cursor: pointer; accent-color: #2563eb; width: 0.95rem; height: 0.95rem; }
-.note-doc ul[data-type="taskList"] li[data-checked="true"] > div { color: #94a3b8; text-decoration: line-through; }
+.note-doc ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.125rem;
+  margin: 0.375rem 0;
+}
+.note-doc ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.125rem 0;
+}
+.note-doc ul[data-type='taskList'] li > label {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+  user-select: none;
+}
+.note-doc ul[data-type='taskList'] li > div {
+  flex: 1;
+  min-width: 0;
+}
+.note-doc ul[data-type='taskList'] li > div > p {
+  margin: 0;
+}
+.note-doc ul[data-type='taskList'] input[type='checkbox'] {
+  cursor: pointer;
+  accent-color: #2563eb;
+  width: 0.95rem;
+  height: 0.95rem;
+}
+.note-doc ul[data-type='taskList'] li[data-checked='true'] > div {
+  color: #94a3b8;
+  text-decoration: line-through;
+}
 /* Tabelas (coladas de Markdown GFM ou via /tabela) */
-.note-doc table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 14px; table-layout: fixed; overflow: hidden; }
-.note-doc table td, .note-doc table th { border: 1px solid #e2e8f0; padding: 0.375rem 0.625rem; vertical-align: top; text-align: left; position: relative; min-width: 3rem; }
-.note-doc table th { background: #f8fafc; font-weight: 600; color: #1e293b; }
-.note-doc table td > p, .note-doc table th > p { margin: 0; }
-.note-doc table .selectedCell:after { content: ''; position: absolute; inset: 0; background: rgba(37,99,235,0.08); pointer-events: none; }
-.note-doc table .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: 0; width: 4px; background: #2563eb; cursor: col-resize; }
+.note-doc table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75rem 0;
+  font-size: 14px;
+  table-layout: fixed;
+  overflow: hidden;
+}
+.note-doc table td,
+.note-doc table th {
+  border: 1px solid #e2e8f0;
+  padding: 0.375rem 0.625rem;
+  vertical-align: top;
+  text-align: left;
+  position: relative;
+  min-width: 3rem;
+}
+.note-doc table th {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #1e293b;
+}
+.note-doc table td > p,
+.note-doc table th > p {
+  margin: 0;
+}
+.note-doc table .selectedCell:after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(37, 99, 235, 0.08);
+  pointer-events: none;
+}
+.note-doc table .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #2563eb;
+  cursor: col-resize;
+}
 /* Placeholder (aparece só quando o doc está vazio) */
 .note-doc p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   color: #cbd5e1;
-  float: left; height: 0; pointer-events: none;
+  float: left;
+  height: 0;
+  pointer-events: none;
 }
 /* Dark mode */
-html.dark .note-doc { color: #e2e8f0; }
-html.dark .note-doc h1, html.dark .note-doc h2, html.dark .note-doc h3, html.dark .note-doc strong { color: #f1f5f9; }
-html.dark .note-doc code { background: #334155; color: #f1f5f9; }
-html.dark .note-doc blockquote { color: #94a3b8; border-color: #475569; }
-html.dark .note-doc p.is-editor-empty:first-child::before { color: #475569; }
-html.dark .note-doc table td, html.dark .note-doc table th { border-color: #334155; }
-html.dark .note-doc table th { background: #1e293b; color: #f1f5f9; }
+html.dark .note-doc {
+  color: #e2e8f0;
+}
+html.dark .note-doc h1,
+html.dark .note-doc h2,
+html.dark .note-doc h3,
+html.dark .note-doc strong {
+  color: #f1f5f9;
+}
+html.dark .note-doc code {
+  background: #334155;
+  color: #f1f5f9;
+}
+html.dark .note-doc blockquote {
+  color: #94a3b8;
+  border-color: #475569;
+}
+html.dark .note-doc p.is-editor-empty:first-child::before {
+  color: #475569;
+}
+html.dark .note-doc table td,
+html.dark .note-doc table th {
+  border-color: #334155;
+}
+html.dark .note-doc table th {
+  background: #1e293b;
+  color: #f1f5f9;
+}
 
 /* ── Conteúdo renderizado de páginas DokuWiki ───────────────────────────── */
-.wiki-content { font-size: 14px; line-height: 1.7; color: #334155; }
-html.dark .wiki-content { color: #cbd5e1; }
+.wiki-content {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #334155;
+}
+html.dark .wiki-content {
+  color: #cbd5e1;
+}
 
-.wiki-content h1 { font-size: 1.4rem; font-weight: 700; color: #1e293b; margin: 1.25rem 0 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid #e2e8f0; }
-.wiki-content h2 { font-size: 1.15rem; font-weight: 700; color: #1e293b; margin: 1.1rem 0 0.4rem; padding-bottom: 0.2rem; border-bottom: 1px solid #f1f5f9; }
-.wiki-content h3 { font-size: 1rem; font-weight: 600; color: #334155; margin: 0.9rem 0 0.3rem; }
-.wiki-content h4 { font-size: 0.9rem; font-weight: 600; color: #475569; margin: 0.75rem 0 0.25rem; }
-html.dark .wiki-content h1, html.dark .wiki-content h2 { color: #f1f5f9; border-color: #334155; }
-html.dark .wiki-content h3 { color: #e2e8f0; }
-html.dark .wiki-content h4 { color: #cbd5e1; }
+.wiki-content h1 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 1.25rem 0 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+.wiki-content h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 1.1rem 0 0.4rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+.wiki-content h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #334155;
+  margin: 0.9rem 0 0.3rem;
+}
+.wiki-content h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #475569;
+  margin: 0.75rem 0 0.25rem;
+}
+html.dark .wiki-content h1,
+html.dark .wiki-content h2 {
+  color: #f1f5f9;
+  border-color: #334155;
+}
+html.dark .wiki-content h3 {
+  color: #e2e8f0;
+}
+html.dark .wiki-content h4 {
+  color: #cbd5e1;
+}
 
-.wiki-content p { margin: 0.5rem 0; }
-.wiki-content ul { list-style: disc; padding-left: 1.5rem; margin: 0.5rem 0; }
-.wiki-content ol { list-style: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
-.wiki-content li { margin: 0.2rem 0; }
-.wiki-content li > ul, .wiki-content li > ol { margin: 0.1rem 0; }
+.wiki-content p {
+  margin: 0.5rem 0;
+}
+.wiki-content ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.wiki-content ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.wiki-content li {
+  margin: 0.2rem 0;
+}
+.wiki-content li > ul,
+.wiki-content li > ol {
+  margin: 0.1rem 0;
+}
 
-.wiki-content a { color: #2563eb; text-decoration: underline; }
-.wiki-content a:hover { color: #1d4ed8; }
-html.dark .wiki-content a { color: #93c5fd; }
+.wiki-content a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+.wiki-content a:hover {
+  color: #1d4ed8;
+}
+html.dark .wiki-content a {
+  color: #93c5fd;
+}
 
-.wiki-content strong, .wiki-content b { font-weight: 600; color: #1e293b; }
-html.dark .wiki-content strong, html.dark .wiki-content b { color: #f1f5f9; }
-.wiki-content em, .wiki-content i { font-style: italic; }
+.wiki-content strong,
+.wiki-content b {
+  font-weight: 600;
+  color: #1e293b;
+}
+html.dark .wiki-content strong,
+html.dark .wiki-content b {
+  color: #f1f5f9;
+}
+.wiki-content em,
+.wiki-content i {
+  font-style: italic;
+}
 
-.wiki-content code { background: #f1f5f9; color: #1e293b; padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-size: 12px; font-family: ui-monospace, monospace; }
-html.dark .wiki-content code { background: #334155; color: #f1f5f9; }
-.wiki-content pre { background: #1e293b; color: #f1f5f9; padding: 0.75rem 1rem; border-radius: 0.5rem; overflow-x: auto; margin: 0.75rem 0; font-size: 12px; }
-html.dark .wiki-content pre { background: #020617; }
-.wiki-content pre code { background: transparent; padding: 0; color: inherit; }
+.wiki-content code {
+  background: #f1f5f9;
+  color: #1e293b;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+}
+html.dark .wiki-content code {
+  background: #334155;
+  color: #f1f5f9;
+}
+.wiki-content pre {
+  background: #1e293b;
+  color: #f1f5f9;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+  font-size: 12px;
+}
+html.dark .wiki-content pre {
+  background: #020617;
+}
+.wiki-content pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
 
-.wiki-content blockquote { border-left: 3px solid #cbd5e1; padding-left: 0.75rem; color: #64748b; font-style: italic; margin: 0.5rem 0; }
-html.dark .wiki-content blockquote { border-color: #475569; color: #94a3b8; }
+.wiki-content blockquote {
+  border-left: 3px solid #cbd5e1;
+  padding-left: 0.75rem;
+  color: #64748b;
+  font-style: italic;
+  margin: 0.5rem 0;
+}
+html.dark .wiki-content blockquote {
+  border-color: #475569;
+  color: #94a3b8;
+}
 
-.wiki-content hr { border: none; border-top: 1px solid #e2e8f0; margin: 1rem 0; }
-html.dark .wiki-content hr { border-color: #334155; }
+.wiki-content hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 1rem 0;
+}
+html.dark .wiki-content hr {
+  border-color: #334155;
+}
 
-.wiki-content img { max-width: 100%; border-radius: 0.25rem; margin: 0.5rem 0; }
+.wiki-content img {
+  max-width: 100%;
+  border-radius: 0.25rem;
+  margin: 0.5rem 0;
+}
 
 /* Tabelas DokuWiki (class="inline") */
-.wiki-content table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 13px; }
-.wiki-content th, .wiki-content td { border: 1px solid #e2e8f0; padding: 0.4rem 0.65rem; text-align: left; vertical-align: top; }
-.wiki-content th { background: #f8fafc; font-weight: 600; color: #1e293b; }
-.wiki-content tbody tr:hover { background: #f8fafc; }
-html.dark .wiki-content th { background: #1e293b; color: #f1f5f9; border-color: #334155; }
-html.dark .wiki-content td { border-color: #334155; }
-html.dark .wiki-content tbody tr:hover { background: #1e293b; }
+.wiki-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75rem 0;
+  font-size: 13px;
+}
+.wiki-content th,
+.wiki-content td {
+  border: 1px solid #e2e8f0;
+  padding: 0.4rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+.wiki-content th {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #1e293b;
+}
+.wiki-content tbody tr:hover {
+  background: #f8fafc;
+}
+html.dark .wiki-content th {
+  background: #1e293b;
+  color: #f1f5f9;
+  border-color: #334155;
+}
+html.dark .wiki-content td {
+  border-color: #334155;
+}
+html.dark .wiki-content tbody tr:hover {
+  background: #1e293b;
+}
 
 /* Wrapper de tabela gerado pelo DokuWiki */
-.wiki-content div.table { overflow-x: auto; margin: 0.5rem 0; }
+.wiki-content div.table {
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
 
 /* Ícones do DokuWiki (renderizados como Unicode quando o CSS/script original não está carregado) */
 .wiki-content .icon-check::before,
 .wiki-content .icon_check::before,
 .wiki-content .fa-check::before,
-.wiki-content .checked::before  { content: "✓"; color: #16a34a; font-size: 1.1em; font-style: normal; }
+.wiki-content .checked::before {
+  content: '✓';
+  color: #16a34a;
+  font-size: 1.1em;
+  font-style: normal;
+}
 
 .wiki-content .icon-cross::before,
 .wiki-content .icon_cross::before,
 .wiki-content .icon-x::before,
 .wiki-content .fa-times::before,
-.wiki-content .unchecked::before { content: "✗"; color: #dc2626; font-size: 1.1em; font-style: normal; }
+.wiki-content .unchecked::before {
+  content: '✗';
+  color: #dc2626;
+  font-size: 1.1em;
+  font-style: normal;
+}
 
 .wiki-content .icon-warning::before,
-.wiki-content .fa-warning::before { content: "⚠"; color: #d97706; font-size: 1.1em; font-style: normal; }
+.wiki-content .fa-warning::before {
+  content: '⚠';
+  color: #d97706;
+  font-size: 1.1em;
+  font-style: normal;
+}
 
 /* Elementos de ícone sem texto visível (span/i com só classe de ícone) */
-.wiki-content span[class*="icon-"],
-.wiki-content i[class*="icon-"],
-.wiki-content span[class*="fa-"],
-.wiki-content i[class*="fa-"] { font-style: normal; }
+.wiki-content span[class*='icon-'],
+.wiki-content i[class*='icon-'],
+.wiki-content span[class*='fa-'],
+.wiki-content i[class*='fa-'] {
+  font-style: normal;
+}
 
 /* ── Menu de slash commands (/) do editor de notas ──────────────────────── */
 /* Menu de slash commands (/) do editor de notas */
-.slash-menu { position: fixed; z-index: 200; width: 210px; max-height: 290px; overflow-y: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 0.6rem; box-shadow: 0 12px 32px rgba(0,0,0,0.14); padding: 0.25rem; }
-html.dark .slash-menu { background: #1e293b; border-color: #334155; }
-.slash-item { display: flex; align-items: center; gap: 0.5rem; width: 100%; text-align: left; padding: 0.375rem 0.5rem; border-radius: 0.4rem; font-size: 0.8rem; color: #334155; cursor: pointer; }
-html.dark .slash-item { color: #e2e8f0; }
-.slash-item:hover, .slash-item.is-selected { background: #eff6ff; color: #2563eb; }
-html.dark .slash-item:hover, html.dark .slash-item.is-selected { background: rgba(59,130,246,0.18); color: #93c5fd; }
-.slash-ico { display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; border-radius: 0.3rem; background: #f1f5f9; font-size: 0.65rem; font-weight: 700; flex-shrink: 0; }
-html.dark .slash-ico { background: #334155; }
+.slash-menu {
+  position: fixed;
+  z-index: 200;
+  width: 210px;
+  max-height: 290px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.6rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
+  padding: 0.25rem;
+}
+html.dark .slash-menu {
+  background: #1e293b;
+  border-color: #334155;
+}
+.slash-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+  color: #334155;
+  cursor: pointer;
+}
+html.dark .slash-item {
+  color: #e2e8f0;
+}
+.slash-item:hover,
+.slash-item.is-selected {
+  background: #eff6ff;
+  color: #2563eb;
+}
+html.dark .slash-item:hover,
+html.dark .slash-item.is-selected {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+.slash-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.3rem;
+  background: #f1f5f9;
+  font-size: 0.65rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+html.dark .slash-ico {
+  background: #334155;
+}

@@ -7,14 +7,22 @@ import { issueDragId } from './dnd';
 
 /* Envolve a IssueRow num item ordenável do dnd-kit. O arraste sai apenas da
    alça (grip) — assim cliques em abrir/adicionar/remover continuam funcionando. */
-export function SortableIssueRow({ issue, onOpen, left, right, closedIds }: {
+export function SortableIssueRow({
+  issue,
+  onOpen,
+  left,
+  right,
+  closedIds,
+}: {
   issue: Issue;
   onOpen?: (id: number) => void;
   left?: React.ReactNode;
   right?: React.ReactNode;
   closedIds?: Set<number>;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: issueDragId(issue.id) });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: issueDragId(issue.id),
+  });
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -33,7 +41,18 @@ export function SortableIssueRow({ issue, onOpen, left, right, closedIds }: {
   );
   return (
     <div ref={setNodeRef} style={style}>
-      <IssueRow issue={issue} onOpen={onOpen} closedIds={closedIds} left={<>{handle}{left}</>} right={right} />
+      <IssueRow
+        issue={issue}
+        onOpen={onOpen}
+        closedIds={closedIds}
+        left={
+          <>
+            {handle}
+            {left}
+          </>
+        }
+        right={right}
+      />
     </div>
   );
 }

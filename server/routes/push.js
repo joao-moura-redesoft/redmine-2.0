@@ -8,14 +8,20 @@ router.get('/push/vapid-public-key', (req, res) => {
   res.json({ publicKey: getVapidPublicKey() });
 });
 
-router.post('/push/subscribe', handle(async (req, res) => {
-  await subscribe(req);
-  res.json({ success: true });
-}));
+router.post(
+  '/push/subscribe',
+  handle(async (req, res) => {
+    await subscribe(req);
+    res.json({ success: true });
+  }),
+);
 
-router.post('/push/unsubscribe', handle(async (req, res) => {
-  unsubscribe(req);
-  res.json({ success: true });
-}));
+router.post(
+  '/push/unsubscribe',
+  handle(async (req, res) => {
+    unsubscribe(req);
+    res.json({ success: true });
+  }),
+);
 
 module.exports = router;

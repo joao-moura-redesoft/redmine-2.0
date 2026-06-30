@@ -38,8 +38,10 @@ export function aiErrorMessage(
     case 403:
       return 'Chave de IA inválida ou sem permissão para o modelo. Verifique nas Configurações.';
     case 429:
-      return 'Limite de cota da IA atingido. Verifique o faturamento (billing) e as cotas do provedor — '
-        + 'no free tier do Gemini, modelos Pro/preview podem ter cota zerada. Ou tente novamente mais tarde.';
+      return (
+        'Limite de cota da IA atingido. Verifique o faturamento (billing) e as cotas do provedor — ' +
+        'no free tier do Gemini, modelos Pro/preview podem ter cota zerada. Ou tente novamente mais tarde.'
+      );
     case 502:
     case 503:
       return 'Serviço de IA temporariamente indisponível (modelo sobrecarregado). Tente novamente em instantes.';

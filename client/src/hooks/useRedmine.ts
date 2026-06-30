@@ -8,19 +8,35 @@ export function useCurrentUser() {
 }
 
 export function useStatuses() {
-  return useQuery({ queryKey: ['statuses'], queryFn: redmineApi.getStatuses, staleTime: 5 * 60 * 1000 });
+  return useQuery({
+    queryKey: ['statuses'],
+    queryFn: redmineApi.getStatuses,
+    staleTime: 5 * 60 * 1000,
+  });
 }
 
 export function useProjects() {
-  return useQuery({ queryKey: ['projects'], queryFn: redmineApi.getProjects, staleTime: 5 * 60 * 1000 });
+  return useQuery({
+    queryKey: ['projects'],
+    queryFn: redmineApi.getProjects,
+    staleTime: 5 * 60 * 1000,
+  });
 }
 
 export function useTrackers() {
-  return useQuery({ queryKey: ['trackers'], queryFn: redmineApi.getTrackers, staleTime: 5 * 60 * 1000 });
+  return useQuery({
+    queryKey: ['trackers'],
+    queryFn: redmineApi.getTrackers,
+    staleTime: 5 * 60 * 1000,
+  });
 }
 
 export function usePriorities() {
-  return useQuery({ queryKey: ['priorities'], queryFn: redmineApi.getPriorities, staleTime: 5 * 60 * 1000 });
+  return useQuery({
+    queryKey: ['priorities'],
+    queryFn: redmineApi.getPriorities,
+    staleTime: 5 * 60 * 1000,
+  });
 }
 
 export function useIssues(projectId?: number) {
@@ -38,7 +54,7 @@ export function useIssueDetail(id: number | null) {
   return useQuery({
     queryKey: ['issue', id],
     queryFn: () => redmineApi.getIssue(id!),
-    enabled: id !== null
+    enabled: id !== null,
   });
 }
 
@@ -48,14 +64,24 @@ export function useIssueDetail(id: number | null) {
 // resultado, evitando 1 request por tarefa. `enabled` controla quando dispara.
 export interface WorkflowKey {
   issueId: number | null;
-  projectId?: number; trackerId?: number; statusId?: number;
-  isAuthor?: boolean; isAssignee?: boolean;
+  projectId?: number;
+  trackerId?: number;
+  statusId?: number;
+  isAuthor?: boolean;
+  isAssignee?: boolean;
 }
 export function useAllowedStatuses(wf: WorkflowKey, enabled: boolean) {
   const { issueId, projectId, trackerId, statusId, isAuthor, isAssignee } = wf;
   return useQuery({
     queryKey: ['allowedStatuses', projectId, trackerId, statusId, isAuthor, isAssignee],
-    queryFn: () => redmineApi.getAllowedStatuses(issueId!, { projectId, trackerId, statusId, isAuthor, isAssignee }),
+    queryFn: () =>
+      redmineApi.getAllowedStatuses(issueId!, {
+        projectId,
+        trackerId,
+        statusId,
+        isAuthor,
+        isAssignee,
+      }),
     enabled: enabled && issueId !== null && statusId !== undefined,
     staleTime: 10 * 60 * 1000, // workflow muda raríssimas vezes
   });
@@ -69,7 +95,8 @@ export function useEditFields(
 ) {
   return useQuery({
     queryKey: ['editFields', wf.projectId, wf.trackerId],
-    queryFn: () => redmineApi.getEditFields(wf.issueId!, { projectId: wf.projectId, trackerId: wf.trackerId }),
+    queryFn: () =>
+      redmineApi.getEditFields(wf.issueId!, { projectId: wf.projectId, trackerId: wf.trackerId }),
     enabled: enabled && wf.issueId !== null,
     staleTime: 5 * 60 * 1000,
   });
@@ -113,7 +140,7 @@ export function useCreateIssue() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: redmineApi.createIssue,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['issues'] })
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['issues'] }),
   });
 }
 
@@ -195,7 +222,7 @@ export function useProjectMembers(projectId?: number) {
     queryKey: ['members', projectId],
     queryFn: () => redmineApi.getProjectMembers(projectId!),
     enabled: !!projectId,
-    staleTime: 10 * 60 * 1000
+    staleTime: 10 * 60 * 1000,
   });
 }
 
@@ -205,7 +232,7 @@ export function useAllMembers(enabled = true) {
     queryKey: ['members-all'],
     queryFn: redmineApi.getAllMembers,
     enabled,
-    staleTime: 10 * 60 * 1000
+    staleTime: 10 * 60 * 1000,
   });
 }
 

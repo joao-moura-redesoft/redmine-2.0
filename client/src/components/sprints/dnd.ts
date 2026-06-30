@@ -3,8 +3,8 @@
 // filtrar a detecção de colisão por tipo do item arrastado.
 
 export const C_BACKLOG = 'c:backlog';
-export const cSprintBody = (sprintId: string) => `c:b:${sprintId}`;   // droppable de issues da sprint
-export const cLane = (laneKey: string) => `c:l:${laneKey}`;           // droppable de sprints da raia
+export const cSprintBody = (sprintId: string) => `c:b:${sprintId}`; // droppable de issues da sprint
+export const cLane = (laneKey: string) => `c:l:${laneKey}`; // droppable de sprints da raia
 
 export const issueDragId = (issueId: number) => `i:${issueId}`;
 export const sprintDragId = (sprintId: string) => `s:${sprintId}`;
@@ -20,6 +20,6 @@ export const parseSprintId = (dragId: string | number) => String(dragId).slice(2
 export function issueContainerKey(overId: string, items: Record<string, string[]>): string | null {
   if (overId === C_BACKLOG) return 'backlog';
   if (overId.startsWith('c:b:')) return overId.slice(4);
-  if (isIssueDrag(overId)) return Object.keys(items).find(k => items[k].includes(overId)) ?? null;
+  if (isIssueDrag(overId)) return Object.keys(items).find((k) => items[k].includes(overId)) ?? null;
   return null;
 }

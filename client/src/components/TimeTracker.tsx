@@ -4,7 +4,11 @@ import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useTimer } from '../hooks/useTimer';
 import { useStopAndLog } from '../hooks/useStopAndLog';
-import { useIssueTimeEntries, useTimeEntryActivities, useCreateTimeEntry } from '../hooks/useRedmine';
+import {
+  useIssueTimeEntries,
+  useTimeEntryActivities,
+  useCreateTimeEntry,
+} from '../hooks/useRedmine';
 
 interface Props {
   issueId: number;
@@ -27,7 +31,7 @@ export function TimeTracker({ issueId, spentHours }: Props) {
   const createEntry = useCreateTimeEntry();
   const { logHours } = useStopAndLog();
 
-  const defaultActivity = activities?.find(a => a.is_default) ?? activities?.[0];
+  const defaultActivity = activities?.find((a) => a.is_default) ?? activities?.[0];
 
   const [formOpen, setFormOpen] = useState(false);
   const [hours, setHours] = useState('');
@@ -90,10 +94,12 @@ export function TimeTracker({ issueId, spentHours }: Props) {
           Horas
           {justLogged != null ? (
             <span className="flex items-center gap-1 text-green-600 font-medium">
-              <Check size={12} /> {fmtH(justLogged)} apontada{justLogged === 1 ? '' : 's'} automaticamente
+              <Check size={12} /> {fmtH(justLogged)} apontada{justLogged === 1 ? '' : 's'}{' '}
+              automaticamente
             </span>
           ) : (
-            spentHours != null && spentHours > 0 && (
+            spentHours != null &&
+            spentHours > 0 && (
               <span className="text-slate-400 font-normal">· {fmtH(spentHours)} registradas</span>
             )
           )}
@@ -114,7 +120,11 @@ export function TimeTracker({ issueId, spentHours }: Props) {
             <button
               onClick={() => timer.start(issueId)}
               disabled={otherRunning}
-              title={otherRunning ? `Timer ativo em outra tarefa (#${timer.activeIssueId})` : 'Iniciar timer'}
+              title={
+                otherRunning
+                  ? `Timer ativo em outra tarefa (#${timer.activeIssueId})`
+                  : 'Iniciar timer'
+              }
               className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 text-slate-500 text-xs hover:bg-green-50 hover:border-green-300 hover:text-green-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Play size={11} className="fill-current" />
@@ -124,7 +134,9 @@ export function TimeTracker({ issueId, spentHours }: Props) {
 
           {/* Manual log button */}
           <button
-            onClick={() => { setFormOpen(v => !v); }}
+            onClick={() => {
+              setFormOpen((v) => !v);
+            }}
             className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 text-slate-500 text-xs hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 transition-colors"
             title="Registrar horas manualmente"
           >
@@ -139,55 +151,71 @@ export function TimeTracker({ issueId, spentHours }: Props) {
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-2 space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide block mb-1">Horas *</label>
+              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide block mb-1">
+                Horas *
+              </label>
               <input
                 autoFocus
                 type="number"
                 min="0.25"
                 step="0.25"
                 value={hours}
-                onChange={e => setHours(e.target.value)}
+                onChange={(e) => setHours(e.target.value)}
                 placeholder="ex: 1.5"
                 className="w-full text-sm border border-slate-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
               />
             </div>
             <div>
-              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide block mb-1">Atividade *</label>
+              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide block mb-1">
+                Atividade *
+              </label>
               <select
                 value={activityId}
-                onChange={e => setActivityId(Number(e.target.value))}
+                onChange={(e) => setActivityId(Number(e.target.value))}
                 className="w-full text-sm border border-slate-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
               >
-                {activities?.map(a => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
+                {activities?.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide block mb-1">Data</label>
+              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide block mb-1">
+                Data
+              </label>
               <input
                 type="date"
                 value={spentOn}
-                onChange={e => setSpentOn(e.target.value)}
+                onChange={(e) => setSpentOn(e.target.value)}
                 className="w-full text-sm border border-slate-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
               />
             </div>
             <div>
-              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide block mb-1">Comentário</label>
+              <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide block mb-1">
+                Comentário
+              </label>
               <input
                 type="text"
                 value={comment}
-                onChange={e => setComment(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); if (e.key === 'Escape') setFormOpen(false); }}
+                onChange={(e) => setComment(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSubmit();
+                  if (e.key === 'Escape') setFormOpen(false);
+                }}
                 placeholder="Opcional"
                 className="w-full text-sm border border-slate-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
               />
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setFormOpen(false)} className="text-xs text-slate-400 hover:text-slate-600 px-2 py-1">
+            <button
+              onClick={() => setFormOpen(false)}
+              className="text-xs text-slate-400 hover:text-slate-600 px-2 py-1"
+            >
               Cancelar
             </button>
             <button
@@ -195,9 +223,15 @@ export function TimeTracker({ issueId, spentHours }: Props) {
               disabled={!hours || !activityId || createEntry.isPending}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors"
             >
-              {createEntry.isPending
-                ? <><Loader2 size={11} className="animate-spin" /> Salvando…</>
-                : <><Check size={11} /> Salvar</>}
+              {createEntry.isPending ? (
+                <>
+                  <Loader2 size={11} className="animate-spin" /> Salvando…
+                </>
+              ) : (
+                <>
+                  <Check size={11} /> Salvar
+                </>
+              )}
             </button>
           </div>
           {createEntry.isError && (
@@ -210,22 +244,32 @@ export function TimeTracker({ issueId, spentHours }: Props) {
       {(entries?.length ?? 0) > 0 && (
         <div>
           <button
-            onClick={() => setShowEntries(v => !v)}
+            onClick={() => setShowEntries((v) => !v)}
             className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
           >
-            <ChevronDown size={12} className={`transition-transform ${showEntries ? 'rotate-180' : ''}`} />
-            {entries!.length} registro{entries!.length !== 1 ? 's' : ''} nesta tarefa
-            · {fmtH(entries!.reduce((s, e) => s + e.hours, 0))} total
+            <ChevronDown
+              size={12}
+              className={`transition-transform ${showEntries ? 'rotate-180' : ''}`}
+            />
+            {entries!.length} registro{entries!.length !== 1 ? 's' : ''} nesta tarefa ·{' '}
+            {fmtH(entries!.reduce((s, e) => s + e.hours, 0))} total
           </button>
           {showEntries && (
             <div className="mt-1.5 space-y-1">
-              {entries!.slice(0, 8).map(e => (
+              {entries!.slice(0, 8).map((e) => (
                 <div key={e.id} className="flex items-center gap-2 text-xs text-slate-600">
-                  <span className="font-semibold text-slate-700 w-8 flex-shrink-0">{fmtH(e.hours)}</span>
+                  <span className="font-semibold text-slate-700 w-8 flex-shrink-0">
+                    {fmtH(e.hours)}
+                  </span>
                   <span className="text-slate-400 flex-shrink-0">{e.activity.name}</span>
-                  {e.comments && <span className="text-slate-500 truncate flex-1">{e.comments}</span>}
+                  {e.comments && (
+                    <span className="text-slate-500 truncate flex-1">{e.comments}</span>
+                  )}
                   <span className="text-slate-300 flex-shrink-0 ml-auto">
-                    {formatDistanceToNow(new Date(e.spent_on + 'T12:00:00'), { addSuffix: true, locale: ptBR })}
+                    {formatDistanceToNow(new Date(e.spent_on + 'T12:00:00'), {
+                      addSuffix: true,
+                      locale: ptBR,
+                    })}
                   </span>
                 </div>
               ))}

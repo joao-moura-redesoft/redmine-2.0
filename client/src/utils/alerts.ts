@@ -18,20 +18,20 @@ const CF_LABELS: Record<number, string> = {
 
 // Status ID → campos customizados obrigatórios
 const FIELD_RULES: Record<number, number[]> = {
-  8:   [CF_IDS.BRANCH],                                          // Em andamento
-  34:  [CF_IDS.BRANCH],                                          // Pendente Correção
-  71:  [CF_IDS.BRANCH, CF_IDS.REVISOR, CF_IDS.PREVISAO_REVISAO], // Pendente Revisão
-  44:  [CF_IDS.IMPACTO, CF_IDS.NOTA_VERSAO],                    // Pendente Teste
-  35:  [CF_IDS.IMPACTO, CF_IDS.NOTA_VERSAO],                    // Pendente Integração
-  36:  [CF_IDS.IMPACTO, CF_IDS.NOTA_VERSAO],                    // Pendente Atualização
-  29:  [CF_IDS.IMPACTO, CF_IDS.NOTA_VERSAO],                    // Pendente Fechamento
+  8: [CF_IDS.BRANCH], // Em andamento
+  34: [CF_IDS.BRANCH], // Pendente Correção
+  71: [CF_IDS.BRANCH, CF_IDS.REVISOR, CF_IDS.PREVISAO_REVISAO], // Pendente Revisão
+  44: [CF_IDS.IMPACTO, CF_IDS.NOTA_VERSAO], // Pendente Teste
+  35: [CF_IDS.IMPACTO, CF_IDS.NOTA_VERSAO], // Pendente Integração
+  36: [CF_IDS.IMPACTO, CF_IDS.NOTA_VERSAO], // Pendente Atualização
+  29: [CF_IDS.IMPACTO, CF_IDS.NOTA_VERSAO], // Pendente Fechamento
 };
 
 // Status IDs onde Tempo Estimado é obrigatório (Pendente Desenvolvimento em diante)
 const ESTIMATED_HOURS_REQUIRED = new Set([32, 8, 34, 71, 44, 35, 36, 29]);
 
 function cfValue(issue: Issue, cfId: number): string {
-  const v = issue.custom_fields?.find(cf => cf.id === cfId)?.value;
+  const v = issue.custom_fields?.find((cf) => cf.id === cfId)?.value;
   if (!v) return '';
   if (Array.isArray(v)) return v.join('');
   return v;
@@ -48,7 +48,7 @@ export function getMissingFields(issue: Issue): string[] {
   const missing: string[] = [];
 
   const rules = FIELD_RULES[issue.status.id] ?? [];
-  rules.forEach(cfId => {
+  rules.forEach((cfId) => {
     if (cfValue(issue, cfId) === '') missing.push(CF_LABELS[cfId]);
   });
 

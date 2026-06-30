@@ -1,12 +1,51 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, KeyRound, Eye, EyeOff, Check, Loader2, Trash2, Sparkles, ChevronDown, MessageSquare, LogIn, Mail, BookOpen, Shield } from 'lucide-react';
-import { getConfiguredProviders, saveAIKey, clearAIKey, getActiveAIProvider, type AIProvider } from '../utils/aiConfig';
-import { getTalkAuth, saveTalkAuth, clearTalkAuth, initLoginFlow, pollLoginFlow } from '../api/talk';
+import {
+  X,
+  KeyRound,
+  Eye,
+  EyeOff,
+  Check,
+  Loader2,
+  Trash2,
+  Sparkles,
+  ChevronDown,
+  MessageSquare,
+  LogIn,
+  Mail,
+  BookOpen,
+  Shield,
+} from 'lucide-react';
+import {
+  getConfiguredProviders,
+  saveAIKey,
+  clearAIKey,
+  getActiveAIProvider,
+  type AIProvider,
+} from '../utils/aiConfig';
+import {
+  getTalkAuth,
+  saveTalkAuth,
+  clearTalkAuth,
+  initLoginFlow,
+  pollLoginFlow,
+} from '../api/talk';
 import { getTalkPrefs, saveTalkPrefs, type TalkPrefs } from '../utils/talkPrefs';
-import { getMailConfig, saveMailConfig, clearMailConfig, DEFAULT_HOST, getMailHost } from '../utils/mailConfig';
+import {
+  getMailConfig,
+  saveMailConfig,
+  clearMailConfig,
+  DEFAULT_HOST,
+  getMailHost,
+} from '../utils/mailConfig';
 import { getStoredAuth } from '../api/redmine';
 import { mailApi } from '../api/mail';
-import { adConfigured, saveADCreds, clearADCreds, hasEffectiveCreds, needsADCreds } from '../utils/adConfig';
+import {
+  adConfigured,
+  saveADCreds,
+  clearADCreds,
+  hasEffectiveCreds,
+  needsADCreds,
+} from '../utils/adConfig';
 
 interface Props {
   onClose: () => void;
@@ -87,7 +126,9 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
       setSaved(true);
       setError('');
       setTimeout(() => setSaved(false), 2500);
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const remove = async () => {
@@ -97,24 +138,30 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
       setConfigured(false);
       setSaved(false);
       setError('');
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
-    <div className={`border rounded-xl overflow-hidden transition-colors ${
-      active
-        ? 'border-purple-300 dark:border-purple-700'
-        : 'border-slate-200 dark:border-slate-700'
-    }`}>
+    <div
+      className={`border rounded-xl overflow-hidden transition-colors ${
+        active
+          ? 'border-purple-300 dark:border-purple-700'
+          : 'border-slate-200 dark:border-slate-700'
+      }`}
+    >
       {/* Header do provedor */}
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
       >
         <div className="flex items-center gap-2.5">
           <span className={`text-sm font-medium ${config.color}`}>{config.name}</span>
           {active && (
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${config.badge} ${config.badgeDark}`}>
+            <span
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${config.badge} ${config.badgeDark}`}
+            >
               Em uso
             </span>
           )}
@@ -124,7 +171,10 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
             </span>
           )}
         </div>
-        <ChevronDown size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={14}
+          className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {open && (
@@ -151,15 +201,19 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
                   <input
                     type={show ? 'text' : 'password'}
                     value={input}
-                    onChange={e => { setInput(e.target.value); setError(''); setSaved(false); }}
-                    onKeyDown={e => e.key === 'Enter' && save()}
+                    onChange={(e) => {
+                      setInput(e.target.value);
+                      setError('');
+                      setSaved(false);
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && save()}
                     placeholder={config.placeholder}
                     autoComplete="new-password"
                     className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 pr-8 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-400"
                   />
                   <button
                     type="button"
-                    onClick={() => setShow(v => !v)}
+                    onClick={() => setShow((v) => !v)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
                   >
                     {show ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -170,7 +224,15 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
                   disabled={!input.trim() || busy}
                   className="flex items-center gap-1.5 px-3 py-2 text-xs bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
                 >
-                  {saved ? <><Check size={11} /> Salvo!</> : <><KeyRound size={11} /> Salvar</>}
+                  {saved ? (
+                    <>
+                      <Check size={11} /> Salvo!
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound size={11} /> Salvar
+                    </>
+                  )}
                 </button>
               </div>
               {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
@@ -209,7 +271,10 @@ function NextcloudSection() {
   const pollParamsRef = useRef<{ pollEndpoint: string; pollToken: string } | null>(null);
 
   const stopPolling = () => {
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
     pollParamsRef.current = null;
   };
 
@@ -227,7 +292,10 @@ function NextcloudSection() {
       pollRef.current = setInterval(async () => {
         if (!pollParamsRef.current) return;
         try {
-          const result = await pollLoginFlow(pollParamsRef.current.pollEndpoint, pollParamsRef.current.pollToken);
+          const result = await pollLoginFlow(
+            pollParamsRef.current.pollEndpoint,
+            pollParamsRef.current.pollToken,
+          );
           if (result.done) {
             stopPolling();
             const auth = { url: result.server.replace(/\/$/, ''), user: result.user };
@@ -273,7 +341,10 @@ function NextcloudSection() {
       const auth = { url: base, user };
       saveTalkAuth(auth);
       setCurrentAuth(auth);
-      setUrl(''); setMUser(''); setMToken(''); setShowToken(false);
+      setUrl('');
+      setMUser('');
+      setMToken('');
+      setShowToken(false);
       setMode('flow');
     } catch {
       setError('Credenciais inválidas. Confira a URL, o usuário e o token (senha de app).');
@@ -290,18 +361,23 @@ function NextcloudSection() {
   return (
     <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
       >
         <div className="flex items-center gap-2.5">
-          <span className="text-sm font-medium text-blue-600 dark:text-blue-400">Nextcloud Talk</span>
+          <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
+            Nextcloud Talk
+          </span>
           {currentAuth && (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300">
               Configurado
             </span>
           )}
         </div>
-        <ChevronDown size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={14}
+          className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {open && (
@@ -311,36 +387,47 @@ function NextcloudSection() {
               <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
                 <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400">
                   <Check size={12} />
-                  <span className="font-mono">{currentAuth.user}@{currentAuth.url.replace(/^https?:\/\//, '')}</span>
+                  <span className="font-mono">
+                    {currentAuth.user}@{currentAuth.url.replace(/^https?:\/\//, '')}
+                  </span>
                 </div>
-                <button onClick={remove} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors">
+                <button
+                  onClick={remove}
+                  className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors"
+                >
                   <Trash2 size={11} /> Remover
                 </button>
               </div>
 
               <div className="space-y-2 pt-1">
-                <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Notificações</p>
+                <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                  Notificações
+                </p>
                 <label className="flex items-start justify-between gap-3 cursor-pointer">
                   <span className="text-xs text-slate-600 dark:text-slate-300">
                     Em grupos, só notificar quando me mencionarem
-                    <span className="block text-[11px] text-slate-400 dark:text-slate-500">DMs sempre notificam. Reduz o ruído de chats movimentados.</span>
+                    <span className="block text-[11px] text-slate-400 dark:text-slate-500">
+                      DMs sempre notificam. Reduz o ruído de chats movimentados.
+                    </span>
                   </span>
                   <input
                     type="checkbox"
                     checked={prefs.groupMentionsOnly}
-                    onChange={e => updatePref({ groupMentionsOnly: e.target.checked })}
+                    onChange={(e) => updatePref({ groupMentionsOnly: e.target.checked })}
                     className="mt-0.5 h-4 w-4 accent-blue-600 flex-shrink-0"
                   />
                 </label>
                 <label className="flex items-start justify-between gap-3 cursor-pointer">
                   <span className="text-xs text-slate-600 dark:text-slate-300">
                     Modo tempo real
-                    <span className="block text-[11px] text-slate-400 dark:text-slate-500">Notificação quase instantânea com a aba fechada (~3s). Usa mais rede/bateria.</span>
+                    <span className="block text-[11px] text-slate-400 dark:text-slate-500">
+                      Notificação quase instantânea com a aba fechada (~3s). Usa mais rede/bateria.
+                    </span>
                   </span>
                   <input
                     type="checkbox"
                     checked={prefs.realtime}
-                    onChange={e => updatePref({ realtime: e.target.checked })}
+                    onChange={(e) => updatePref({ realtime: e.target.checked })}
                     className="mt-0.5 h-4 w-4 accent-blue-600 flex-shrink-0"
                   />
                 </label>
@@ -365,13 +452,19 @@ function NextcloudSection() {
             <>
               <div className="flex gap-1 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg">
                 <button
-                  onClick={() => { setMode('flow'); setError(''); }}
+                  onClick={() => {
+                    setMode('flow');
+                    setError('');
+                  }}
                   className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-colors ${mode === 'flow' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                 >
                   Login automático
                 </button>
                 <button
-                  onClick={() => { setMode('manual'); setError(''); }}
+                  onClick={() => {
+                    setMode('manual');
+                    setError('');
+                  }}
                   className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-colors ${mode === 'manual' ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                 >
                   Token (senha de app)
@@ -384,8 +477,11 @@ function NextcloudSection() {
                     <input
                       type="url"
                       value={url}
-                      onChange={e => { setUrl(e.target.value); setError(''); }}
-                      onKeyDown={e => e.key === 'Enter' && startFlow()}
+                      onChange={(e) => {
+                        setUrl(e.target.value);
+                        setError('');
+                      }}
+                      onKeyDown={(e) => e.key === 'Enter' && startFlow()}
                       placeholder="https://drive.suaempresa.com"
                       className="flex-1 text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
                     />
@@ -406,14 +502,20 @@ function NextcloudSection() {
                   <input
                     type="url"
                     value={url}
-                    onChange={e => { setUrl(e.target.value); setError(''); }}
+                    onChange={(e) => {
+                      setUrl(e.target.value);
+                      setError('');
+                    }}
                     placeholder="https://drive.suaempresa.com"
                     className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
                   />
                   <input
                     type="text"
                     value={mUser}
-                    onChange={e => { setMUser(e.target.value); setError(''); }}
+                    onChange={(e) => {
+                      setMUser(e.target.value);
+                      setError('');
+                    }}
                     placeholder="usuário"
                     autoComplete="username"
                     className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -422,15 +524,18 @@ function NextcloudSection() {
                     <input
                       type={showToken ? 'text' : 'password'}
                       value={mToken}
-                      onChange={e => { setMToken(e.target.value); setError(''); }}
-                      onKeyDown={e => e.key === 'Enter' && saveManual()}
+                      onChange={(e) => {
+                        setMToken(e.target.value);
+                        setError('');
+                      }}
+                      onKeyDown={(e) => e.key === 'Enter' && saveManual()}
                       placeholder="token / senha de app"
                       autoComplete="off"
                       className="w-full text-xs border border-slate-200 dark:border-slate-600 rounded-lg pl-3 pr-9 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
                     />
                     <button
                       type="button"
-                      onClick={() => setShowToken(v => !v)}
+                      onClick={() => setShowToken((v) => !v)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
                     >
                       {showToken ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -441,11 +546,19 @@ function NextcloudSection() {
                     disabled={saving || !url.trim() || !mUser.trim() || !mToken.trim()}
                     className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors"
                   >
-                    {saving ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={11} />}
+                    {saving ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <KeyRound size={11} />
+                    )}
                     {saving ? 'Validando…' : 'Salvar'}
                   </button>
                   <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                    Gere uma senha de app no Nextcloud em <span className="font-medium">Configurações → Segurança → Dispositivos &amp; sessões</span>. Use seu usuário e a senha gerada.
+                    Gere uma senha de app no Nextcloud em{' '}
+                    <span className="font-medium">
+                      Configurações → Segurança → Dispositivos &amp; sessões
+                    </span>
+                    . Use seu usuário e a senha gerada.
                   </p>
                 </>
               )}
@@ -478,10 +591,13 @@ function ADCredsSection() {
     try {
       await saveADCreds({ username: user.trim(), password });
       setConfigured(true);
-      setUser(''); setPassword('');
+      setUser('');
+      setPassword('');
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const remove = async () => {
@@ -490,17 +606,23 @@ function ADCredsSection() {
       await clearADCreds();
       setConfigured(false);
       setSaved(false);
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
-    <div className={`border rounded-xl overflow-hidden ${isAuto ? 'border-green-200 dark:border-green-800' : configured ? 'border-blue-200 dark:border-blue-800' : 'border-slate-200 dark:border-slate-700'}`}>
+    <div
+      className={`border rounded-xl overflow-hidden ${isAuto ? 'border-green-200 dark:border-green-800' : configured ? 'border-blue-200 dark:border-blue-800' : 'border-slate-200 dark:border-slate-700'}`}
+    >
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
       >
         <div className="flex items-center gap-2.5">
-          <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Usuário e senha do AD</span>
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+            Usuário e senha do AD
+          </span>
           {isAuto && (
             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300">
               Automático
@@ -517,7 +639,10 @@ function ADCredsSection() {
             </span>
           )}
         </div>
-        <ChevronDown size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={14}
+          className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {open && (
@@ -526,7 +651,8 @@ function ADCredsSection() {
             <div className="flex items-start gap-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2.5 text-xs text-green-700 dark:text-green-300">
               <Check size={13} className="flex-shrink-0 mt-0.5" />
               <span>
-                Logado como <strong>{auth?.username}</strong> com usuário e senha — E-mail e Wiki usam as mesmas credenciais automaticamente.
+                Logado como <strong>{auth?.username}</strong> com usuário e senha — E-mail e Wiki
+                usam as mesmas credenciais automaticamente.
               </span>
             </div>
           ) : configured ? (
@@ -535,20 +661,26 @@ function ADCredsSection() {
                 <Check size={12} />
                 <span>Credenciais AD salvas no servidor</span>
               </div>
-              <button onClick={remove} disabled={busy} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 disabled:opacity-40 transition-colors">
+              <button
+                onClick={remove}
+                disabled={busy}
+                className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 disabled:opacity-40 transition-colors"
+              >
                 <Trash2 size={11} /> Remover
               </button>
             </div>
           ) : (
             <>
               <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                Informe seu usuário e senha do AD (Windows). Usados por <strong>E-mail</strong> e <strong>Wiki</strong>.
-                O usuário é sem @domínio (ex.: <span className="font-mono">joao.moura</span>).
+                Informe seu usuário e senha do AD (Windows). Usados por <strong>E-mail</strong> e{' '}
+                <strong>Wiki</strong>. O usuário é sem @domínio (ex.:{' '}
+                <span className="font-mono">joao.moura</span>).
               </p>
               <div className="space-y-2">
                 <input
-                  value={user} onChange={e => setUser(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && save()}
+                  value={user}
+                  onChange={(e) => setUser(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && save()}
                   placeholder="Usuário (ex.: joao.moura)"
                   autoComplete="off"
                   className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -556,13 +688,18 @@ function ADCredsSection() {
                 <div className="relative">
                   <input
                     type={show ? 'text' : 'password'}
-                    value={password} onChange={e => setPassword(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && save()}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && save()}
                     placeholder="Senha do AD"
                     autoComplete="new-password"
                     className="w-full text-xs px-3 py-2 pr-8 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
                   />
-                  <button type="button" onClick={() => setShow(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <button
+                    type="button"
+                    onClick={() => setShow((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
                     {show ? <EyeOff size={13} /> : <Eye size={13} />}
                   </button>
                 </div>
@@ -572,7 +709,15 @@ function ADCredsSection() {
                 disabled={!user.trim() || !password || busy}
                 className="flex items-center gap-1.5 px-3 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors"
               >
-                {saved ? <><Check size={11} /> Salvo!</> : <><KeyRound size={11} /> Salvar</>}
+                {saved ? (
+                  <>
+                    <Check size={11} /> Salvo!
+                  </>
+                ) : (
+                  <>
+                    <KeyRound size={11} /> Salvar
+                  </>
+                )}
               </button>
             </>
           )}
@@ -598,24 +743,37 @@ function MailSection() {
   };
 
   const test = async () => {
-    setTestState('testing'); setTestError('');
-    try { await mailApi.ping(); setTestState('ok'); }
-    catch (e: any) { setTestState('error'); setTestError(e?.response?.data?.error || 'Falha na conexão'); }
+    setTestState('testing');
+    setTestError('');
+    try {
+      await mailApi.ping();
+      setTestState('ok');
+    } catch (e: any) {
+      setTestState('error');
+      setTestError(e?.response?.data?.error || 'Falha na conexão');
+    }
   };
 
   return (
     <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
       >
         <div className="flex items-center gap-2.5">
-          <span className="text-sm font-medium text-blue-600 dark:text-blue-400">E-mail (Zimbra)</span>
-          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${available ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300' : 'bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-400'}`}>
+          <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
+            E-mail (Zimbra)
+          </span>
+          <span
+            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${available ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300' : 'bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-400'}`}
+          >
             {available ? 'Disponível' : 'Sem credenciais'}
           </span>
         </div>
-        <ChevronDown size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={14}
+          className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {open && (
@@ -625,8 +783,12 @@ function MailSection() {
           </p>
           <div className="flex gap-2">
             <input
-              value={host} onChange={e => { setHost(e.target.value); setSaved(false); }}
-              onKeyDown={e => e.key === 'Enter' && saveHost()}
+              value={host}
+              onChange={(e) => {
+                setHost(e.target.value);
+                setSaved(false);
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && saveHost()}
               placeholder={DEFAULT_HOST}
               className="flex-1 text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
@@ -644,10 +806,16 @@ function MailSection() {
                 disabled={testState === 'testing'}
                 className="flex items-center gap-1.5 px-3 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors"
               >
-                {testState === 'testing' ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                {testState === 'testing' ? (
+                  <Loader2 size={11} className="animate-spin" />
+                ) : (
+                  <Check size={11} />
+                )}
                 Testar conexão
               </button>
-              {testState === 'ok' && <span className="text-xs text-green-600 dark:text-green-400">Conectado!</span>}
+              {testState === 'ok' && (
+                <span className="text-xs text-green-600 dark:text-green-400">Conectado!</span>
+              )}
               {testState === 'error' && <span className="text-xs text-red-500">{testError}</span>}
             </div>
           )}
@@ -665,16 +833,23 @@ function WikiSection() {
   return (
     <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
       >
         <div className="flex items-center gap-2.5">
-          <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Wiki (DokuWiki)</span>
-          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${available ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300' : 'bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-400'}`}>
+          <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+            Wiki (DokuWiki)
+          </span>
+          <span
+            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${available ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300' : 'bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-400'}`}
+          >
             {available ? 'Disponível' : 'Sem credenciais'}
           </span>
         </div>
-        <ChevronDown size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={14}
+          className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {open && (
@@ -686,7 +861,8 @@ function WikiSection() {
             </div>
           ) : (
             <p className="text-xs text-slate-400 dark:text-slate-500">
-              Configure o <strong>Usuário e senha do AD</strong> acima para habilitar o acesso à Wiki.
+              Configure o <strong>Usuário e senha do AD</strong> acima para habilitar o acesso à
+              Wiki.
             </p>
           )}
         </div>
@@ -708,14 +884,19 @@ export function SettingsModal({ onClose }: Props) {
   const [tab, setTab] = useState<SettingsTab>('corporativo');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-md max-h-[85vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header (fixo) */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
-          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Configurações</h2>
+          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+            Configurações
+          </h2>
           <button
             onClick={onClose}
             className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -727,7 +908,7 @@ export function SettingsModal({ onClose }: Props) {
         {/* Abas (fixas) */}
         <div className="px-5 pt-4 flex-shrink-0">
           <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-            {TABS.map(t => {
+            {TABS.map((t) => {
               const Icon = t.icon;
               const isActive = tab === t.id;
               return (
@@ -750,7 +931,6 @@ export function SettingsModal({ onClose }: Props) {
 
         {/* Corpo (rolável) */}
         <div className="p-5 space-y-4 overflow-y-auto flex-1">
-
           {tab === 'corporativo' && (
             <>
               <div className="space-y-3">
@@ -761,7 +941,8 @@ export function SettingsModal({ onClose }: Props) {
                   </h3>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Usuário e senha do AD (Windows). Necessários para E-mail e Wiki quando o login no Redmine é feito por chave de API.
+                  Usuário e senha do AD (Windows). Necessários para E-mail e Wiki quando o login no
+                  Redmine é feito por chave de API.
                 </p>
                 <ADCredsSection />
               </div>
@@ -806,29 +987,26 @@ export function SettingsModal({ onClose }: Props) {
               </div>
 
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Configure uma ou mais chaves. A ordem de preferência é <strong>Claude</strong> → <strong>ChatGPT</strong> → <strong>Gemini</strong>.
-                As chaves ficam salvas com segurança no servidor (cifradas).
+                Configure uma ou mais chaves. A ordem de preferência é <strong>Claude</strong> →{' '}
+                <strong>ChatGPT</strong> → <strong>Gemini</strong>. As chaves ficam salvas com
+                segurança no servidor (cifradas).
               </p>
 
               {active && (
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                  Usando: <strong className="text-slate-700 dark:text-slate-200">
+                  Usando:{' '}
+                  <strong className="text-slate-700 dark:text-slate-200">
                     {PROVIDER_NAMES[active]}
                   </strong>
                 </div>
               )}
 
-              {PROVIDERS.map(p => (
-                <ProviderSection
-                  key={p.id}
-                  config={p}
-                  active={active === p.id}
-                />
+              {PROVIDERS.map((p) => (
+                <ProviderSection key={p.id} config={p} active={active === p.id} />
               ))}
             </div>
           )}
-
         </div>
       </div>
     </div>

@@ -22,9 +22,12 @@ function generateTOTP(secret, timeStep = 30, digits = 6) {
   counter.writeUInt32BE(time >>> 0, 4);
   const sig = crypto.createHmac('sha1', key).update(counter).digest();
   const offset = sig[sig.length - 1] & 0x0f;
-  const code = (
-    ((sig[offset] & 0x7f) << 24) | (sig[offset + 1] << 16) | (sig[offset + 2] << 8) | sig[offset + 3]
-  ) % (10 ** digits);
+  const code =
+    (((sig[offset] & 0x7f) << 24) |
+      (sig[offset + 1] << 16) |
+      (sig[offset + 2] << 8) |
+      sig[offset + 3]) %
+    10 ** digits;
   return String(code).padStart(digits, '0');
 }
 

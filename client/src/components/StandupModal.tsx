@@ -33,9 +33,10 @@ export function StandupModal({ issues, completedIssues = [], onClose }: Props) {
     setError('');
     setLoading(true);
     try {
-      const text = mode === 'daily'
-        ? await redmineApi.standup(issues)
-        : await redmineApi.weeklyDigest(issues, completedIssues);
+      const text =
+        mode === 'daily'
+          ? await redmineApi.standup(issues)
+          : await redmineApi.weeklyDigest(issues, completedIssues);
       setStandup(text);
       setGenerated(true);
     } catch (err: unknown) {
@@ -60,16 +61,21 @@ export function StandupModal({ issues, completedIssues = [], onClose }: Props) {
   }, {});
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2">
             <Sparkles size={16} className="text-purple-500" />
-            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{mode === 'daily' ? 'Daily Standup' : 'Retrospectiva Semanal'}</h2>
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              {mode === 'daily' ? 'Daily Standup' : 'Retrospectiva Semanal'}
+            </h2>
           </div>
           <button
             onClick={onClose}
@@ -85,18 +91,24 @@ export function StandupModal({ issues, completedIssues = [], onClose }: Props) {
             <button
               onClick={() => switchMode('daily')}
               className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-medium transition-colors ${mode === 'daily' ? 'bg-purple-50 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400' : 'text-slate-500'}`}
-            ><Sun size={13} /> Diário</button>
+            >
+              <Sun size={13} /> Diário
+            </button>
             <button
               onClick={() => switchMode('weekly')}
               className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-medium transition-colors ${mode === 'weekly' ? 'bg-purple-50 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400' : 'text-slate-500'}`}
-            ><CalendarRange size={13} /> Semanal</button>
+            >
+              <CalendarRange size={13} /> Semanal
+            </button>
           </div>
 
           {/* Resumo das tarefas */}
           <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">
               {issues.length} tarefa{issues.length !== 1 ? 's' : ''} abertas
-              {mode === 'weekly' && completedIssues.length > 0 && ` · ${completedIssues.length} concluída${completedIssues.length !== 1 ? 's' : ''} recentes`}
+              {mode === 'weekly' &&
+                completedIssues.length > 0 &&
+                ` · ${completedIssues.length} concluída${completedIssues.length !== 1 ? 's' : ''} recentes`}
             </p>
             <div className="flex flex-wrap gap-1.5">
               {Object.entries(byStatus).map(([status, count]) => (
@@ -112,7 +124,8 @@ export function StandupModal({ issues, completedIssues = [], onClose }: Props) {
 
           {!hasKey && (
             <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
-              Configure uma Claude API Key ou OpenAI API Key nas Configurações para usar esta feature.
+              Configure uma Claude API Key ou OpenAI API Key nas Configurações para usar esta
+              feature.
             </p>
           )}
 
@@ -120,7 +133,9 @@ export function StandupModal({ issues, completedIssues = [], onClose }: Props) {
           {generated && standup && (
             <div className="border border-purple-200 dark:border-purple-800 rounded-xl overflow-hidden">
               <div className="flex items-center justify-between px-3 py-2 bg-purple-50 dark:bg-purple-900/30 border-b border-purple-100 dark:border-purple-800">
-                <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">{mode === 'daily' ? 'Standup gerado' : 'Retrospectiva gerada'}</span>
+                <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">
+                  {mode === 'daily' ? 'Standup gerado' : 'Retrospectiva gerada'}
+                </span>
                 <button
                   onClick={copy}
                   className="flex items-center gap-1 px-2 py-1 text-xs bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-700 rounded-md hover:bg-purple-50 dark:hover:bg-purple-900/40 text-purple-600 dark:text-purple-400 transition-colors"
@@ -135,9 +150,7 @@ export function StandupModal({ issues, completedIssues = [], onClose }: Props) {
             </div>
           )}
 
-          {error && (
-            <p className="text-xs text-red-500 dark:text-red-400">{error}</p>
-          )}
+          {error && <p className="text-xs text-red-500 dark:text-red-400">{error}</p>}
         </div>
 
         {/* Footer */}
@@ -153,12 +166,19 @@ export function StandupModal({ issues, completedIssues = [], onClose }: Props) {
             disabled={loading || !hasKey}
             className="flex items-center gap-2 px-4 py-2 text-xs bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white rounded-lg font-medium transition-colors"
           >
-            {loading
-              ? <><Loader2 size={13} className="animate-spin" /> Gerando…</>
-              : generated
-                ? <><RefreshCw size={13} /> Regenerar</>
-                : <><Sparkles size={13} /> {mode === 'daily' ? 'Gerar standup' : 'Gerar retrospectiva'}</>
-            }
+            {loading ? (
+              <>
+                <Loader2 size={13} className="animate-spin" /> Gerando…
+              </>
+            ) : generated ? (
+              <>
+                <RefreshCw size={13} /> Regenerar
+              </>
+            ) : (
+              <>
+                <Sparkles size={13} /> {mode === 'daily' ? 'Gerar standup' : 'Gerar retrospectiva'}
+              </>
+            )}
           </button>
         </div>
       </div>

@@ -44,19 +44,17 @@ self.addEventListener('push', (event: PushEvent) => {
   if (!payload?.title) return;
 
   event.waitUntil(
-    self.clients
-      .matchAll({ type: 'window', includeUncontrolled: true })
-      .then((clientList) => {
-        // App aberto (aberto ou minimizado) → deixa o app cuidar; não duplica.
-        if (clientList.length > 0) return;
-        return self.registration.showNotification(payload.title, {
-          body: payload.body,
-          icon: '/icon-192.png',
-          badge: '/icon-192.png',
-          tag: payload.tag,
-          data: { url: payload.url ?? '/', issueId: payload.issueId, talkToken: payload.talkToken },
-        });
-      }),
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // App aberto (aberto ou minimizado) → deixa o app cuidar; não duplica.
+      if (clientList.length > 0) return;
+      return self.registration.showNotification(payload.title, {
+        body: payload.body,
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        tag: payload.tag,
+        data: { url: payload.url ?? '/', issueId: payload.issueId, talkToken: payload.talkToken },
+      });
+    }),
   );
 });
 
@@ -65,22 +63,22 @@ self.addEventListener('push', (event: PushEvent) => {
 // ServiceWorkerRegistration.showNotification() (used by useBrowserNotifications).
 self.addEventListener('notificationclick', (event: NotificationEvent) => {
   event.notification.close();
-  const data = event.notification.data as { url?: string; issueId?: number; talkToken?: string } | undefined;
+  const data = event.notification.data as
+    | { url?: string; issueId?: number; talkToken?: string }
+    | undefined;
   const target = data?.url || '/';
   const issueId = data?.issueId;
   const talkToken = data?.talkToken;
 
   event.waitUntil(
-    self.clients
-      .matchAll({ type: 'window', includeUncontrolled: true })
-      .then((clientList) => {
-        const live = clientList.find(c => 'focus' in c) as WindowClient | undefined;
-        if (live) {
-          if (issueId)    live.postMessage({ type: 'open-issue', issueId });
-          if (talkToken)  live.postMessage({ type: 'open-talk',  talkToken });
-          return live.focus();
-        }
-        return self.clients.openWindow(target);
-      }),
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      const live = clientList.find((c) => 'focus' in c) as WindowClient | undefined;
+      if (live) {
+        if (issueId) live.postMessage({ type: 'open-issue', issueId });
+        if (talkToken) live.postMessage({ type: 'open-talk', talkToken });
+        return live.focus();
+      }
+      return self.clients.openWindow(target);
+    }),
   );
 });

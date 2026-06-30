@@ -42,13 +42,13 @@ export interface CalendarEvent {
   uid: string | null;
   compNum: number;
   subject: string;
-  start: number | null;      // epoch ms
+  start: number | null; // epoch ms
   end: number | null;
   durationMs: number;
   allDay: boolean;
   location: string;
-  status: string;            // TENT | CONF | CANC
-  ptst: string;              // participação: NE|AC|TE|DE|...
+  status: string; // TENT | CONF | CANC
+  ptst: string; // participação: NE|AC|TE|DE|...
   organizer: MailAddress | null;
   isOrganizer: boolean;
   snippet: string;
@@ -57,10 +57,10 @@ export interface CalendarEvent {
 export interface EventAttendee {
   address: string;
   name: string;
-  role: string;   // REQ (obrigatório) | OPT (opcional) | NON | CHA
-  ptst: string;   // NE (sem resposta) | AC (aceitou) | DE (recusou) | TE (talvez) | DG (delegou)
+  role: string; // REQ (obrigatório) | OPT (opcional) | NON | CHA
+  ptst: string; // NE (sem resposta) | AC (aceitou) | DE (recusou) | TE (talvez) | DG (delegou)
   rsvp: boolean;
-  isMe: boolean;  // o convidado é o próprio usuário logado
+  isMe: boolean; // o convidado é o próprio usuário logado
 }
 
 export interface EventAttendees {
@@ -86,7 +86,7 @@ export interface MailMessageFull {
 
 const api = axios.create({ baseURL: '/api' });
 
-api.interceptors.request.use(config => {
+api.interceptors.request.use((config) => {
   // Credenciais (Redmine/AD) resolvidas no servidor a partir da sessão/cofre.
   // O cliente só envia a configuração de host do e-mail.
   const host = getMailHost();
@@ -105,18 +105,27 @@ export const mailApi = {
     return data.folders;
   },
 
-  getMessages: async (folder = 'inbox', limit = 30, offset = 0): Promise<{ messages: MailMessageSummary[]; more: boolean }> => {
+  getMessages: async (
+    folder = 'inbox',
+    limit = 30,
+    offset = 0,
+  ): Promise<{ messages: MailMessageSummary[]; more: boolean }> => {
     const { data } = await api.get('/mail/messages', { params: { folder, limit, offset } });
     return data;
   },
 
-  search: async (q: string, limit = 30): Promise<{ messages: MailMessageSummary[]; more: boolean }> => {
+  search: async (
+    q: string,
+    limit = 30,
+  ): Promise<{ messages: MailMessageSummary[]; more: boolean }> => {
     const { data } = await api.get('/mail/search', { params: { q, limit } });
     return data;
   },
 
   getMessage: async (id: string, markRead = true): Promise<MailMessageFull> => {
-    const { data } = await api.get(`/mail/messages/${id}`, { params: { markRead: markRead ? 1 : 0 } });
+    const { data } = await api.get(`/mail/messages/${id}`, {
+      params: { markRead: markRead ? 1 : 0 },
+    });
     return data;
   },
 
@@ -131,7 +140,14 @@ export const mailApi = {
     await api.post(`/mail/messages/${id}/action`, { op, l: target });
   },
 
-  send: async (payload: { to: string[]; cc?: string[]; subject: string; text?: string; html?: string; inReplyTo?: string }): Promise<void> => {
+  send: async (payload: {
+    to: string[];
+    cc?: string[];
+    subject: string;
+    text?: string;
+    html?: string;
+    inReplyTo?: string;
+  }): Promise<void> => {
     await api.post('/mail/send', payload);
   },
 

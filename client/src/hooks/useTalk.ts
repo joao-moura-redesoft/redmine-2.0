@@ -1,13 +1,24 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  fetchRooms, fetchMessages, sendMessage, fetchTalkMe, getTalkAuth,
-  editMessage, deleteMessage, addReaction, removeReaction, createRoom, searchNCUsers,
+  fetchRooms,
+  fetchMessages,
+  sendMessage,
+  fetchTalkMe,
+  getTalkAuth,
+  editMessage,
+  deleteMessage,
+  addReaction,
+  removeReaction,
+  createRoom,
+  searchNCUsers,
   fetchUserStatuses,
 } from '../api/talk';
 import type { TalkMessage, UserStatus } from '../api/talk';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-function talkEnabled() { return !!getTalkAuth(); }
+function talkEnabled() {
+  return !!getTalkAuth();
+}
 
 export function useTalkCurrentUser() {
   return useQuery({
@@ -60,7 +71,7 @@ export function useSendMessage(token: string | null, myId = '', myName = '') {
     mutationFn: ({ message, replyTo }: SendVars) => sendMessage(token!, message, replyTo),
     // Insere imediatamente uma bolha "enviando" (otimista)
     onMutate: async (vars: SendVars) => {
-      const clientId = Date.now() + (tempSeq++);
+      const clientId = Date.now() + tempSeq++;
       const temp: TalkMessage = {
         id: clientId,
         token: token ?? '',
@@ -88,15 +99,17 @@ export function useSendMessage(token: string | null, myId = '', myName = '') {
     onError: (_e, _v, ctx) => {
       if (!ctx) return;
       qc.setQueryData(['talk-messages', token], (old: TalkMessage[] = []) =>
-        old.map(m => (m.id === ctx.clientId ? { ...m, _status: 'failed' as const } : m)));
+        old.map((m) => (m.id === ctx.clientId ? { ...m, _status: 'failed' as const } : m)),
+      );
     },
     // Sucesso: troca a bolha temporária pela mensagem real (sem flicker nem duplicata)
     onSuccess: (data, _v, ctx) => {
       if (ctx) {
         qc.setQueryData(['talk-messages', token], (old: TalkMessage[] = []) =>
           data?.id
-            ? old.map(m => (m.id === ctx.clientId ? data : m))
-            : old.filter(m => m.id !== ctx.clientId));
+            ? old.map((m) => (m.id === ctx.clientId ? data : m))
+            : old.filter((m) => m.id !== ctx.clientId),
+        );
       }
       qc.invalidateQueries({ queryKey: ['talk-messages', token] });
       qc.invalidateQueries({ queryKey: ['talk-rooms'] });
@@ -124,7 +137,15 @@ export function useDeleteMessage(token: string | null) {
 export function useReaction(token: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ messageId, reaction, remove }: { messageId: number; reaction: string; remove?: boolean }) =>
+    mutationFn: ({
+      messageId,
+      reaction,
+      remove,
+    }: {
+      messageId: number;
+      reaction: string;
+      remove?: boolean;
+    }) =>
       remove
         ? removeReaction(token!, messageId, reaction)
         : addReaction(token!, messageId, reaction),
@@ -135,8 +156,15 @@ export function useReaction(token: string | null) {
 export function useCreateRoom() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ roomType, invite, roomName }: { roomType: number; invite: string; roomName?: string }) =>
-      createRoom(roomType, invite, roomName),
+    mutationFn: ({
+      roomType,
+      invite,
+      roomName,
+    }: {
+      roomType: number;
+      invite: string;
+      roomName?: string;
+    }) => createRoom(roomType, invite, roomName),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['talk-rooms'] }),
   });
 }
@@ -147,7 +175,7 @@ export function useUserStatuses() {
     queryKey: ['talk-user-statuses'],
     queryFn: async () => {
       const list = await fetchUserStatuses();
-      return new Map<string, UserStatus>(list.map(s => [s.userId, s]));
+      return new Map<string, UserStatus>(list.map((s) => [s.userId, s]));
     },
     enabled: talkEnabled(),
     refetchInterval: 60_000,
@@ -202,7 +230,12 @@ export function useTypingSender(token: string | null) {
     }
   }, [token]);
 
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
 
   return { onType, stopTyping };
 }
@@ -212,7 +245,9 @@ export function useTypingSender(token: string | null) {
 // Usar Math.max(...messages.map(m=>m.id)) no caller para funcionar com qualquer ordem da API.
 export function useTalkSSE(token: string | null, initialMessageId: number) {
   const qc = useQueryClient();
-  const [typingUsers, setTypingUsers] = useState<Array<{ actorId: string; actorDisplayName: string }>>([]);
+  const [typingUsers, setTypingUsers] = useState<
+    Array<{ actorId: string; actorDisplayName: string }>
+  >([]);
   const typingTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Booleano como dep: SSE só (re)inicia quando passa de 0 para >0, evita restart a cada mensagem.
@@ -227,18 +262,24 @@ export function useTalkSSE(token: string | null, initialMessageId: number) {
       lastKnownMessageId: String(initialMessageId),
     });
 
-    const sse = new EventSource(`/api/talk/rooms/${encodeURIComponent(token)}/sse?${params}`, { withCredentials: true });
+    const sse = new EventSource(`/api/talk/rooms/${encodeURIComponent(token)}/sse?${params}`, {
+      withCredentials: true,
+    });
 
     sse.onmessage = (e) => {
       let event: { type: string; data: unknown };
-      try { event = JSON.parse(e.data); } catch { return; }
+      try {
+        event = JSON.parse(e.data);
+      } catch {
+        return;
+      }
 
       if (event.type === 'messages') {
         const msgs = event.data as TalkMessage[];
         let hadNew = false;
         qc.setQueryData(['talk-messages', token], (old: TalkMessage[] = []) => {
-          const ids = new Set(old.map(m => m.id));
-          const toAdd = [...msgs].reverse().filter(m => !ids.has(m.id));
+          const ids = new Set(old.map((m) => m.id));
+          const toAdd = [...msgs].reverse().filter((m) => !ids.has(m.id));
           if (toAdd.length === 0) return old;
           hadNew = true;
           return [...toAdd, ...old];
@@ -269,7 +310,7 @@ export function useTalkSSE(token: string | null, initialMessageId: number) {
 
       if (event.type === 'typing') {
         const users = event.data as Array<{ actorId: string; actorDisplayName: string }>;
-        
+
         // Se está digitando, com certeza viu a última mensagem enviada!
         const msgs = qc.getQueryData<TalkMessage[]>(['talk-messages', token]);
         const latestId = msgs && msgs.length > 0 ? msgs[0].id : 0;
@@ -277,7 +318,10 @@ export function useTalkSSE(token: string | null, initialMessageId: number) {
           qc.setQueryData(['talk-participants', token], (old: any) => {
             if (!old) return old;
             return old.map((p: any) => {
-              if (users.some(u => u.actorId === p.actorId) && latestId > (p.lastReadMessage ?? 0)) {
+              if (
+                users.some((u) => u.actorId === p.actorId) &&
+                latestId > (p.lastReadMessage ?? 0)
+              ) {
                 return { ...p, lastReadMessage: latestId };
               }
               return p;
@@ -285,19 +329,22 @@ export function useTalkSSE(token: string | null, initialMessageId: number) {
           });
         }
         setTimeout(() => qc.invalidateQueries({ queryKey: ['talk-participants', token] }), 1500);
-        setTypingUsers(prev => {
-          const map = new Map(prev.map(u => [u.actorId, u]));
-          users.forEach(u => map.set(u.actorId, u));
+        setTypingUsers((prev) => {
+          const map = new Map(prev.map((u) => [u.actorId, u]));
+          users.forEach((u) => map.set(u.actorId, u));
           return [...map.values()];
         });
         // Auto-remove typing indicator after 5s
-        users.forEach(u => {
+        users.forEach((u) => {
           const prev = typingTimers.current.get(u.actorId);
           if (prev) clearTimeout(prev);
-          typingTimers.current.set(u.actorId, setTimeout(() => {
-            setTypingUsers(p => p.filter(x => x.actorId !== u.actorId));
-            typingTimers.current.delete(u.actorId);
-          }, 5000));
+          typingTimers.current.set(
+            u.actorId,
+            setTimeout(() => {
+              setTypingUsers((p) => p.filter((x) => x.actorId !== u.actorId));
+              typingTimers.current.delete(u.actorId);
+            }, 5000),
+          );
         });
       }
     };
@@ -308,7 +355,7 @@ export function useTalkSSE(token: string | null, initialMessageId: number) {
 
     return () => {
       sse.close();
-      typingTimers.current.forEach(t => clearTimeout(t));
+      typingTimers.current.forEach((t) => clearTimeout(t));
       typingTimers.current.clear();
       setTypingUsers([]);
     };

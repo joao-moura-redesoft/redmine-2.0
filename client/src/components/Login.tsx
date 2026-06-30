@@ -36,19 +36,21 @@ export function Login({ onSuccess }: Props) {
       }
 
       await axios.post('/api/auth/login', payload, { withCredentials: true });
-      
+
       // Save only safe metadata to localStorage, never passwords/keys
       const safeAuth: Partial<RedmineAuth> = { url: cleanUrl };
       if (mode === 'userpass') safeAuth.username = username.trim();
       saveAuth(safeAuth as RedmineAuth);
-      
+
       onSuccess();
     } catch (err: any) {
       const status = err.response?.status;
       if (status === 401 || status === 403) {
-        setError(mode === 'token'
-          ? 'Chave de API inválida ou sem permissão. Verifique e tente novamente.'
-          : 'Usuário ou senha inválidos. Verifique e tente novamente.');
+        setError(
+          mode === 'token'
+            ? 'Chave de API inválida ou sem permissão. Verifique e tente novamente.'
+            : 'Usuário ou senha inválidos. Verifique e tente novamente.',
+        );
       } else if (status === 404 || err.code === 'ERR_NETWORK') {
         setError('URL do Redmine não encontrada. Verifique o endereço e tente novamente.');
       } else {
@@ -59,11 +61,12 @@ export function Login({ onSuccess }: Props) {
     }
   };
 
-  const canSubmit = url.length > 10 && !loading && (
-    mode === 'token'
+  const canSubmit =
+    url.length > 10 &&
+    !loading &&
+    (mode === 'token'
       ? apiKey.trim().length > 10
-      : username.trim().length > 0 && password.length > 0
-  );
+      : username.trim().length > 0 && password.length > 0);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 to-blue-50 flex items-center justify-center p-4">
@@ -87,11 +90,11 @@ export function Login({ onSuccess }: Props) {
             <input
               type="url"
               value={url}
-              onChange={e => setUrl(e.target.value)}
+              onChange={(e) => setUrl(e.target.value)}
               placeholder="https://redmine.suaempresa.com"
               autoFocus
               className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              onKeyDown={e => e.key === 'Enter' && canSubmit && validate()}
+              onKeyDown={(e) => e.key === 'Enter' && canSubmit && validate()}
             />
           </div>
 
@@ -99,7 +102,10 @@ export function Login({ onSuccess }: Props) {
           <div className="flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">
             <button
               type="button"
-              onClick={() => { setMode('token'); setError(null); }}
+              onClick={() => {
+                setMode('token');
+                setError(null);
+              }}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-md transition-all ${
                 mode === 'token'
                   ? 'bg-white text-blue-600 shadow-sm border border-slate-200'
@@ -111,7 +117,10 @@ export function Login({ onSuccess }: Props) {
             </button>
             <button
               type="button"
-              onClick={() => { setMode('userpass'); setError(null); }}
+              onClick={() => {
+                setMode('userpass');
+                setError(null);
+              }}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium rounded-md transition-all ${
                 mode === 'userpass'
                   ? 'bg-white text-blue-600 shadow-sm border border-slate-200'
@@ -133,14 +142,14 @@ export function Login({ onSuccess }: Props) {
                 <input
                   type={showSecret ? 'text' : 'password'}
                   value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
+                  onChange={(e) => setApiKey(e.target.value)}
                   placeholder="••••••••••••••••••••••••••••••••••••••••"
                   className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2.5 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                  onKeyDown={e => e.key === 'Enter' && canSubmit && validate()}
+                  onKeyDown={(e) => e.key === 'Enter' && canSubmit && validate()}
                 />
                 <button
                   type="button"
-                  onClick={() => setShowSecret(v => !v)}
+                  onClick={() => setShowSecret((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                 >
                   {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -162,36 +171,32 @@ export function Login({ onSuccess }: Props) {
           ) : (
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Usuário
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Usuário</label>
                 <input
                   type="text"
                   value={username}
-                  onChange={e => setUsername(e.target.value)}
+                  onChange={(e) => setUsername(e.target.value)}
                   placeholder="seu.usuario"
                   autoComplete="username"
                   className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  onKeyDown={e => e.key === 'Enter' && canSubmit && validate()}
+                  onKeyDown={(e) => e.key === 'Enter' && canSubmit && validate()}
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Senha
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Senha</label>
                 <div className="relative">
                   <input
                     type={showSecret ? 'text' : 'password'}
                     value={password}
-                    onChange={e => setPassword(e.target.value)}
+                    onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••••••"
                     autoComplete="current-password"
                     className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2.5 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    onKeyDown={e => e.key === 'Enter' && canSubmit && validate()}
+                    onKeyDown={(e) => e.key === 'Enter' && canSubmit && validate()}
                   />
                   <button
                     type="button"
-                    onClick={() => setShowSecret(v => !v)}
+                    onClick={() => setShowSecret((v) => !v)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                   >
                     {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
