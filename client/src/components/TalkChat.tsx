@@ -1935,6 +1935,7 @@ function MessageInput({
           clearPendingFile();
           setInput('');
           setMentionQuery(null);
+          setIssueQuery(null);
         } else if (result.error) {
           setUploadError(result.error);
         }
@@ -1952,6 +1953,7 @@ function MessageInput({
     onSend(text, replyTo?.id);
     setInput('');
     setMentionQuery(null);
+    setIssueQuery(null);
   };
 
   return (
@@ -3803,56 +3805,55 @@ function NewConversationDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-end pb-16 pr-4">
-      <div className="w-72 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-          <span className="text-sm font-semibold text-slate-800">Nova conversa</span>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
-          >
-            <X size={14} />
-          </button>
+    <div className="absolute inset-0 z-[100] flex flex-col bg-white rounded-t-xl overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0">
+        <span className="text-sm font-semibold text-slate-800">Nova conversa</span>
+        <button
+          onClick={onClose}
+          className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      <div className="px-3 py-2 border-b border-slate-100 flex-shrink-0">
+        <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-1.5">
+          <Search size={13} className="text-slate-400 flex-shrink-0" />
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar usuário…"
+            className="flex-1 text-xs bg-transparent focus:outline-none placeholder-slate-400"
+          />
         </div>
-        <div className="px-3 py-2 border-b border-slate-100">
-          <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-1.5">
-            <Search size={13} className="text-slate-400 flex-shrink-0" />
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar usuário…"
-              className="flex-1 text-xs bg-transparent focus:outline-none placeholder-slate-400"
-            />
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {isLoading && <div className="text-center py-4 text-xs text-slate-400">Buscando…</div>}
+        {!isLoading && query.length >= 2 && users.length === 0 && (
+          <div className="text-center py-4 text-xs text-slate-400">Nenhum usuário encontrado</div>
+        )}
+        {query.length < 2 && (
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-slate-300">
+            <Search size={28} className="opacity-50" />
+            <span className="text-xs text-slate-400">Digite pelo menos 2 caracteres</span>
           </div>
-        </div>
-        <div className="max-h-60 overflow-y-auto">
-          {isLoading && <div className="text-center py-4 text-xs text-slate-400">Buscando…</div>}
-          {!isLoading && query.length >= 2 && users.length === 0 && (
-            <div className="text-center py-4 text-xs text-slate-400">Nenhum usuário encontrado</div>
-          )}
-          {query.length < 2 && (
-            <div className="text-center py-4 text-xs text-slate-400">
-              Digite pelo menos 2 caracteres
+        )}
+        {users.map((u) => (
+          <button
+            key={u.id}
+            onClick={() => handleSelect(u)}
+            disabled={createRoom.isPending}
+            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left transition-colors border-b border-slate-50 last:border-0"
+          >
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+              {(u.label || u.id).charAt(0).toUpperCase()}
             </div>
-          )}
-          {users.map((u) => (
-            <button
-              key={u.id}
-              onClick={() => handleSelect(u)}
-              disabled={createRoom.isPending}
-              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left transition-colors border-b border-slate-50 last:border-0"
-            >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                {(u.label || u.id).charAt(0).toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-slate-700 truncate">{u.label}</p>
-                <p className="text-[10px] text-slate-400 truncate">{u.id}</p>
-              </div>
-            </button>
-          ))}
-        </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-slate-700 truncate">{u.label}</p>
+              <p className="text-[10px] text-slate-400 truncate">{u.id}</p>
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -4015,18 +4016,19 @@ function ConversationsPanel({
 
   return (
     <>
-      {showNewConv && (
-        <NewConversationDialog
-          onClose={() => setShowNewConv(false)}
-          onCreate={(room) => {
-            onSelect(room);
-          }}
-        />
-      )}
       <div
-        className="flex flex-col bg-white border border-slate-200 rounded-t-xl shadow-2xl overflow-hidden"
+        className="relative flex flex-col bg-white border border-slate-200 rounded-t-xl shadow-2xl overflow-hidden"
         style={{ width: 300, height: 420 }}
       >
+        {showNewConv && (
+          <NewConversationDialog
+            onClose={() => setShowNewConv(false)}
+            onCreate={(room) => {
+              onSelect(room);
+              setShowNewConv(false);
+            }}
+          />
+        )}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0 relative">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-slate-800">Mensagens</span>
