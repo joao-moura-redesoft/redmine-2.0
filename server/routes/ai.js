@@ -30,7 +30,7 @@ const {
 // normal de um usuário, mas que corta loops/abuso.
 const aiLimiter = createRateLimiter({
   windowMs: 60 * 1000,
-  max: 30,
+  max: 60, // ~1 req/s sustentado: folga para uso normal (painéis de IA em rajada), ainda corta loop/abuso
   message: 'Muitas requisições de IA em pouco tempo. Aguarde um instante e tente novamente.',
 });
 // IMPORTANTE: escopar ao prefixo '/ai'. Este router é montado em '/api' junto com
