@@ -5,10 +5,12 @@
 | | |
 |---|---|
 | **Sistema** | Bluemine — painel de produtividade integrado ao Redmine |
-| **Versão do relatório** | 1.0 |
+| **Versão do relatório** | 1.1 |
 | **Data** | 30/06/2026 |
 | **Classificação** | Interno |
 | **Modelo de implantação** | Aplicativo desktop (.exe), 1 instância por usuário, execução local |
+
+> **Revisão 1.1** — incorpora uma segunda passada de revisão de segurança sobre todo o código (incluindo integrações Talk/DokuWiki/Zimbra) e as correções de hardening aplicadas em sequência: cofre que recusa gravar segredos em texto puro, resistência a prompt-injection na IA, guarda anti-SSRF no login do Talk, escopamento correto do rate-limit e higiene de versionamento. Detalhes na seção 10.
 
 ---
 
@@ -104,7 +106,7 @@ O aplicativo **não envia telemetria** nem dados de uso para o desenvolvedor ou 
 | Risco | Controle |
 |---|---|
 | **XSS (Cross-Site Scripting)** | Todo conteúdo HTML de terceiros (Markdown de tarefas, wiki, assistente) é **sanitizado com DOMPurify** antes da exibição |
-| **SSRF (Server-Side Request Forgery)** | O recurso de pré-visualização de links bloqueia acesso a **endereços internos/privados** (incl. faixas de metadados de nuvem), inclusive em redirecionamentos |
+| **SSRF (Server-Side Request Forgery)** | Os pontos que buscam URLs informadas pelo usuário (pré-visualização de links e o fluxo de login do Nextcloud Talk) validam o esquema (`http(s)`) e bloqueiam acesso a **endereços internos/privados** (incl. faixas de metadados de nuvem), inclusive em redirecionamentos |
 | **Path Traversal** | Caminhos de arquivos (Drive) descartam sequências `..` antes do uso |
 | **Injeção (XML/SOAP)** | A integração de e-mail usa serialização estruturada (JSON-SOAP), sem concatenação de strings |
 | **Clickjacking** | Cabeçalhos `X-Frame-Options`/`frame-ancestors` restringem o embute da aplicação |
@@ -120,19 +122,18 @@ O assistente de IA opera majoritariamente em **modo de leitura**. As únicas dua
 
 ### 5.5. Controle de taxa (rate limiting)
 
-Aplicado nos endpoints sensíveis (login e chamadas de IA) para conter abuso e laços descontrolados.
+Aplicado nos endpoints sensíveis (login, chamadas de IA e pré-visualização de links) para conter abuso e laços descontrolados. Cada limite é **escopado à sua funcionalidade** — o limite de IA conta apenas as rotas de IA, sem afetar as demais áreas do app.
 
 ---
 
 ## 6. Práticas de desenvolvimento seguro
 
-- **Análise estática de segurança (SAST)**: **GitHub CodeQL** roda em cada alteração e semanalmente.
-- **Auditoria de dependências**: `npm audit` no pipeline, falhando em vulnerabilidades de severidade alta/crítica.
+- **Análise estática de segurança (SAST)**: **GitHub CodeQL** configurado para rodar em cada alteração e semanalmente. *Nota:* a publicação dos resultados depende da habilitação do **Code Scanning** nas configurações do repositório (recurso de repositório/GitHub Advanced Security) — pendência administrativa, não de código.
+- **Varredura de segredos**: **Gitleaks** no pipeline (ativo e passando), para impedir commit acidental de credenciais.
+- **Auditoria de dependências**: `npm audit` no pipeline (raiz e cliente), falhando em vulnerabilidades de severidade alta/crítica. **Estado atual: 0 vulnerabilidades conhecidas.**
 - **Atualização de dependências**: **Dependabot** habilitado.
-- **Varredura de segredos**: **Gitleaks** no pipeline, para impedir commit acidental de credenciais.
-- **Linters e formatação** padronizados.
-- **Estado atual das dependências**: **0 vulnerabilidades conhecidas** reportadas pela auditoria.
-- **Higiene de repositório**: dados de runtime e arquivos com credenciais estão excluídos do versionamento (`.gitignore`); nenhum segredo é versionado.
+- **Build e linters**: pipeline de build e lint (ESLint/Prettier) verde, executando em **Node 20 LTS**.
+- **Higiene de repositório**: dados de runtime e arquivos com credenciais estão excluídos do versionamento (`.gitignore`); nenhum segredo é versionado (confirmado por inspeção).
 
 ---
 
@@ -165,6 +166,36 @@ No modelo de implantação adotado — **executável local por usuário, sem exp
 A única questão que demanda **deliberação corporativa** é o uso opcional de provedores de IA externos, que pode ser autorizado sob política ou simplesmente mantido desativado.
 
 **Parecer:** recomenda-se a **aprovação para uso**, condicionada à definição da política de IA (seção 4.3) e às recomendações de uso seguro (seção 8).
+
+---
+
+## 10. Revisão de segurança realizada (rev. 1.1)
+
+Foi conduzida uma revisão de segurança de código sobre toda a base, com varredura específica de padrões de risco (injeção de comando, `eval`, SQL, path traversal, SSRF, XSS, segredos hardcoded) e leitura das integrações (Redmine, Zimbra, Nextcloud Talk/Drive, DokuWiki). Resultados:
+
+**Confirmado correto:**
+- Nenhum segredo trafega para o `localStorage` do navegador — apenas metadados não sensíveis (URL, usuário, host) e preferências de interface; senhas, chaves e tokens ficam exclusivamente no cofre cifrado server-side.
+- Nenhum segredo hardcoded no código.
+- Sem execução de comando do sistema com entrada do usuário, sem SQL, sem leitura/escrita de arquivo guiada por caminho do usuário.
+- Autorização das funções pessoais (notas, quadros, sprints) isolada por usuário; integrações delegam a autorização aos sistemas de origem, sempre com as credenciais do próprio usuário.
+
+**Correções aplicadas nesta revisão:**
+1. Cofre de segredos passou a **recusar** gravação em texto puro caso a criptografia nativa falhe (antes havia degradação silenciosa).
+2. Reforço **anti prompt-injection** no assistente de IA (conteúdo de terceiros é tratado como dado, nunca como comando).
+3. **Guarda anti-SSRF** adicionada ao fluxo de login do Nextcloud Talk (validação de esquema + bloqueio de IPs internos).
+4. **Rate-limit de IA escopado** corretamente, evitando que afetasse outras áreas (Talk/e-mail).
+5. Remoção de endpoints de depuração e de dados de runtime do versionamento.
+
+### 10.1. Checklist de hardening para uma eventual centralização
+
+Os itens abaixo são **inertes no modelo atual** (exe local, loopback, 1 usuário por processo) e só se tornam relevantes **se** o projeto for futuramente consolidado em um **servidor central multiusuário**. Ficam registrados como pré-requisitos para essa transição:
+
+- [ ] Ativar **HTTPS** e o atributo `secure` do cookie de sessão (já preparado via configuração).
+- [ ] Aplicar **CSP em modo de bloqueio** (`enforce`) após validação funcional (hoje em monitoramento).
+- [ ] Substituir o rate-limit por-IP em memória por um **store compartilhado** e configurar `trust proxy`.
+- [ ] Eliminar o último padrão de **credencial em variável global** (proxy de mídia do DokuWiki) em favor de resolução por usuário.
+- [ ] Restringir por **allowlist de host** os destinos do DokuWiki e do login do Talk (parcialmente feito).
+- [ ] Revisar a **política de expiração de sessão** (hoje longa, adequada ao uso local).
 
 ---
 
