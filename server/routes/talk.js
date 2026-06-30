@@ -8,6 +8,7 @@ const { makeTalk } = require('../services/talk');
 const { getMyUserId } = require('../lib/redmine');
 const { saveTalkAuth, clearTalkAuth, getTalkAuth } = require('../services/talkStore');
 const { safeAgents } = require('../lib/ssrfGuard');
+const AppError = require('../lib/AppError');
 
 // Valida que uma URL é http(s) e bem-formada antes de o servidor buscá-la.
 // Combinado com safeAgents (bloqueio de IPs internos), fecha o vetor de SSRF
@@ -17,10 +18,10 @@ function assertPublicHttpUrl(value) {
   try {
     u = new URL(String(value));
   } catch {
-    throw Object.assign(new Error('URL inválida'), { statusCode: 400, isSafe: true });
+    throw new AppError(400, 'URL inválida');
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-    throw Object.assign(new Error('URL deve ser http(s)'), { statusCode: 400, isSafe: true });
+    throw new AppError(400, 'URL deve ser http(s)');
   }
   return u;
 }
@@ -45,7 +46,7 @@ router.post(
     const base = url.replace(/\/$/, '');
     const { data } = await axios.post(`${base}/index.php/login/v2`, null, {
       timeout: 8000,
-      maxRedirects: 0,
+      maxRedirects: 3, // safeAgents valida o IP em cada hop, então seguir redirects é seguro
       ...safeAgents(), // bloqueia SSRF para IPs internos
     });
     res.json({
@@ -66,7 +67,7 @@ router.post(
       const { data } = await axios.post(pollEndpoint, `token=${encodeURIComponent(pollToken)}`, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         timeout: 8000,
-        maxRedirects: 0,
+        maxRedirects: 3, // safeAgents valida o IP em cada hop, então seguir redirects é seguro
         ...safeAgents(), // bloqueia SSRF para IPs internos
       });
 
