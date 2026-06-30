@@ -12,12 +12,13 @@ const { getAd } = require('./services/secretsStore');
 
 const DEFAULT_HOST = process.env.DOKUWIKI_HOST || 'wiki.redesoft.com.br';
 
-let lastWikiCreds = { host: DEFAULT_HOST, user: '', pass: '' };
-
-// Credenciais AD: no login usuário/senha vêm da sessão (x-redmine-*, injetadas
-// pela authMiddleware); no login por API key, do cofre cifrado server-side.
+// Credenciais AD por-usuário (sem estado global): no login usuário/senha vêm da
+// sessão (x-redmine-*, injetadas pela authMiddleware); no login por API key, do
+// cofre cifrado server-side. O host é SEMPRE o DokuWiki corporativo (DEFAULT_HOST)
+// e nunca é controlado pelo cliente — isso fecha o vetor de SSRF que existia ao
+// confiar num header x-wiki-host.
 async function resolveWikiCreds(req) {
-  const host = req.headers['x-wiki-host'] || DEFAULT_HOST;
+  const host = DEFAULT_HOST;
   let user = req.headers['x-redmine-user'] || '';
   let pass = req.headers['x-redmine-pass'] || '';
   if (!user || !pass) {
@@ -32,12 +33,7 @@ async function resolveWikiCreds(req) {
       /* sem credenciais no cofre */
     }
   }
-  if (user && pass) lastWikiCreds = { host, user, pass };
   return { host, user, pass };
-}
-
-function getLastWikiCreds() {
-  return lastWikiCreds;
 }
 
 function basicAuth(user, pass) {
@@ -52,7 +48,10 @@ async function dokuGet(host, user, pass, path) {
   const { data } = await axios.get(url, {
     headers: { ...basicAuth(user, pass) },
     timeout: 8000,
-    maxRedirects: 3,
+    // Host fixo (DEFAULT_HOST) + sem seguir redirect: impede que um open-redirect
+    // no wiki desvie a requisição autenticada para um IP interno (anti-SSRF).
+    // export_xhtmlbody/search do DokuWiki respondem 200 direto, sem redirect.
+    maxRedirects: 0,
   });
   return data;
 }
@@ -177,7 +176,6 @@ async function getPageHTML(req, id) {
 module.exports = {
   DEFAULT_HOST,
   resolveWikiCreds,
-  getLastWikiCreds,
   basicAuth,
   searchPages,
   getPageHTML,

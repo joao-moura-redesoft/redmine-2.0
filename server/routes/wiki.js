@@ -49,7 +49,10 @@ router.get('/wiki/media', async (req, res) => {
     if (parsed.protocol !== 'https:' || parsed.hostname !== doku.DEFAULT_HOST) {
       return res.status(400).end();
     }
-    const { user, pass } = doku.getLastWikiCreds();
+    // Credenciais resolvidas por-usuário a partir da sessão (a rota está atrás do
+    // authMiddleware e o <img> same-origin carrega o cookie de sessão) — sem mais
+    // a variável global lastWikiCreds, que vazaria credenciais entre usuários.
+    const { user, pass } = await doku.resolveWikiCreds(req);
     const response = await axios.get(url, {
       headers: { ...doku.basicAuth(user, pass) },
       responseType: 'stream',

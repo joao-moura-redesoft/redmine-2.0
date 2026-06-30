@@ -11,6 +11,14 @@ const { getTalkAuth } = require('../services/talkStore');
 
 const xml = new XMLParser({ removeNSPrefix: true, ignoreAttributes: true, parseTagValue: false });
 
+// Escapa caracteres especiais antes de interpolar texto em corpos XML (WebDAV
+// SEARCH/REPORT), evitando que um termo com `<`, `>` ou `&` quebre/injete a query.
+const xmlEscape = (s) =>
+  String(s == null ? '' : s).replace(
+    /[<>&"']/g,
+    (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c],
+  );
+
 // Id canônico do usuário no Nextcloud (necessário para os caminhos /dav/files/{id}
 // e /trashbin/{id} — pode diferir do login, ex.: backends que usam UUID).
 async function ncUserId(req) {
@@ -121,8 +129,8 @@ router.get(
 <d:searchrequest xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
  <d:basicsearch>
   <d:select><d:prop>${DAV_PROPS}</d:prop></d:select>
-  <d:from><d:scope><d:href>/files/${user}</d:href><d:depth>infinity</d:depth></d:scope></d:from>
-  <d:where><d:like><d:prop><d:displayname/></d:prop><d:literal>%${term}%</d:literal></d:like></d:where>
+  <d:from><d:scope><d:href>/files/${xmlEscape(user)}</d:href><d:depth>infinity</d:depth></d:scope></d:from>
+  <d:where><d:like><d:prop><d:displayname/></d:prop><d:literal>%${xmlEscape(term)}%</d:literal></d:like></d:where>
   <d:limit><d:nresults>200</d:nresults></d:limit>
  </d:basicsearch>
 </d:searchrequest>`;
@@ -344,7 +352,7 @@ router.get(
 <d:searchrequest xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
  <d:basicsearch>
   <d:select><d:prop>${DAV_PROPS}</d:prop></d:select>
-  <d:from><d:scope><d:href>/files/${user}</d:href><d:depth>infinity</d:depth></d:scope></d:from>
+  <d:from><d:scope><d:href>/files/${xmlEscape(user)}</d:href><d:depth>infinity</d:depth></d:scope></d:from>
   <d:where><d:like><d:prop><d:displayname/></d:prop><d:literal>%</d:literal></d:like></d:where>
   ${withOrder ? '<d:orderby><d:order><d:prop><d:getlastmodified/></d:prop><d:descending/></d:order></d:orderby>' : ''}
   <d:limit><d:nresults>200</d:nresults></d:limit>

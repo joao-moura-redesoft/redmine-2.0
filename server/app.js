@@ -11,6 +11,31 @@ const errorMiddleware = require('./lib/errorMiddleware');
 function buildApp() {
   const app = express();
 
+  // Anti DNS-rebinding: aceita apenas requisições cujo Host seja o loopback.
+  // No modelo local o app só atende 127.0.0.1; um site malicioso que faça o
+  // navegador da vítima resolver o domínio dele para 127.0.0.1 (rebinding) chega
+  // aqui com Host = domínio do atacante e é REJEITADO antes de tocar qualquer
+  // rota. Para um eventual servidor central, defina ALLOWED_HOSTS (lista separada
+  // por vírgula) com os hostnames públicos atendidos.
+  const allowedHosts = new Set(
+    ['localhost', '127.0.0.1', '::1', '[::1]'].concat(
+      (process.env.ALLOWED_HOSTS || '')
+        .split(',')
+        .map((h) => h.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+  app.use((req, res, next) => {
+    // Remove a porta do Host ("127.0.0.1:3001" ou "[::1]:3001" → host puro).
+    const hostname = String(req.headers.host || '')
+      .replace(/:\d+$/, '')
+      .toLowerCase();
+    if (!allowedHosts.has(hostname)) {
+      return res.status(403).json({ error: 'Host não permitido' });
+    }
+    next();
+  });
+
   // Headers de segurança (nosniff, X-Frame-Options, Referrer-Policy, etc.).
   // HSTS off enquanto roda em HTTP; COEP off para não bloquear Jitsi/avatares.
   //
