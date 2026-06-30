@@ -7,6 +7,23 @@ const handle = require('../lib/handle');
 const { makeTalk } = require('../services/talk');
 const { getMyUserId } = require('../lib/redmine');
 const { saveTalkAuth, clearTalkAuth, getTalkAuth } = require('../services/talkStore');
+const { safeAgents } = require('../lib/ssrfGuard');
+
+// Valida que uma URL é http(s) e bem-formada antes de o servidor buscá-la.
+// Combinado com safeAgents (bloqueio de IPs internos), fecha o vetor de SSRF
+// no fluxo de login do Talk, onde a URL/endpoint vêm do corpo da requisição.
+function assertPublicHttpUrl(value) {
+  let u;
+  try {
+    u = new URL(String(value));
+  } catch {
+    throw Object.assign(new Error('URL inválida'), { statusCode: 400, isSafe: true });
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    throw Object.assign(new Error('URL deve ser http(s)'), { statusCode: 400, isSafe: true });
+  }
+  return u;
+}
 
 // Resolve a conta do Talk (url, user, token) a partir do uid do Redmine logado.
 // Substitui os antigos headers x-nextcloud-* enviados pelo cliente.
@@ -24,8 +41,13 @@ router.post(
   handle(async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: 'url required' });
+    assertPublicHttpUrl(url);
     const base = url.replace(/\/$/, '');
-    const { data } = await axios.post(`${base}/index.php/login/v2`);
+    const { data } = await axios.post(`${base}/index.php/login/v2`, null, {
+      timeout: 8000,
+      maxRedirects: 0,
+      ...safeAgents(), // bloqueia SSRF para IPs internos
+    });
     res.json({
       loginUrl: data.login,
       pollEndpoint: data.poll.endpoint,
@@ -39,9 +61,13 @@ router.post(
   handle(async (req, res) => {
     const { pollEndpoint, pollToken } = req.body;
     if (!pollEndpoint || !pollToken) return res.status(400).json({ error: 'missing params' });
+    assertPublicHttpUrl(pollEndpoint);
     try {
       const { data } = await axios.post(pollEndpoint, `token=${encodeURIComponent(pollToken)}`, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 8000,
+        maxRedirects: 0,
+        ...safeAgents(), // bloqueia SSRF para IPs internos
       });
 
       const uid = await getMyUserId(req);
