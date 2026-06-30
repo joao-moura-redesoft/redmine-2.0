@@ -11,7 +11,9 @@ const { fetchAllIssues } = require('../lib/pagination');
 const { dataFile, readJsonSecure, writeJsonSecure } = require('../lib/secureStore');
 
 // Web Push ligado por padrão. Desligue com PUSH_ENABLED=0 (ou false) no .env.
-const PUSH_ENABLED = !(process.env.PUSH_ENABLED === '0' || /^false$/i.test(process.env.PUSH_ENABLED || ''));
+const PUSH_ENABLED = !(
+  process.env.PUSH_ENABLED === '0' || /^false$/i.test(process.env.PUSH_ENABLED || '')
+);
 
 // VAPID: carrega ou gera o par de chaves uma única vez (persistido em vapid.json).
 // Só inicializa quando o push está habilitado — assim, desligado, nem gera chaves.
@@ -22,10 +24,14 @@ if (PUSH_ENABLED) {
   vapid = readJsonSecure(VAPID_FILE, null);
   if (!vapid || !vapid.publicKey || !vapid.privateKey) {
     vapid = webpush.generateVAPIDKeys();
-    writeJsonSecure(VAPID_FILE, vapid);
+    writeJsonSecure(VAPID_FILE, vapid, { requireEncryption: true }); // contém a chave privada VAPID
     console.log('[push] novas chaves VAPID geradas');
   }
-  webpush.setVapidDetails(process.env.PUSH_CONTACT || 'mailto:admin@b2click.com', vapid.publicKey, vapid.privateKey);
+  webpush.setVapidDetails(
+    process.env.PUSH_CONTACT || 'mailto:admin@b2click.com',
+    vapid.publicKey,
+    vapid.privateKey,
+  );
 } else {
   console.log('[push] Web Push desabilitado (defina PUSH_ENABLED=1 para habilitar)');
 }
@@ -33,8 +39,12 @@ if (PUSH_ENABLED) {
 // Inscrições persistidas: [{ endpoint, subscription, url, key, updatedAt, seen:{...} }]
 const SUBS_FILE = dataFile('push-subscriptions.json');
 let subscriptions = readJsonSecure(SUBS_FILE, []);
-subscriptions.forEach(s => { if (!s.updatedAt) s.updatedAt = Date.now(); }); // backfill p/ TTL
-const saveSubs = () => writeJsonSecure(SUBS_FILE, subscriptions);
+subscriptions.forEach((s) => {
+  if (!s.updatedAt) s.updatedAt = Date.now();
+}); // backfill p/ TTL
+// requireEncryption: cada inscrição guarda credenciais do Redmine (url/key/senha)
+// e do Talk — nunca devem ir para o disco em texto puro.
+const saveSubs = () => writeJsonSecure(SUBS_FILE, subscriptions, { requireEncryption: true });
 
 // Expira inscrições inativas (sem re-inscrição) há mais de 30 dias.
 const SUB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -51,17 +61,17 @@ async function collectPushState(url, key, username, password) {
   const review = await fetchAllIssues(client, { cf_210: me, status_id: 71 });
   const monitoredAll = await fetchAllIssues(client, { cf_141: me, status_id: 'open' });
   const monitored = monitoredAll.filter(
-    i => !i.assigned_to || String(i.assigned_to.id) !== String(me)
+    (i) => !i.assigned_to || String(i.assigned_to.id) !== String(me),
   );
 
   const byId = new Map();
-  [...assigned, ...review, ...monitored].forEach(i => byId.set(i.id, i));
+  [...assigned, ...review, ...monitored].forEach((i) => byId.set(i.id, i));
   return {
     issues: byId,
     seen: {
-      assigned: assigned.map(i => i.id),
-      review: review.map(i => i.id),
-      monitored: monitored.map(i => i.id),
+      assigned: assigned.map((i) => i.id),
+      review: review.map((i) => i.id),
+      monitored: monitored.map((i) => i.id),
     },
   };
 }
@@ -77,23 +87,32 @@ async function subscribe(req) {
   const username = req.headers['x-redmine-user'] || '';
   const password = req.headers['x-redmine-pass'] || '';
   const subscription = req.body?.subscription;
-  
+
   const { getMyUserId } = require('../lib/redmine');
   const { getTalkAuth } = require('./talkStore');
   const uid = await getMyUserId(req);
   const talkAuth = uid ? getTalkAuth(uid) : null;
-  
+
   const talkPrefs = req.body?.talkPrefs || null; // { groupMentionsOnly, realtime } — opcional
   const hasAuth = !!(key || (username && password));
   if (!url || !hasAuth || !subscription?.endpoint) {
-    console.warn('[push] subscribe rejeitado — faltando:', { url: !!url, hasAuth, endpoint: !!subscription?.endpoint });
-    throw Object.assign(new Error('subscription e credenciais são obrigatórios'), { statusCode: 400 });
+    console.warn('[push] subscribe rejeitado — faltando:', {
+      url: !!url,
+      hasAuth,
+      endpoint: !!subscription?.endpoint,
+    });
+    throw Object.assign(new Error('subscription e credenciais são obrigatórios'), {
+      statusCode: 400,
+    });
   }
 
   // Estado inicial para não disparar como "novo" tudo o que já existe hoje.
   let seen = { assigned: [], review: [], monitored: [] };
-  try { seen = (await collectPushState(url, key, username, password)).seen; }
-  catch (e) { console.warn('[push] não consegui inicializar o estado:', e.response?.status || e.message); }
+  try {
+    seen = (await collectPushState(url, key, username, password)).seen;
+  } catch (e) {
+    console.warn('[push] não consegui inicializar o estado:', e.response?.status || e.message);
+  }
 
   // Estado inicial do Talk: pega o lastMessage.id de cada sala para não notificar retroativamente.
   let talkSeen = {};
@@ -102,25 +121,42 @@ async function subscribe(req) {
       const talkClient = axios.create({
         baseURL: talkAuth.url,
         auth: { username: talkAuth.user, password: talkAuth.token },
-        headers: { 'OCS-APIRequest': 'true', 'Accept': 'application/json' },
+        headers: { 'OCS-APIRequest': 'true', Accept: 'application/json' },
       });
       const { data } = await talkClient.get('/ocs/v2.php/apps/spreed/api/v4/room?format=json');
-      for (const room of (data.ocs.data || [])) {
+      for (const room of data.ocs.data || []) {
         if (room.lastMessage?.id) talkSeen[room.token] = room.lastMessage.id;
       }
-    } catch (e) { console.warn('[push] não inicializei estado Talk:', e.response?.status || e.message); }
+    } catch (e) {
+      console.warn('[push] não inicializei estado Talk:', e.response?.status || e.message);
+    }
   }
 
-  const rec = { endpoint: subscription.endpoint, subscription, url, key, username, password, seen, uid, talkPrefs, talkSeen, updatedAt: Date.now() };
-  const idx = subscriptions.findIndex(s => s.endpoint === subscription.endpoint);
-  if (idx >= 0) subscriptions[idx] = rec; else subscriptions.push(rec);
+  const rec = {
+    endpoint: subscription.endpoint,
+    subscription,
+    url,
+    key,
+    username,
+    password,
+    seen,
+    uid,
+    talkPrefs,
+    talkSeen,
+    updatedAt: Date.now(),
+  };
+  const idx = subscriptions.findIndex((s) => s.endpoint === subscription.endpoint);
+  if (idx >= 0) subscriptions[idx] = rec;
+  else subscriptions.push(rec);
   saveSubs();
-  console.log(`[push] inscrição registrada (${subscriptions.length} no total)${talkAuth ? ' com Talk' : ''}`);
+  console.log(
+    `[push] inscrição registrada (${subscriptions.length} no total)${talkAuth ? ' com Talk' : ''}`,
+  );
 }
 
 function unsubscribe(req) {
   const endpoint = req.body?.endpoint;
-  subscriptions = subscriptions.filter(s => s.endpoint !== endpoint);
+  subscriptions = subscriptions.filter((s) => s.endpoint !== endpoint);
   saveSubs();
 }
 
@@ -130,7 +166,7 @@ async function sendPush(rec, payload) {
     await webpush.sendNotification(rec.subscription, JSON.stringify(payload));
   } catch (err) {
     if (err.statusCode === 404 || err.statusCode === 410) {
-      subscriptions = subscriptions.filter(s => s.endpoint !== rec.endpoint);
+      subscriptions = subscriptions.filter((s) => s.endpoint !== rec.endpoint);
       saveSubs();
       console.log('[push] inscrição expirada removida');
     } else {
@@ -166,17 +202,27 @@ async function pollPush() {
   // Poda inscrições inativas há mais de 30 dias (TTL).
   const now = Date.now();
   const before = subscriptions.length;
-  subscriptions = subscriptions.filter(s => now - (s.updatedAt || now) < SUB_TTL_MS);
+  subscriptions = subscriptions.filter((s) => now - (s.updatedAt || now) < SUB_TTL_MS);
   if (subscriptions.length !== before) {
     console.log(`[push] ${before - subscriptions.length} inscrição(ões) expiradas por inatividade`);
-    saveSubs();
+    // Em loop de polling: não deixa erro de criptografia virar unhandledRejection.
+    try {
+      saveSubs();
+    } catch (e) {
+      console.error('[push] falha ao persistir poda de inscrições:', e.message);
+    }
   }
   if (subscriptions.length === 0) return;
   pushPolling = true;
   try {
     for (const rec of [...subscriptions]) {
       try {
-        const { issues, seen } = await collectPushState(rec.url, rec.key || '', rec.username || '', rec.password || '');
+        const { issues, seen } = await collectPushState(
+          rec.url,
+          rec.key || '',
+          rec.username || '',
+          rec.password || '',
+        );
         const prev = rec.seen || { assigned: [], review: [], monitored: [] };
         const toNotify = [];
 
@@ -237,7 +283,10 @@ function buildTalkGroups() {
     if (!(talkAuth?.url && talkAuth?.user && talkAuth?.token)) continue;
     const key = `${talkAuth.url}\n${talkAuth.user}`;
     let g = groups.get(key);
-    if (!g) { g = { auth: talkAuth, recs: [] }; groups.set(key, g); }
+    if (!g) {
+      g = { auth: talkAuth, recs: [] };
+      groups.set(key, g);
+    }
     g.recs.push(rec);
   }
   return [...groups.values()];
@@ -263,18 +312,20 @@ async function pollTalkGroup({ auth, recs }) {
     const talkClient = axios.create({
       baseURL: auth.url,
       auth: { username: auth.user, password: auth.token },
-      headers: { 'OCS-APIRequest': 'true', 'Accept': 'application/json' },
+      headers: { 'OCS-APIRequest': 'true', Accept: 'application/json' },
     });
     const { data: tData } = await talkClient.get('/ocs/v2.php/apps/spreed/api/v4/room?format=json');
-    recs.forEach(r => { if (!r.talkSeen) r.talkSeen = {}; });
+    recs.forEach((r) => {
+      if (!r.talkSeen) r.talkSeen = {};
+    });
 
-    for (const room of (tData.ocs.data || [])) {
+    for (const room of tData.ocs.data || []) {
       if (room.type === 6) continue; // changelog
       const isDM = room.type === 1;
       const lastMsgId = room.lastMessage?.id || 0;
       // Baseline = maior talkSeen entre os dispositivos do grupo, para não re-notificar
       // num aparelho que já viu (e não disparar retroativo no primeiro poll de um novo).
-      const seenId = Math.max(0, ...recs.map(r => r.talkSeen[room.token] || 0));
+      const seenId = Math.max(0, ...recs.map((r) => r.talkSeen[room.token] || 0));
 
       if (lastMsgId > seenId && seenId > 0 && room.unreadMessages > 0) {
         const body = resolveMessageTextServer(room.lastMessage);
@@ -296,7 +347,10 @@ async function pollTalkGroup({ auth, recs }) {
 
       if (lastMsgId) {
         for (const rec of recs) {
-          if (rec.talkSeen[room.token] !== lastMsgId) { rec.talkSeen[room.token] = lastMsgId; changed = true; }
+          if (rec.talkSeen[room.token] !== lastMsgId) {
+            rec.talkSeen[room.token] = lastMsgId;
+            changed = true;
+          }
         }
       }
     }
@@ -306,7 +360,7 @@ async function pollTalkGroup({ auth, recs }) {
   return changed;
 }
 
-const groupIsRealtime = g => g.recs.some(r => recPrefs(r).realtime);
+const groupIsRealtime = (g) => g.recs.some((r) => recPrefs(r).realtime);
 
 // Loop normal (grupos sem tempo real) e loop rápido (grupos com tempo real ativo).
 // Cada um com seu próprio guard para não se bloquearem.
@@ -319,7 +373,7 @@ async function runTalkPoll(filterFn, getGuard, setGuard) {
   setGuard(true);
   try {
     let changed = false;
-    await mapPool(groups, TALK_POLL_CONCURRENCY, async g => {
+    await mapPool(groups, TALK_POLL_CONCURRENCY, async (g) => {
       if (await pollTalkGroup(g)) changed = true;
     });
     if (changed) saveSubs(); // persiste os talkSeen atualizados
@@ -329,14 +383,31 @@ async function runTalkPoll(filterFn, getGuard, setGuard) {
 }
 
 function startPushPolling() {
-  if (!PUSH_ENABLED) { console.log('[push] polling desabilitado (PUSH_ENABLED!=1)'); return; }
+  if (!PUSH_ENABLED) {
+    console.log('[push] polling desabilitado (PUSH_ENABLED!=1)');
+    return;
+  }
   setInterval(pollPush, PUSH_POLL_MS);
   setInterval(
-    () => runTalkPoll(g => !groupIsRealtime(g), () => talkPollingNormal, v => { talkPollingNormal = v; }),
+    () =>
+      runTalkPoll(
+        (g) => !groupIsRealtime(g),
+        () => talkPollingNormal,
+        (v) => {
+          talkPollingNormal = v;
+        },
+      ),
     TALK_PUSH_POLL_MS,
   );
   setInterval(
-    () => runTalkPoll(groupIsRealtime, () => talkPollingFast, v => { talkPollingFast = v; }),
+    () =>
+      runTalkPoll(
+        groupIsRealtime,
+        () => talkPollingFast,
+        (v) => {
+          talkPollingFast = v;
+        },
+      ),
     TALK_REALTIME_POLL_MS,
   );
 }

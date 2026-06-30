@@ -300,9 +300,13 @@ ${history || '(sem mensagens anteriores)'}`,
   }),
 );
 
-// ── Chat Redmine (assistente conversacional, somente leitura) ───────────────
+// ── Chat Redmine (assistente conversacional) ────────────────────────────────
 // Loop agêntico de tool-use: a IA escolhe ferramentas, o servidor executa no
 // Redmine (via makeRedmine) e devolve os resultados até a IA responder.
+// As ferramentas são majoritariamente de LEITURA; as ÚNICAS de escrita são
+// `criar_nota` (nota local do app) e `lancar_horas` (time entry no Redmine),
+// ambas restritas à conta do próprio usuário. O CHAT_SYSTEM instrui o modelo a
+// ignorar instruções vindas de conteúdo de tarefas/e-mails/wiki (anti prompt-injection).
 router.post(
   '/ai/chat',
   handle(async (req, res) => {

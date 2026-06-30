@@ -2,7 +2,8 @@ const { dataFile, readJsonSecure, writeJsonSecure } = require('../lib/secureStor
 
 const TALK_FILE = dataFile('talk.json');
 let talkStore = readJsonSecure(TALK_FILE, {}); // { [userId]: { url, user, token } }
-const saveTalkStore = () => writeJsonSecure(TALK_FILE, talkStore);
+// requireEncryption: guarda credenciais/token do Nextcloud — nunca em texto puro.
+const saveTalkStore = () => writeJsonSecure(TALK_FILE, talkStore, { requireEncryption: true });
 
 function getTalkAuth(userId) {
   return talkStore[userId] || null;

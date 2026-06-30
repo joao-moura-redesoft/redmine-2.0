@@ -152,3 +152,9 @@ server/sessions.json
 server/talk.json
 server/secrets.json
 /database.db
+
+# Dados de runtime do usuário (blobs DPAPI por-máquina) — não versionar:
+# contêm conteúdo pessoal e são inúteis em outro clone/máquina.
+server/notes.json
+server/boards.json
+server/sprints.json

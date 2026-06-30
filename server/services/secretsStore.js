@@ -7,7 +7,9 @@ const { dataFile, readJsonSecure, writeJsonSecure } = require('../lib/secureStor
 
 const SECRETS_FILE = dataFile('secrets.json');
 let store = readJsonSecure(SECRETS_FILE, {});
-const save = () => writeJsonSecure(SECRETS_FILE, store);
+// requireEncryption: segredos (senha AD, chaves de IA, sementes TOTP) nunca
+// devem ir para o disco em texto puro — se o DPAPI falhar, a gravação lança.
+const save = () => writeJsonSecure(SECRETS_FILE, store, { requireEncryption: true });
 
 function bucket(uid) {
   return store[uid] || {};
@@ -35,7 +37,8 @@ const clearAd = (uid) => clearField(uid, 'ad');
 const getAi = (uid) => bucket(uid).ai || {};
 function saveAiKey(uid, provider, key) {
   const ai = { ...getAi(uid) };
-  if (key) ai[provider] = key; else delete ai[provider];
+  if (key) ai[provider] = key;
+  else delete ai[provider];
   setField(uid, 'ai', ai);
 }
 
@@ -44,7 +47,11 @@ const getTotp = (uid) => bucket(uid).totp || [];
 const setTotp = (uid, list) => setField(uid, 'totp', list);
 
 module.exports = {
-  getAd, saveAd, clearAd,
-  getAi, saveAiKey,
-  getTotp, setTotp,
+  getAd,
+  saveAd,
+  clearAd,
+  getAi,
+  saveAiKey,
+  getTotp,
+  setTotp,
 };

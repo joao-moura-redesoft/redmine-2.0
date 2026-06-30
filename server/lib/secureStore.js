@@ -23,9 +23,12 @@ function writeFileAtomic(file, content) {
 const IS_WINDOWS = process.platform === 'win32';
 
 function runPowerShell(script, input) {
-  const r = spawnSync('powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-Command', script],
-    { input, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, windowsHide: true });
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    input,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+    windowsHide: true,
+  });
   if (r.error) throw r.error;
   if (r.status !== 0) throw new Error(r.stderr || `powershell saiu com código ${r.status}`);
   return (r.stdout || '').trim();
@@ -59,26 +62,57 @@ function readJsonSecure(file, fallback) {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (parsed && typeof parsed.__dpapi === 'string') {
-      if (!IS_WINDOWS) { console.warn('[push] arquivo cifrado com DPAPI fora do Windows — ignorando'); return fallback; }
+      if (!IS_WINDOWS) {
+        console.warn('[push] arquivo cifrado com DPAPI fora do Windows — ignorando');
+        return fallback;
+      }
       return JSON.parse(dpapiUnprotect(parsed.__dpapi));
     }
     return parsed;
-  } catch { return fallback; }
+  } catch {
+    return fallback;
+  }
 }
 
-// Grava JSON cifrado com DPAPI; cai pra texto puro se o DPAPI não estiver disponível.
-function writeJsonSecure(file, data) {
+// Grava JSON cifrado com DPAPI.
+//
+// opts.requireEncryption=true → NUNCA grava em texto puro. Se o DPAPI falhar,
+// lança um erro em vez de degradar silenciosamente a confidencialidade (usado
+// para o cofre de segredos e as sessões, que guardam senhas/chaves/sementes).
+// Para destravar em ambientes sem DPAPI (ex.: dev fora do Windows), defina
+// explicitamente ALLOW_PLAINTEXT_SECRETS=1 — assumindo o risco de forma consciente.
+//
+// Sem requireEncryption, mantém o comportamento legado: cifra se puder, senão
+// cai pra texto puro (dados não-sensíveis, p. ex. cache de notificações).
+function writeJsonSecure(file, data, opts = {}) {
+  const requireEncryption = !!opts.requireEncryption;
   const plaintext = JSON.stringify(data);
+
   if (IS_WINDOWS) {
     try {
       writeFileAtomic(file, JSON.stringify({ __dpapi: dpapiProtect(plaintext) }, null, 2));
       return;
     } catch (e) {
-      console.warn('[push] DPAPI indisponível, gravando em texto puro:', e.message);
+      if (requireEncryption && process.env.ALLOW_PLAINTEXT_SECRETS !== '1') {
+        throw new Error(
+          `DPAPI indisponível e gravação em texto puro recusada para ${path.basename(file)}: ${e.message}`,
+        );
+      }
+      console.warn('[secureStore] DPAPI indisponível, gravando em texto puro:', e.message);
     }
+  } else if (requireEncryption && process.env.ALLOW_PLAINTEXT_SECRETS !== '1') {
+    // Fora do Windows não há DPAPI: recusa gravar segredos em texto puro.
+    throw new Error(
+      `Sem DPAPI (não-Windows): gravação de segredos em texto puro recusada para ${path.basename(file)}. ` +
+        `Defina ALLOW_PLAINTEXT_SECRETS=1 para permitir explicitamente em dev.`,
+    );
   }
-  try { writeFileAtomic(file, JSON.stringify(data, null, 2)); }
-  catch (e) { console.error('[push] falha ao gravar', file, e.message); }
+
+  try {
+    writeFileAtomic(file, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('[secureStore] falha ao gravar', file, e.message);
+  }
 }
 
 module.exports = {
