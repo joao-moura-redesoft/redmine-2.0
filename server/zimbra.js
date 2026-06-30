@@ -167,6 +167,20 @@ function slimMessage(m) {
   };
 }
 
+// Decodifica as entidades HTML que o Zimbra insere nos valores de atributo
+// (decimais `&#64;`, hexa `&#x40;` e as nomeadas básicas). Usado para casar o
+// `cid:` do HTML com o Content-ID real da parte MIME.
+function decodeHtmlEntities(s) {
+  return String(s)
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
 // Percorre a árvore de mime-parts coletando corpo (html preferido), anexos e
 // imagens inline (referenciadas no HTML por cid:).
 function walkParts(part, acc) {
@@ -201,11 +215,21 @@ function fullMessage(m, sessionToken) {
 
   // Troca as referências cid: por URLs do proxy autenticado via token de sessão.
   // O token é emitido em getMessage() e vale 1h — tempo suficiente para carregar imagens.
+  //
+  // ⚠️ O Zimbra entrega o HTML com caracteres do cid codificados como entidades
+  // (ex.: `@` vira `&#64;`), então `cid:image001.png&#64;host` precisa casar com o
+  // Content-ID `image001.png@host`. Por isso decodificamos as entidades de CADA
+  // referência cid: antes de procurar a parte. Match case-insensitive porque os
+  // clientes variam a caixa do Content-ID. Cobre src/dfsrc e background:url(cid:).
+  const byCid = new Map(acc.inline.map((img) => [img.ci.toLowerCase(), img.part]));
   let html = acc.html;
   const qs = sessionToken ? `?s=${sessionToken}` : '';
-  for (const img of acc.inline) {
-    const url = `/api/mail/messages/${m.id}/attachments/${img.part}${qs}`;
-    html = html.split(`cid:${img.ci}`).join(url);
+  if (html && byCid.size) {
+    html = html.replace(/cid:([^\s"'<>)]+)/gi, (full, rawCid) => {
+      const ci = decodeHtmlEntities(rawCid).replace(/[<>]/g, '').trim().toLowerCase();
+      const part = byCid.get(ci);
+      return part ? `/api/mail/messages/${m.id}/attachments/${part}${qs}` : full;
+    });
   }
 
   return {

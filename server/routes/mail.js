@@ -5,7 +5,6 @@ const express = require('express');
 const router = express.Router();
 const handle = require('../lib/handle');
 const zimbra = require('../zimbra');
-const { getSession } = require('../lib/sessions');
 
 // Testa a conexão/autenticação no Zimbra com as credenciais resolvidas.
 router.get(
@@ -111,26 +110,7 @@ router.post(
   }),
 );
 
-// Download de anexo (proxy autenticado via token de sessão).
-// Requests de <img> e <a href> não enviam headers customizados — credenciais
-// vêm do token ?s=TOKEN criado em getMessage() e válido por 1 hora.
-router.get(
-  '/mail/messages/:id/attachments/:part',
-  handle(async (req, res) => {
-    const session = getSession(req.query.s, 'mail');
-    if (!session)
-      return res
-        .status(401)
-        .json({ error: 'Sessão de e-mail inválida ou expirada. Reabra a mensagem.' });
-    const { data, contentType } = await zimbra.fetchAttachment(
-      session,
-      req.params.id,
-      req.params.part,
-    );
-    res.set('Content-Type', contentType);
-    res.set('Cache-Control', 'private, max-age=3600');
-    res.send(data);
-  }),
-);
+// Download de anexo de e-mail: rota PÚBLICA (token ?s=), montada antes do
+// authMiddleware em app.js. Ver server/routes/mailAttachment.js.
 
 module.exports = router;
