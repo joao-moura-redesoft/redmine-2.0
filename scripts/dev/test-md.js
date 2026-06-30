@@ -1,8 +1,5 @@
-const { markdownToTextile } = require('./client/src/utils/markdownToTextile.ts');
-
-// I can't require TS directly in Node without ts-node, I'll just copy the function.
-const fs = require('fs');
-const content = fs.readFileSync('./client/src/utils/markdownToTextile.ts', 'utf8');
+// Reimplementação standalone de markdownToTextile (client/src/utils/markdownToTextile.ts)
+// para exercitar a conversão em Node sem ts-node. Mantenha em sincronia com o original.
 const TABLE_DELIM_RE = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
 const isTableRow = (l) => l.includes('|') && /\S/.test(l);
 const isDelimRow = (l) => l.includes('-') && TABLE_DELIM_RE.test(l);
@@ -110,6 +107,6 @@ h3. 1.2 Infraestrutura de Rotina Agendada
 | Interface de tarefa | @AgendadorTipoTarefaInterface.java@ |
 | Auto-descoberta | Classes que implementam a interface são detectadas automaticamente no boot via classpath scan |
 
-*Como registrar um novo job:* criar uma classe que implementa @AgendadorTipoTarefaInterface@ com @getCodigo()@ único. Inserir um registro na tabela @AGENDADOR@ com schedule desejado (ex.: diário às 00:00). O daemon já faz o resto. Existe \\~20 tarefas cadastradas como referência.\`;
+*Como registrar um novo job:* criar uma classe que implementa @AgendadorTipoTarefaInterface@ com @getCodigo()@ único. Inserir um registro na tabela @AGENDADOR@ com schedule desejado (ex.: diário às 00:00). O daemon já faz o resto. Existe \\~20 tarefas cadastradas como referência.`;
 
 console.log(mdToTx(LONG_NOTES));

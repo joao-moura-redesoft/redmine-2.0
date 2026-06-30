@@ -1,8 +1,12 @@
 const axios = require('axios');
 
-const URL = 'https://redmine.b2click.com/'; // TRAILING SLASH
-const KEY = 'e238663df0ef862a4c3281ac98f4795379e3483e';
-const ISSUE_ID = 89521;
+const URL = (process.env.REDMINE_URL || 'https://redmine.b2click.com').replace(/\/?$/, '/'); // TRAILING SLASH
+const KEY = process.env.REDMINE_API_KEY;
+if (!KEY) {
+  console.error('Defina REDMINE_API_KEY no ambiente.');
+  process.exit(1);
+}
+const ISSUE_ID = Number(process.env.REDMINE_ISSUE_ID) || 89521;
 
 const api = axios.create({
   baseURL: URL,
