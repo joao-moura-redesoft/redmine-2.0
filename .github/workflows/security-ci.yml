@@ -48,7 +48,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18 # You can update to 20 if that's what your project uses
+          node-version: 20 # Node 20 LTS: global Web Crypto (usado por serialize-javascript no build) e Node 18 está EOL
 
       - name: Install Root/Server Dependencies
         run: npm install # Using install instead of ci in case package-lock is out of sync initially
