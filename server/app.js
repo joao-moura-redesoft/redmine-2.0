@@ -65,6 +65,9 @@ function buildApp() {
 
   // Rotas da API (todas montadas sob /api).
   app.use('/api', require('./routes/auth'));
+  // Download de anexo de e-mail: autentica pelo token ?s= (o <img> do iframe não
+  // envia cookie de sessão), então fica ANTES do authMiddleware de propósito.
+  app.use('/api', require('./routes/mailAttachment'));
   app.use('/api', authMiddleware);
   app.use('/api', require('./routes/issues'));
   app.use('/api', require('./routes/timeEntries'));

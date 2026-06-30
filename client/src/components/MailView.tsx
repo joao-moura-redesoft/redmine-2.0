@@ -370,7 +370,12 @@ function MessageReader({
   const { data: msg, isLoading } = useQuery({
     queryKey: ['mail', 'message', id],
     queryFn: () => mailApi.getMessage(id, true),
-    staleTime: 0,
+    // O conteúdo de um e-mail aberto não muda. Evitamos refetch (foco/reconexão):
+    // cada getMessage gera um token ?s= novo, e refazer o fetch trocaria o srcDoc
+    // do iframe, abortando o carregamento das imagens inline (anexos grandes).
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   const actMut = useMutation({
@@ -406,7 +411,10 @@ function MessageReader({
   const act = (op: string, close: boolean, target?: string | number) =>
     actMut.mutate({ op, close, target });
 
-  // Zimbra substitui src por dfsrc para bloquear imagens externas. Vamos restaurar para exibi-las.
+  // Zimbra substitui src por dfsrc para bloquear imagens externas. Restauramos para exibi-las.
+  // Mantido como const (não memo): React compara a STRING do srcDoc e só recarrega
+  // o iframe se ela mudar — com o refetch desligado no query acima, o token ?s=
+  // não muda, então o iframe não recarrega nem aborta o download das imagens inline.
   const htmlContent = msg.html ? msg.html.replace(/dfsrc=/g, 'src=') : '';
 
   const srcDoc = htmlContent
