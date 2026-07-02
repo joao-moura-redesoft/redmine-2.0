@@ -135,6 +135,9 @@ No modo dev, acesse **http://localhost:5173**. Em produção (exe), tudo é serv
 | `ALLOW_PLAINTEXT_SECRETS` | — | `1` permite gravar segredos em texto puro quando o DPAPI está indisponível (apenas dev fora do Windows; assume o risco conscientemente). |
 | `SSRF_WHITELIST` | — | Lista separada por vírgulas de domínios/IPs internos permitidos na proteção SSRF (ex: `drive.b2click.com,192.168.0.10`). |
 | `ALLOW_LOCAL_SSRF` | — | `1` desabilita completamente a proteção SSRF contra IPs locais/privados (use com cautela). |
+| `BLUEMINE_NO_WINDOW` | — | `1` impede o app de abrir a janela automaticamente ao iniciar (você abre o endereço no navegador na mão). |
+
+> Ao iniciar o `bluemine.exe`, o app abre sozinho numa janela dedicada (Edge em *app mode*, sem barra de endereço; se não houver Edge, cai no navegador padrão). Se o exe já estiver rodando, um novo duplo-clique apenas traz a janela de volta em vez de subir outra instância.
 
 > O host de e-mail (Zimbra) tem padrão `email.redesoft.org` e é configurável na própria interface.
 

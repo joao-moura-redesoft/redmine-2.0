@@ -3,6 +3,7 @@
 require('dotenv').config();
 const buildApp = require('./app');
 const { startPushPolling } = require('./services/push');
+const { openAppWindow } = require('./lib/launcher');
 
 const PORT = process.env.PORT || 3001;
 // Por padrão escuta só no loopback: cada usuário roda seu próprio .exe localmente,
@@ -10,10 +11,26 @@ const PORT = process.env.PORT || 3001;
 // virar servidor central), defina HOST=0.0.0.0.
 const HOST = process.env.HOST || '127.0.0.1';
 
+// URL usada para abrir a janela do app (loopback, mesmo quando HOST=0.0.0.0).
+const APP_URL = `http://${HOST === '0.0.0.0' ? '127.0.0.1' : HOST}:${PORT}`;
+
 const app = buildApp();
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`\n🔷 Bluemine rodando em http://${HOST}:${PORT}\n`);
+  // Abre a janela dedicada do app (Edge em app mode → navegador padrão).
+  openAppWindow(APP_URL, { host: HOST });
+});
+
+// Se a porta já estiver em uso, provavelmente o .exe já está rodando: em vez de
+// crashar, apenas abre a janela apontando para a instância existente e sai.
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.log(`\n🔷 Bluemine já está rodando em ${APP_URL} — abrindo a janela.\n`);
+    openAppWindow(APP_URL, { host: HOST });
+    process.exit(0);
+  }
+  throw err;
 });
 
 // WEB PUSH — polling do Redmine/Talk por inscrição (notificações com a aba fechada).
