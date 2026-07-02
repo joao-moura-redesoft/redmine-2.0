@@ -42,11 +42,19 @@ function isPrivateIp(ip) {
 function safeLookup(hostname, options, callback) {
   const cb = typeof options === 'function' ? options : callback;
   const opts = typeof options === 'function' ? {} : options || {};
+
+  const whitelist = (process.env.SSRF_WHITELIST || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const bypass = process.env.ALLOW_LOCAL_SSRF === '1' || whitelist.includes(hostname.toLowerCase());
+
+  if (bypass) {
+    return dns.lookup(hostname, options, callback);
+  }
+
   dns.lookup(hostname, { ...opts, all: true }, (err, addresses) => {
     if (err) return cb(err);
     const list = Array.isArray(addresses) ? addresses : [addresses];
     for (const a of list) {
-      if (isPrivateIp(a.address)) {
+      if (isPrivateIp(a.address) && !whitelist.includes(a.address)) {
         return cb(
           Object.assign(new Error('SSRF bloqueado: destino interno'), { code: 'ESSRFBLOCKED' }),
         );

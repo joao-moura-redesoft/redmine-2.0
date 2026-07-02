@@ -133,8 +133,12 @@ No modo dev, acesse **http://localhost:5173**. Em produção (exe), tudo é serv
 | `CSP_ENFORCE` | `0` | `1` ativa a CSP em modo de bloqueio (hoje em report-only). |
 | `DOKUWIKI_HOST` | `wiki.redesoft.com.br` | Host do DokuWiki corporativo (host fixo, não controlável pelo cliente). |
 | `ALLOW_PLAINTEXT_SECRETS` | — | `1` permite gravar segredos em texto puro quando o DPAPI está indisponível (apenas dev fora do Windows; assume o risco conscientemente). |
+| `SSRF_WHITELIST` | — | Lista separada por vírgulas de domínios/IPs internos permitidos na proteção SSRF (ex: `drive.b2click.com,192.168.0.10`). |
+| `ALLOW_LOCAL_SSRF` | — | `1` desabilita completamente a proteção SSRF contra IPs locais/privados (use com cautela). |
 
 > O host de e-mail (Zimbra) tem padrão `email.redesoft.org` e é configurável na própria interface.
+
+**Uso com o executável:** Para configurar essas variáveis ao rodar a versão compilada, crie um arquivo chamado exatamente `.env` na mesma pasta onde está o `bluemine.exe`. O aplicativo irá ler as configurações automaticamente ao iniciar (use o arquivo `.env.example` como base).
 
 ---
 

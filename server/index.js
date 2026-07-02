@@ -1,5 +1,6 @@
 // Ponto de entrada do servidor Bluemine: monta o app Express e sobe os workers
 // de background (polling de Web Push). A lógica vive em app.js, routes/ e services/.
+require('dotenv').config();
 const buildApp = require('./app');
 const { startPushPolling } = require('./services/push');
 

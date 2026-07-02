@@ -35,7 +35,9 @@ if ($base) {
     if ($LASTEXITCODE -ne 0) { Write-Host "Aviso: nao foi possivel gravar o icone no base." -ForegroundColor DarkYellow }
     Write-Host "6. Reempacotando com o icone..." -ForegroundColor Yellow
     Remove-Item "bluemine.exe" -Force -ErrorAction SilentlyContinue
+    $env:PKG_IGNORE_TAG = "1"
     npx pkg . --targets node18-win-x64 --output bluemine.exe
+    $env:PKG_IGNORE_TAG = $null
     if ($LASTEXITCODE -ne 0) { Write-Host "Erro ao reempacotar." -ForegroundColor Red; exit $LASTEXITCODE }
 } else {
     Write-Host "Aviso: binario-base do pkg nao encontrado; exe gerado sem icone." -ForegroundColor DarkYellow
