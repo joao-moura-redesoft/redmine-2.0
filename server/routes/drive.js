@@ -1,11 +1,12 @@
 // Nextcloud Files (Drive) — navegação e gestão de arquivos via WebDAV/OCS,
 // reaproveitando a mesma autenticação do Talk (headers x-nextcloud-*).
 const express = require('express');
+const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
 const router = express.Router();
 const handle = require('../lib/handle');
 const { makeTalk } = require('../services/talk');
-const { getMyUserId } = require('../lib/redmine');
+const { getMyUserId, buildAuthHeaders } = require('../lib/redmine');
 const { getTalkAuth } = require('../services/talkStore');
 
 const xml = new XMLParser({ removeNSPrefix: true, ignoreAttributes: true, parseTagValue: false });
@@ -182,6 +183,64 @@ router.get(
     } catch {
       res.json({ used: 0, available: -1 });
     }
+  }),
+);
+
+// ─── Anexar arquivo do Drive numa tarefa do Redmine ────────────────────────────
+// Ponte entre integrações: baixa o arquivo do Nextcloud (WebDAV, credenciais do
+// Talk) e o sobe como anexo da issue no Redmine (credenciais do Redmine da sessão),
+// sem o arquivo passar pelo navegador. Opcionalmente adiciona uma nota.
+const ATTACH_MAX_BYTES = 50 * 1024 * 1024; // teto do /uploads do Redmine neste app
+router.post(
+  '/drive/attach-to-issue',
+  handle(async (req, res) => {
+    const clean = String(req.body.path || '').replace(/^\/+|\/+$/g, '');
+    const issueId = String(req.body.issueId || '').trim();
+    const comment = typeof req.body.comment === 'string' ? req.body.comment : '';
+    if (!clean || !/^\d+$/.test(issueId))
+      return res.status(400).json({ error: 'path e issueId (numérico) são obrigatórios.' });
+
+    const name = clean.split('/').pop() || 'arquivo';
+
+    // 1. Baixa do Drive (WebDAV do usuário logado).
+    const talk = await makeTalk(req);
+    const dl = await talk.get(davUrl(clean), {
+      responseType: 'arraybuffer',
+      maxContentLength: ATTACH_MAX_BYTES,
+      maxBodyLength: ATTACH_MAX_BYTES,
+    });
+    const buf = Buffer.from(dl.data);
+    if (!buf.length) return res.status(400).json({ error: 'Arquivo vazio.' });
+    if (buf.length > ATTACH_MAX_BYTES)
+      return res.status(413).json({ error: 'Arquivo maior que 50 MB — anexe manualmente.' });
+    const ct = dl.headers['content-type']?.split(';')[0].trim() || 'application/octet-stream';
+
+    // 2. Sobe para o Redmine (recebe um token de upload).
+    const url = req.headers['x-redmine-url'];
+    const rmHeaders = buildAuthHeaders(
+      req.headers['x-redmine-key'] || '',
+      req.headers['x-redmine-user'] || '',
+      req.headers['x-redmine-pass'] || '',
+    );
+    const up = await axios.post(`${url}/uploads.json`, buf, {
+      params: { filename: name },
+      headers: { ...rmHeaders, 'Content-Type': 'application/octet-stream' },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+    const token = up.data?.upload?.token;
+    if (!token) return res.status(502).json({ error: 'Falha ao enviar o arquivo ao Redmine.' });
+
+    // 3. Anexa o upload à issue (e nota opcional).
+    const issue = { uploads: [{ token, filename: name, content_type: ct }] };
+    if (comment) issue.notes = comment;
+    await axios.put(
+      `${url}/issues/${encodeURIComponent(issueId)}.json`,
+      { issue },
+      { headers: { ...rmHeaders, 'Content-Type': 'application/json' } },
+    );
+
+    res.json({ success: true, filename: name, issueId: Number(issueId) });
   }),
 );
 
@@ -640,3 +699,5 @@ router.delete(
 );
 
 module.exports = router;
+// Helpers puros expostos só para teste unitário (path traversal / injeção XML).
+module.exports.__testables = { davUrl, xmlEscape, relFromHref };

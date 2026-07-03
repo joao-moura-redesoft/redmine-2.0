@@ -37,7 +37,7 @@ import {
   DEFAULT_HOST,
   getMailHost,
 } from '../utils/mailConfig';
-import { getStoredAuth } from '../api/redmine';
+import { getStoredAuth, redmineApi, type AIUsage } from '../api/redmine';
 import { mailApi } from '../api/mail';
 import {
   adConfigured,
@@ -95,13 +95,71 @@ const PROVIDERS: ProviderConfig[] = [
     badge: 'bg-blue-50 border-blue-200 text-blue-700',
     badgeDark: 'dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300',
   },
+  {
+    id: 'local',
+    name: 'IA local (on-prem)',
+    // Servidor OpenAI-compatible (Ollama/vLLM/LM Studio). O endpoint e o modelo
+    // são definidos por env no servidor (AI_LOCAL_BASE_URL, AI_MODEL_LOCAL);
+    // aqui basta um token (ou deixe vazio p/ usar o sentinela "local").
+    placeholder: 'token (opcional) — deixe vazio p/ Ollama',
+    docsUrl: 'ollama.com / vLLM / LM Studio',
+    color: 'text-teal-600 dark:text-teal-400',
+    badge: 'bg-teal-50 border-teal-200 text-teal-700',
+    badgeDark: 'dark:bg-teal-900/20 dark:border-teal-800 dark:text-teal-300',
+  },
 ];
 
 const PROVIDER_NAMES: Record<AIProvider, string> = {
   anthropic: 'Claude (Anthropic)',
   openai: 'ChatGPT (OpenAI)',
   gemini: 'Gemini (Google)',
+  local: 'IA local (on-prem)',
 };
+
+// Painel compacto de uso/custo de IA (tokens acumulados). Lê /ai/usage.
+function AIUsagePanel() {
+  const [usage, setUsage] = useState<AIUsage | null>(null);
+  useEffect(() => {
+    redmineApi
+      .getAIUsage()
+      .then(setUsage)
+      .catch(() => setUsage(null));
+  }, []);
+  const total = usage?.total;
+  if (!total || total.calls === 0) return null;
+  const fmt = (n: number) => n.toLocaleString('pt-BR');
+  return (
+    <div className="border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 space-y-2">
+      <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+        Uso de IA
+      </p>
+      <div className="flex flex-wrap gap-4 text-xs text-slate-600 dark:text-slate-300">
+        <span>
+          <strong>{fmt(total.calls)}</strong> chamadas
+        </span>
+        <span>
+          <strong>{fmt(total.inputTokens)}</strong> tokens entrada
+        </span>
+        <span>
+          <strong>{fmt(total.outputTokens)}</strong> tokens saída
+        </span>
+      </div>
+      {Object.keys(usage.byProvider).length > 1 && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {Object.entries(usage.byProvider).map(([prov, b]) => (
+            <span
+              key={prov}
+              className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+            >
+              {PROVIDER_NAMES[prov as AIProvider] ?? prov}: {fmt(b.inputTokens + b.outputTokens)}{' '}
+              tok
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ProviderSection({ config, active }: { config: ProviderConfig; active: boolean }) {
   const [configured, setConfigured] = useState(() => getConfiguredProviders()[config.id]);
@@ -118,9 +176,15 @@ function ProviderSection({ config, active }: { config: ProviderConfig; active: b
       return;
     }
     if (busy) return;
+    // Provider local não exige key real: quando vazia, usa o sentinela "local".
+    const value = config.id === 'local' && !input.trim() ? 'local' : input.trim();
+    if (!value) {
+      setError('Informe a chave.');
+      return;
+    }
     setBusy(true);
     try {
-      await saveAIKey(config.id, input.trim());
+      await saveAIKey(config.id, value);
       setConfigured(true);
       setInput('');
       setSaved(true);
@@ -1005,6 +1069,8 @@ export function SettingsModal({ onClose }: Props) {
               {PROVIDERS.map((p) => (
                 <ProviderSection key={p.id} config={p} active={active === p.id} />
               ))}
+
+              <AIUsagePanel />
             </div>
           )}
         </div>

@@ -42,6 +42,7 @@ import {
   Clock,
   Users,
   FolderClosed,
+  Paperclip,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -51,6 +52,7 @@ import {
   deleteItem,
   moveItem,
   copyItem,
+  attachToIssue,
   uploadToDrive,
   downloadDriveFile,
   fetchThumb,
@@ -260,6 +262,7 @@ export function DriveView() {
   const [isDragging, setIsDragging] = useState(false);
   const [preview, setPreview] = useState<DriveEntry | null>(null);
   const [shareTarget, setShareTarget] = useState<DriveEntry | null>(null);
+  const [attachTarget, setAttachTarget] = useState<DriveEntry | null>(null);
   const [moveTarget, setMoveTarget] = useState<{
     entries: DriveEntry[];
     mode: 'move' | 'copy';
@@ -973,6 +976,7 @@ export function DriveView() {
                     }}
                     onDelete={() => setDeleteTarget(e)}
                     onShare={() => setShareTarget(e)}
+                    onAttachToIssue={() => setAttachTarget(e)}
                     onMove={() => setMoveTarget({ entries: [e], mode: 'move' })}
                     onCopy={() => setMoveTarget({ entries: [e], mode: 'copy' })}
                     onToggleFav={() => toggleFav(e)}
@@ -1095,6 +1099,7 @@ export function DriveView() {
                     }}
                     onDelete={() => setDeleteTarget(e)}
                     onShare={() => setShareTarget(e)}
+                    onAttachToIssue={() => setAttachTarget(e)}
                     onMove={() => setMoveTarget({ entries: [e], mode: 'move' })}
                     onCopy={() => setMoveTarget({ entries: [e], mode: 'copy' })}
                     onToggleFav={() => toggleFav(e)}
@@ -1224,6 +1229,9 @@ export function DriveView() {
       )}
 
       {shareTarget && <ShareModal entry={shareTarget} onClose={() => setShareTarget(null)} />}
+      {attachTarget && (
+        <AttachToIssueModal entry={attachTarget} onClose={() => setAttachTarget(null)} />
+      )}
       {moveTarget && (
         <FolderPicker
           entries={moveTarget.entries}
@@ -1273,6 +1281,7 @@ function ItemMenu({
   onMove,
   onCopy,
   onToggleFav,
+  onAttachToIssue,
   canManage,
   inline,
 }: {
@@ -1287,6 +1296,7 @@ function ItemMenu({
   onMove: () => void;
   onCopy: () => void;
   onToggleFav: () => void;
+  onAttachToIssue: () => void;
   canManage: boolean;
   inline?: boolean;
 }) {
@@ -1325,6 +1335,17 @@ function ItemMenu({
                 className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50"
               >
                 <Download size={13} className="text-slate-400" /> Baixar
+              </button>
+            )}
+            {!entry.isDir && (
+              <button
+                onClick={() => {
+                  onAttachToIssue();
+                  onClose();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50"
+              >
+                <Paperclip size={13} className="text-slate-400" /> Anexar em tarefa…
               </button>
             )}
             <button
@@ -1460,6 +1481,78 @@ function ModalActions({
         {busy ? '…' : confirmLabel}
       </button>
     </div>
+  );
+}
+
+// ─── Anexar em tarefa do Redmine ────────────────────────────────────────────────
+
+function AttachToIssueModal({ entry, onClose }: { entry: DriveEntry; onClose: () => void }) {
+  const [issueId, setIssueId] = useState('');
+  const [comment, setComment] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    const id = Number(issueId.trim());
+    if (!id) {
+      setError('Informe o número da tarefa.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await attachToIssue(entry.path, id, comment.trim() || undefined);
+      setDone(true);
+      setTimeout(onClose, 1200);
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+        'Falha ao anexar. Verifique o número da tarefa e suas permissões.';
+      setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Anexar em tarefa"
+      icon={<Paperclip size={16} className="text-blue-500" />}
+      onClose={onClose}
+    >
+      <p className="text-xs text-slate-500 dark:text-slate-400 break-all">
+        Arquivo: <b>{entry.name}</b>
+      </p>
+      {done ? (
+        <p className="text-xs text-green-600 dark:text-green-400">Anexado com sucesso!</p>
+      ) : (
+        <>
+          <input
+            autoFocus
+            value={issueId}
+            onChange={(e) => setIssueId(e.target.value.replace(/[^\d]/g, ''))}
+            placeholder="Nº da tarefa (ex.: 83314)"
+            className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Comentário (opcional)"
+            rows={2}
+            className="w-full resize-none text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <ModalActions
+            onCancel={onClose}
+            onConfirm={submit}
+            confirmLabel="Anexar"
+            busy={busy}
+            disabled={!issueId.trim()}
+          />
+        </>
+      )}
+    </Modal>
   );
 }
 

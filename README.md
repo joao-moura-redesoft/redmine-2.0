@@ -136,6 +136,14 @@ No modo dev, acesse **http://localhost:5173**. Em produção (exe), tudo é serv
 | `SSRF_WHITELIST` | — | Lista separada por vírgulas de domínios/IPs internos permitidos na proteção SSRF (ex: `drive.b2click.com,192.168.0.10`). |
 | `ALLOW_LOCAL_SSRF` | — | `1` desabilita completamente a proteção SSRF contra IPs locais/privados (use com cautela). |
 | `BLUEMINE_NO_WINDOW` | — | `1` impede o app de abrir a janela automaticamente ao iniciar (você abre o endereço no navegador na mão). |
+| `LOG_LEVEL` | `info` | Nível mínimo do log estruturado (`debug`\|`info`\|`warn`\|`error`). Segredos são sempre redigidos. |
+| `LOG_FILE` / `LOG_TO_FILE` | `bluemine.log` / `1` | Arquivo de log (alimenta o export de diagnóstico) e liga/desliga (`0`) a gravação em disco. |
+| `UPDATE_GITHUB_REPO` | — | `owner/repo` para usar **GitHub Releases** como canal de auto-update (a Action de release publica o `.exe` + `SHA256SUMS`). Vazio = recurso inerte. |
+| `UPDATE_GITHUB_TOKEN` | — | PAT read-only escopado ao repo, **necessário se o repositório for privado** (baixa o release e o asset autenticado). Público: deixe vazio. |
+| `UPDATE_GITHUB_ASSET` | auto | Nome do asset `.exe` no release (por padrão detecta o primeiro `*.exe`). |
+| `UPDATE_MANIFEST_URL` | — | Alternativa ao GitHub para ambiente **restrito/air-gapped**: URL interna de um manifesto JSON `{version,url,sha256,notes}`. Se `UPDATE_GITHUB_REPO` estiver setado, tem precedência sobre este. |
+| `AI_LOCAL_BASE_URL` | `http://127.0.0.1:11434/v1` | Endpoint OpenAI-compatible do provider de IA **local** (Ollama/vLLM/LM Studio). |
+| `AI_MODEL_LOCAL` | `llama3.1` | Modelo usado pelo provider de IA local. Os demais modelos/campos custom do Redmine também são configuráveis por env (ver [server/lib/config.js](server/lib/config.js)). |
 
 > Ao iniciar o `bluemine.exe`, o app abre sozinho numa janela dedicada (Edge em *app mode*, sem barra de endereço; se não houver Edge, cai no navegador padrão). Se o exe já estiver rodando, um novo duplo-clique apenas traz a janela de volta em vez de subir outra instância.
 
@@ -154,6 +162,16 @@ No Windows, com as dependências instaladas:
 ```
 
 O script: gera os ícones, compila o frontend (`client`), copia o `dist` para `server/dist`, e empacota tudo num único **`bluemine.exe`** na raiz (via `pkg`, alvo `node18-win-x64`), gravando o ícone no binário. Basta distribuir o `.exe` — ele embute frontend + backend.
+
+### Build via Node SEA (recomendado — sem Node 18)
+
+O `pkg` prende o binário ao **Node 18 (EOL)**. O pipeline alternativo usa **Node SEA** (Single Executable Applications) com o binário do **Node LTS instalado na máquina de build (≥ 20)**:
+
+```powershell
+./build_exe_sea.ps1
+```
+
+O script compila o frontend, **embute a SPA no bundle** (`scripts/embed-dist.cjs`), faz o *bundle* do servidor num único `.cjs` (`esbuild`), gera o blob SEA, copia o binário do Node, injeta o blob (`postject`) e grava o ícone — produzindo um `bluemine.exe` **realmente single-file** (frontend + backend embutidos). Assine o binário (`signtool`) antes de distribuir. O `build_exe.ps1` (pkg) segue disponível como fallback.
 
 ---
 

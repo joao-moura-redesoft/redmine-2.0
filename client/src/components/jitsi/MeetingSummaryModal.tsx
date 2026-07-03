@@ -19,6 +19,8 @@ export function MeetingSummaryModal({ isOpen, onClose, audioBlob, call }: Props)
   const [isPosting, setIsPosting] = useState(false);
   const [posted, setPosted] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Quando a reunião não está vinculada a uma tarefa, o usuário informa o nº aqui.
+  const [manualIssueId, setManualIssueId] = useState('');
   // Trava de idempotência: garante que cada blob seja transcrito UMA vez, mesmo
   // com o duplo-mount do StrictMode (evita cobrar o Whisper duas vezes).
   const processedBlobRef = useRef<Blob | null>(null);
@@ -75,12 +77,16 @@ export function MeetingSummaryModal({ isOpen, onClose, audioBlob, call }: Props)
 
   if (!isOpen) return null;
 
+  // Tarefa-alvo: a vinculada à chamada ou a informada manualmente.
+  const targetIssueId =
+    call?.issueId ?? (/^\d+$/.test(manualIssueId.trim()) ? Number(manualIssueId.trim()) : null);
+
   const handlePostNote = async () => {
-    if (!call?.issueId) return;
+    if (!targetIssueId) return;
     setIsPosting(true);
     try {
       const noteContent = `${summary}\n\n---\n**Resumo gerado por IA com base na gravação da chamada.**`;
-      await redmineApi.addNote(call.issueId, noteContent);
+      await redmineApi.addNote(targetIssueId, noteContent);
       setPosted(true);
     } catch (err: any) {
       alert('Erro ao postar nota: ' + err.message);
@@ -182,22 +188,32 @@ export function MeetingSummaryModal({ isOpen, onClose, audioBlob, call }: Props)
               {copied ? 'Copiado!' : 'Copiar'}
             </button>
 
-            {call?.issueId && (
-              <button
-                onClick={handlePostNote}
-                disabled={isPosting || posted}
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                {posted ? (
-                  <CheckCircle size={16} />
-                ) : isPosting ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <FileText size={16} />
-                )}
-                {posted ? 'Nota Salva!' : 'Salvar na Tarefa'}
-              </button>
+            {!call?.issueId && !posted && (
+              <input
+                value={manualIssueId}
+                onChange={(e) => setManualIssueId(e.target.value.replace(/[^\d]/g, ''))}
+                placeholder="Nº da tarefa"
+                className="w-28 text-sm px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
             )}
+            <button
+              onClick={handlePostNote}
+              disabled={isPosting || posted || !targetIssueId || !summary}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {posted ? (
+                <CheckCircle size={16} />
+              ) : isPosting ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <FileText size={16} />
+              )}
+              {posted
+                ? 'Nota Salva!'
+                : targetIssueId
+                  ? `Salvar em #${targetIssueId}`
+                  : 'Salvar na Tarefa'}
+            </button>
           </div>
         )}
       </div>

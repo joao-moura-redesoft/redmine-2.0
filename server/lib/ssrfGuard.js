@@ -43,7 +43,10 @@ function safeLookup(hostname, options, callback) {
   const cb = typeof options === 'function' ? options : callback;
   const opts = typeof options === 'function' ? {} : options || {};
 
-  const whitelist = (process.env.SSRF_WHITELIST || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const whitelist = (process.env.SSRF_WHITELIST || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
   const bypass = process.env.ALLOW_LOCAL_SSRF === '1' || whitelist.includes(hostname.toLowerCase());
 
   if (bypass) {

@@ -1,3 +1,5 @@
+const log = require('./logger');
+
 const NETWORK_RE = /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ECONNRESET|EHOSTUNREACH/;
 
 function sanitizeRedmineBody(data) {
@@ -18,8 +20,13 @@ module.exports = function errorMiddleware(err, req, res, next) {
 
   const status = err.response?.status || err.statusCode || err.status || 500;
 
-  console.error(`[${req.method} ${req.path}] ${status}:`, err.response?.data ?? err.message);
-  if (status >= 500) console.error(err.stack);
+  log.error('request_failed', {
+    method: req.method,
+    path: req.path,
+    status,
+    detail: err.response?.data ?? err.message,
+    stack: status >= 500 ? err.stack : undefined,
+  });
 
   if (status >= 500) return res.status(500).json({ error: 'Ocorreu um erro interno no servidor.' });
 

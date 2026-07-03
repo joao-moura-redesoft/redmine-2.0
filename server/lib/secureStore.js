@@ -2,10 +2,10 @@
 const path = require('path');
 const fs = require('fs');
 const { spawnSync } = require('child_process');
+const { DATA_DIR } = require('./runtime');
 
-// Pasta gravável: ao lado do .exe quando empacotado (pkg), senão a pasta do server.
-// (__dirname aqui é server/lib, então sobe um nível para server/.)
-const DATA_DIR = process.pkg ? path.dirname(process.execPath) : path.join(__dirname, '..');
+// Pasta gravável (ao lado do .exe quando empacotado, senão server/) — resolvida
+// por lib/runtime, que unifica os modos dev/pkg/SEA.
 const dataFile = (name) => path.join(DATA_DIR, name);
 
 // Escrita atômica: grava num .tmp e renomeia, pra nunca deixar o arquivo pela metade.

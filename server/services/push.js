@@ -8,6 +8,7 @@ const axios = require('axios');
 const webpush = require('web-push');
 const { buildAuthHeaders } = require('../lib/redmine');
 const { fetchAllIssues } = require('../lib/pagination');
+const { REDMINE_CF, REDMINE_STATUS } = require('../lib/config');
 const { dataFile, readJsonSecure, writeJsonSecure } = require('../lib/secureStore');
 
 // Web Push ligado por padrão. Desligue com PUSH_ENABLED=0 (ou false) no .env.
@@ -58,8 +59,14 @@ async function collectPushState(url, key, username, password) {
   const me = (await client.get('/users/current.json')).data.user.id;
 
   const assigned = await fetchAllIssues(client, { assigned_to_id: 'me', status_id: 'open' });
-  const review = await fetchAllIssues(client, { cf_210: me, status_id: 71 });
-  const monitoredAll = await fetchAllIssues(client, { cf_141: me, status_id: 'open' });
+  const review = await fetchAllIssues(client, {
+    [`cf_${REDMINE_CF.reviewer}`]: me,
+    status_id: REDMINE_STATUS.pendingReview,
+  });
+  const monitoredAll = await fetchAllIssues(client, {
+    [`cf_${REDMINE_CF.developer}`]: me,
+    status_id: 'open',
+  });
   const monitored = monitoredAll.filter(
     (i) => !i.assigned_to || String(i.assigned_to.id) !== String(me),
   );

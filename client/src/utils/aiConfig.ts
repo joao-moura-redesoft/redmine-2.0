@@ -1,25 +1,26 @@
 // Chaves de IA — agora vivem no cofre cifrado do servidor. O cliente só conhece
 // QUAIS provedores estão configurados (status booleano), nunca as chaves.
 import axios from 'axios';
-import { getSecretsStatus, refreshSecretsStatus } from './secretsStatus';
+import { getSecretsStatus, refreshSecretsStatus, type SecretsStatus } from './secretsStatus';
 
-export type AIProvider = 'anthropic' | 'openai' | 'gemini';
+export type AIProvider = 'anthropic' | 'openai' | 'gemini' | 'local';
 
-export function getConfiguredProviders(): { anthropic: boolean; openai: boolean; gemini: boolean } {
+export function getConfiguredProviders(): SecretsStatus['ai'] {
   return getSecretsStatus().ai;
 }
 
 export function aiConfigured(): boolean {
   const ai = getSecretsStatus().ai;
-  return !!(ai.anthropic || ai.openai || ai.gemini);
+  return !!(ai.anthropic || ai.openai || ai.gemini || ai.local);
 }
 
-// Provider ativo (precedência Claude > OpenAI > Gemini), sem expor a chave.
+// Provider ativo (precedência Claude > OpenAI > Gemini > local), sem expor a chave.
 export function getActiveAIProvider(): AIProvider | null {
   const ai = getSecretsStatus().ai;
   if (ai.anthropic) return 'anthropic';
   if (ai.openai) return 'openai';
   if (ai.gemini) return 'gemini';
+  if (ai.local) return 'local';
   return null;
 }
 

@@ -28,6 +28,7 @@ import { localChecklists, useChecklist } from '../utils/localChecklists';
 import { fuzzyBest } from '../utils/fuzzy';
 import { newNoteId, type Note, type NotePatch } from '../api/notes';
 import type { EditField } from '../types/redmine';
+import { matchMissingFields } from '../utils/requiredFields';
 import { RichNoteEditor } from './RichNoteEditor';
 import { RequiredFieldsModal } from './RequiredFieldsModal';
 import { redmineApi } from '../api/redmine';
@@ -271,11 +272,7 @@ function NoteEditor({
   );
   const missingFields = useMemo<EditField[]>(() => {
     if (!pendingRequired) return [];
-    return editFields.filter(
-      (f) =>
-        f.name !== 'status_id' &&
-        pendingRequired.errors.some((e) => e.toLowerCase().includes(f.label.toLowerCase())),
-    );
+    return matchMissingFields(pendingRequired.errors, editFields);
   }, [pendingRequired, editFields]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

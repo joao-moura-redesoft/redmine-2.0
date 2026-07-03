@@ -32,6 +32,9 @@ import { getAIKey } from '../utils/aiConfig';
 interface Props {
   onClose: () => void;
   defaultStatusId?: number;
+  // Pré-preenchimento (ex.: criar tarefa a partir de um e-mail do Zimbra).
+  initialSubject?: string;
+  initialDescription?: string;
 }
 
 function fmtSize(bytes: number): string {
@@ -40,15 +43,15 @@ function fmtSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function CreateIssueModal({ onClose }: Props) {
+export function CreateIssueModal({ onClose, initialSubject, initialDescription }: Props) {
   const { data: projects } = useProjects();
   const { data: trackers } = useTrackers();
   const { data: priorities } = usePriorities();
   const createIssue = useCreateIssue();
   const qc = useQueryClient();
 
-  const [subject, setSubject] = useState('');
-  const [description, setDescription] = useState('');
+  const [subject, setSubject] = useState(initialSubject ?? '');
+  const [description, setDescription] = useState(initialDescription ?? '');
   const [projectId, setProjectId] = useState<number | ''>('');
   const [trackerId, setTrackerId] = useState<number | ''>('');
   const [priorityId, setPriorityId] = useState<number | ''>('');

@@ -67,7 +67,12 @@ function openAppWindow(url, { host } = {}) {
   try {
     const child = spawn(
       edge,
-      [`--app=${url}`, `--user-data-dir=${profileDir}`, '--no-first-run', '--no-default-browser-check'],
+      [
+        `--app=${url}`,
+        `--user-data-dir=${profileDir}`,
+        '--no-first-run',
+        '--no-default-browser-check',
+      ],
       { detached: true, stdio: 'ignore' },
     );
     child.on('error', () => openDefault(url));

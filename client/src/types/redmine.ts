@@ -101,6 +101,7 @@ export interface Version {
   status: 'open' | 'locked' | 'closed';
   due_date?: string;
   description?: string;
+  project?: NamedRef; // projeto dono (importante p/ versões compartilhadas)
 }
 
 export interface TimeEntryActivity {

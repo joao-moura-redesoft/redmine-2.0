@@ -1,5 +1,6 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { redmineApi, type Upload } from '../api/redmine';
+import type { Issue, Version } from '../types/redmine';
 import { useLocalWatches } from '../utils/localWatches';
 import { recordMutation } from '../utils/recentMutations';
 
@@ -311,4 +312,46 @@ export function useVersionIssues(projectId?: number, versionId?: number) {
     enabled: !!projectId && !!versionId,
     staleTime: 60 * 1000,
   });
+}
+
+// Versões de vários projetos em paralelo (uma query por projeto, mesma cache
+// key de useProjectVersions). Devolve por projeto consultado — versões
+// compartilhadas aparecem na lista de cada projeto que as recebe.
+export function useAllVersions(projectIds: number[]) {
+  const results = useQueries({
+    queries: projectIds.map((pid) => ({
+      queryKey: ['versions', pid],
+      queryFn: () => redmineApi.getProjectVersions(pid),
+      enabled: !!pid,
+      staleTime: 5 * 60 * 1000,
+    })),
+  });
+  const isLoading = results.some((r) => r.isLoading);
+  const byProject = projectIds.map((projectId, i) => ({
+    projectId,
+    versions: (results[i]?.data ?? []) as Version[],
+  }));
+  return { byProject, isLoading };
+}
+
+// Tarefas de várias versões em paralelo, buscando a versão INTEIRA (sem filtro
+// de projeto — cobre versões compartilhadas). Devolve um mapa versionId →
+// tarefas e um índice issueId → Issue para lookups no drag.
+export function useVersionIssuesMulti(versionIds: number[]) {
+  const results = useQueries({
+    queries: versionIds.map((vid) => ({
+      queryKey: ['roadmap-version-issues', vid],
+      queryFn: () => redmineApi.getVersionIssuesAll(vid),
+      staleTime: 60 * 1000,
+    })),
+  });
+  const byVersion = new Map<number, Issue[]>();
+  const issueById = new Map<number, Issue>();
+  versionIds.forEach((vid, i) => {
+    const issues = (results[i]?.data ?? []) as Issue[];
+    byVersion.set(vid, issues);
+    for (const issue of issues) issueById.set(issue.id, issue);
+  });
+  const isLoading = results.some((r) => r.isLoading);
+  return { byVersion, issueById, isLoading };
 }

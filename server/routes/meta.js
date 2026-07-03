@@ -11,8 +11,12 @@ const {
   deriveTeam,
 } = require('../services/teams');
 
-// Lista de projetos (paginada). Se o /projects.json do Redmine falhar (ex: 500),
-// cai num fallback que monta a lista a partir dos projetos das tarefas visíveis.
+// Lista de projetos (paginada). O /projects.json do Redmine pode dar 500 quando
+// a serialização de projeto está quebrada no servidor (bug de plugin/custom
+// field — inclusive /projects/:id.json individual também falha). Nesse caso
+// caímos para as memberships do usuário atual, que respondem 200 e trazem
+// id+nome de todos os projetos em que ele participa. Último recurso: projetos
+// das próprias tarefas.
 async function getProjectList(redmine) {
   try {
     const limit = 100;
@@ -33,15 +37,35 @@ async function getProjectList(redmine) {
       err.response?.status,
       JSON.stringify(err.response?.data ?? err.message),
     );
-    const { data } = await redmine.get('/issues.json', {
-      params: { assigned_to_id: 'me', status_id: '*', limit: 100 },
+  }
+
+  // Fallback 1: memberships do usuário atual (muito mais completo — cobre todos
+  // os projetos em que participo, não só os que têm tarefa minha).
+  try {
+    const { data } = await redmine.get('/users/current.json', {
+      params: { include: 'memberships' },
     });
     const map = new Map();
-    for (const i of data.issues || []) if (i.project) map.set(i.project.id, i.project.name);
-    const projects = [...map.entries()].map(([id, name]) => ({ id, name }));
-    console.warn(`[projects] usando fallback por tarefas: ${projects.length} projetos`);
-    return projects;
+    for (const m of data.user?.memberships || [])
+      if (m.project) map.set(m.project.id, m.project.name);
+    if (map.size) {
+      const projects = [...map.entries()].map(([id, name]) => ({ id, name }));
+      console.warn(`[projects] usando fallback por memberships: ${projects.length} projetos`);
+      return projects;
+    }
+  } catch (err) {
+    console.error('[projects] fallback memberships falhou:', err.response?.status);
   }
+
+  // Fallback 2 (último recurso): projetos das minhas tarefas.
+  const { data } = await redmine.get('/issues.json', {
+    params: { assigned_to_id: 'me', status_id: '*', limit: 100 },
+  });
+  const map = new Map();
+  for (const i of data.issues || []) if (i.project) map.set(i.project.id, i.project.name);
+  const projects = [...map.entries()].map(([id, name]) => ({ id, name }));
+  console.warn(`[projects] usando fallback por tarefas: ${projects.length} projetos`);
+  return projects;
 }
 
 // Versões de um projeto

@@ -138,6 +138,18 @@ dist
 # Executável empacotado
 *.exe
 
+# Artefatos gerados no build SEA (esbuild bundle, blob e frontend embutido)
+build/bluemine.bundle.cjs
+build/bluemine.blob
+server/dist-embedded.cjs
+
+# Artefatos de runtime do auto-update (por-máquina)
+*.exe.new
+*.exe.bak
+.bluemine-boot-ok
+bluemine-update.ps1
+SHA256SUMS
+
 # Web Push — NUNCA versionar (chave privada VAPID e API keys do Redmine das inscrições)
 vapid.json
 push-subscriptions.json

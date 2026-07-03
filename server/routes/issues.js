@@ -13,6 +13,11 @@ const {
 const handle = require('../lib/handle');
 const { fetchAllPages, mapLimit, fetchAllIssues } = require('../lib/pagination');
 const { parseEditFormSchema } = require('../lib/editFormSchema');
+const { REDMINE_CF, REDMINE_STATUS } = require('../lib/config');
+
+// Filtros nomeados por campo custom, resolvidos pela config central (env-overridable).
+const CF_DEVELOPER = `cf_${REDMINE_CF.developer}`;
+const CF_REVIEWER = `cf_${REDMINE_CF.reviewer}`;
 
 // Minhas issues
 router.get(
@@ -41,7 +46,10 @@ router.get(
   '/issues/monitored',
   handle(async (req, res) => {
     const userId = await getMyUserId(req);
-    const all = await fetchAllIssues(makeRedmine(req), { cf_141: userId, status_id: 'open' });
+    const all = await fetchAllIssues(makeRedmine(req), {
+      [CF_DEVELOPER]: userId,
+      status_id: 'open',
+    });
     const issues = all.filter((i) => !i.assigned_to || String(i.assigned_to.id) !== String(userId));
     res.json({ issues, total_count: issues.length });
   }),
@@ -61,7 +69,10 @@ router.get(
   '/issues/to-review',
   handle(async (req, res) => {
     const userId = await getMyUserId(req);
-    const issues = await fetchAllIssues(makeRedmine(req), { cf_210: userId, status_id: 71 });
+    const issues = await fetchAllIssues(makeRedmine(req), {
+      [CF_REVIEWER]: userId,
+      status_id: REDMINE_STATUS.pendingReview,
+    });
     res.json({ issues, total_count: issues.length });
   }),
 );
@@ -81,8 +92,16 @@ router.get(
     const sets = await Promise.all([
       fetchAllIssues(redmine, { assigned_to_id: 'me', status_id: '*', sort: 'updated_on:desc' }),
       fetchAllIssues(redmine, { author_id: 'me', status_id: 'open', sort: 'updated_on:desc' }),
-      fetchAllIssues(redmine, { cf_141: userId, status_id: 'open', sort: 'updated_on:desc' }),
-      fetchAllIssues(redmine, { cf_210: userId, status_id: 'open', sort: 'updated_on:desc' }),
+      fetchAllIssues(redmine, {
+        [CF_DEVELOPER]: userId,
+        status_id: 'open',
+        sort: 'updated_on:desc',
+      }),
+      fetchAllIssues(redmine, {
+        [CF_REVIEWER]: userId,
+        status_id: 'open',
+        sort: 'updated_on:desc',
+      }),
     ]);
     const byId = new Map();
     sets.flat().forEach((i) => {
@@ -323,12 +342,12 @@ router.get(
   '/issues/by-version',
   handle(async (req, res) => {
     const { project_id, version_id } = req.query;
-    if (!project_id || !version_id) return res.json({ issues: [], total_count: 0 });
-    const issues = await fetchAllIssues(makeRedmine(req), {
-      project_id,
-      fixed_version_id: version_id,
-      status_id: '*',
-    });
+    if (!version_id) return res.json({ issues: [], total_count: 0 });
+    // project_id é opcional: versões compartilhadas têm tarefas em vários
+    // projetos, então filtrar só por fixed_version_id traz a versão inteira.
+    const filter = { fixed_version_id: version_id, status_id: '*' };
+    if (project_id) filter.project_id = project_id;
+    const issues = await fetchAllIssues(makeRedmine(req), filter);
     res.json({ issues, total_count: issues.length });
   }),
 );

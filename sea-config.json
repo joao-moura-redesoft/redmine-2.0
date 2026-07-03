@@ -1,0 +1,7 @@
+{
+  "main": "build/bluemine.bundle.cjs",
+  "output": "build/bluemine.blob",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": false
+}

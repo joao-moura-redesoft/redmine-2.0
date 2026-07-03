@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Send, Loader2, Wrench, Sparkles, Trash2 } from 'lucide-react';
+import { Bot, Send, Loader2, Wrench, Sparkles, Trash2, ShieldAlert, Check, X } from 'lucide-react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { redmineApi } from '../api/redmine';
+import { redmineApi, type PendingAiAction } from '../api/redmine';
 import { getAIKey } from '../utils/aiConfig';
 import { aiErrorMessage } from '../utils/aiError';
 
@@ -16,6 +16,10 @@ interface Msg {
   role: 'user' | 'assistant';
   content: string;
   trace?: ToolCall[];
+  // Ações de escrita propostas pela IA, aguardando confirmação do usuário.
+  pendingActions?: PendingAiAction[];
+  // Ações já resolvidas (id → 'done' | 'cancelled') para trocar a UI.
+  resolved?: Record<string, 'done' | 'cancelled'>;
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -86,8 +90,38 @@ export function AssistantView({ onIssueClick }: { onIssueClick?: (id: number) =>
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [actingId, setActingId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasKey = !!getAIKey();
+
+  // Confirma (executa) ou cancela uma ação de escrita proposta pela IA. A
+  // execução só acontece aqui, no clique explícito do usuário.
+  const resolveAction = async (msgIdx: number, action: PendingAiAction, confirm: boolean) => {
+    if (!confirm) {
+      setMessages((all) =>
+        all.map((m, i) =>
+          i === msgIdx
+            ? { ...m, resolved: { ...(m.resolved || {}), [action.id]: 'cancelled' } }
+            : m,
+        ),
+      );
+      return;
+    }
+    setActingId(action.id);
+    setError('');
+    try {
+      await redmineApi.confirmAiAction(action);
+      setMessages((all) =>
+        all.map((m, i) =>
+          i === msgIdx ? { ...m, resolved: { ...(m.resolved || {}), [action.id]: 'done' } } : m,
+        ),
+      );
+    } catch (e: unknown) {
+      setError(aiErrorMessage(e, 'Não foi possível executar a ação.'));
+    } finally {
+      setActingId(null);
+    }
+  };
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -102,10 +136,13 @@ export function AssistantView({ onIssueClick }: { onIssueClick?: (id: number) =>
     setError('');
     setLoading(true);
     try {
-      const { reply, trace } = await redmineApi.aiChat(
+      const { reply, trace, pendingActions } = await redmineApi.aiChat(
         next.map((m) => ({ role: m.role, content: m.content })),
       );
-      setMessages((m) => [...m, { role: 'assistant', content: reply || '(sem resposta)', trace }]);
+      setMessages((m) => [
+        ...m,
+        { role: 'assistant', content: reply || '(sem resposta)', trace, pendingActions },
+      ]);
     } catch (e: unknown) {
       setError(aiErrorMessage(e, 'Erro ao falar com o assistente. Tente novamente.'));
       setMessages((m) => m.slice(0, -1)); // remove a pergunta que falhou
@@ -203,6 +240,52 @@ export function AssistantView({ onIssueClick }: { onIssueClick?: (id: number) =>
                   m.content
                 )}
               </div>
+
+              {/* Ações de escrita propostas — exigem confirmação explícita */}
+              {m.role === 'assistant' &&
+                m.pendingActions?.map((a) => {
+                  const state = m.resolved?.[a.id];
+                  return (
+                    <div
+                      key={a.id}
+                      className="mt-2 flex items-center gap-2 rounded-xl border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-900/20 px-3 py-2"
+                    >
+                      <ShieldAlert size={15} className="text-amber-500 flex-shrink-0" />
+                      <span className="flex-1 text-xs text-amber-900 dark:text-amber-200">
+                        {a.label}
+                      </span>
+                      {state === 'done' ? (
+                        <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                          <Check size={13} /> Feito
+                        </span>
+                      ) : state === 'cancelled' ? (
+                        <span className="text-xs text-slate-400">Cancelado</span>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => resolveAction(i, a, true)}
+                            disabled={actingId === a.id}
+                            className="text-xs font-medium px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white flex items-center gap-1"
+                          >
+                            {actingId === a.id ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Check size={12} />
+                            )}
+                            Confirmar
+                          </button>
+                          <button
+                            onClick={() => resolveAction(i, a, false)}
+                            disabled={actingId === a.id}
+                            className="text-xs px-2 py-1 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1"
+                          >
+                            <X size={12} /> Cancelar
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
           </div>
         ))}

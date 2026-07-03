@@ -4,6 +4,15 @@ require('dotenv').config();
 const buildApp = require('./app');
 const { startPushPolling } = require('./services/push');
 const { openAppWindow } = require('./lib/launcher');
+const { writeBootMarker } = require('./services/updater');
+
+// Simulação de falha de boot para TESTAR o rollback do auto-update: sai ANTES do
+// listen, então nenhum marcador de boot é gravado e o watchdog reverte para a
+// versão anterior. Ver docs/TESTE-AUTO-UPDATE.md.
+if (process.env.BLUEMINE_FAIL_BOOT === '1') {
+  console.error('[boot] BLUEMINE_FAIL_BOOT=1 — abortando antes do listen (teste de rollback)');
+  process.exit(1);
+}
 
 const PORT = process.env.PORT || 3001;
 // Por padrão escuta só no loopback: cada usuário roda seu próprio .exe localmente,
@@ -18,6 +27,8 @@ const app = buildApp();
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`\n🔷 Bluemine rodando em http://${HOST}:${PORT}\n`);
+  // Sinaliza boot bem-sucedido para o watchdog de auto-update (rollback).
+  writeBootMarker();
   // Abre a janela dedicada do app (Edge em app mode → navegador padrão).
   openAppWindow(APP_URL, { host: HOST });
 });

@@ -1,5 +1,9 @@
 name: 'Auto Release'
 
+# Ao empurrar uma tag v* (ou publicar um Release), builda o executável via Node
+# SEA (fora do Node 18 EOL) e sobe bluemine.exe + SHA256SUMS. O auto-update do app
+# (provider github, UPDATE_GITHUB_REPO) consome esse Release e confere o SHA-256
+# antes de aplicar.
 on:
   release:
     types: [published]
@@ -21,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # LTS suportado; SEA estável (não Node 18)
 
       - name: Install Root Dependencies
         run: npm install
@@ -30,16 +34,43 @@ jobs:
         run: npm install
         working-directory: ./client
 
-      - name: Build Executable
-        run: .\build_exe.ps1
-        shell: powershell
+      # Deriva a versão da própria tag (v1.2.0 → 1.2.0) e grava no package.json
+      # ANTES do build — assim o exe embute a versão certa (é o que o app compara
+      # com o release) sem depender de um bump manual prévio.
+      - name: Set version from tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name || github.ref_name }}"
+          $ver = $tag -replace '^v', ''
+          if ($ver -notmatch '^\d+\.\d+\.\d+') {
+            Write-Error "Tag '$tag' não é uma versão semântica (esperado vX.Y.Z)."; exit 1
+          }
+          npm version $ver --no-git-tag-version --allow-same-version
+          npm version $ver --no-git-tag-version --allow-same-version --prefix client
+          Write-Host "Versão definida: $ver"
 
-      - name: Upload Release Asset
+      - name: Build Executable (Node SEA)
+        run: .\build_exe_sea.ps1
+        shell: pwsh
+
+      - name: Generate SHA256SUMS
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash bluemine.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  bluemine.exe" | Out-File -Encoding ascii -NoNewline SHA256SUMS
+          Write-Host "SHA256: $h"
+
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release'
         with:
-          files: bluemine.exe
+          files: |
+            bluemine.exe
+            SHA256SUMS
           fail_on_unmatched_files: true
-          generate_release_notes: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Produção: assine o binário (signtool + cert em secrets) antes do upload
+      # para evitar alertas do SmartScreen na primeira execução.

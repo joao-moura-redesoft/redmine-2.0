@@ -114,6 +114,17 @@ export async function copyItem(from: string, to: string): Promise<void> {
   await api.post('/copy', { from, to });
 }
 
+// Anexa um arquivo do Drive diretamente numa tarefa do Redmine (o servidor faz
+// a ponte; o arquivo não passa pelo navegador). `comment` opcional vira nota.
+export async function attachToIssue(
+  path: string,
+  issueId: number,
+  comment?: string,
+): Promise<{ success: boolean; filename: string; issueId: number }> {
+  const { data } = await api.post('/attach-to-issue', { path, issueId, comment });
+  return data;
+}
+
 // ─── Compartilhamento ──────────────────────────────────────────────────────────
 export interface DriveShare {
   id: number;

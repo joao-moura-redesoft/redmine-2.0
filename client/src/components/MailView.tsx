@@ -20,6 +20,7 @@ import {
   PenSquare,
   Star,
   Undo2,
+  SquarePlus,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -445,6 +446,25 @@ function MessageReader({
             <ReplyAll size={13} /> Todos
           </button>
         )}
+        <button
+          onClick={() => {
+            const bodyText = (msg.text || htmlToText(msg.html || '')).slice(0, 5000);
+            const description = `**De:** ${msg.from.name || ''} <${msg.from.address}>\n**Data:** ${format(
+              new Date(msg.date),
+              'd/MM/yyyy HH:mm',
+              { locale: ptBR },
+            )}\n\n${bodyText}`;
+            window.dispatchEvent(
+              new CustomEvent('bluemine:create-issue', {
+                detail: { subject: msg.subject, description },
+              }),
+            );
+          }}
+          title="Criar tarefa no Redmine a partir deste e-mail"
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+        >
+          <SquarePlus size={13} /> Criar tarefa
+        </button>
         <div className="flex-1" />
         <button
           onClick={() => act('flag', false)}

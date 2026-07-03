@@ -1,8 +1,29 @@
 // IA — endpoints de geração de prompt, resumos, rascunhos, chat agêntico e análises.
 const express = require('express');
 const axios = require('axios');
+const crypto = require('crypto');
 const router = express.Router();
-const { makeRedmine, buildAuthHeaders } = require('../lib/redmine');
+
+// Executa uma ferramenta do chat OU, se for de escrita (dangerous), NÃO executa:
+// registra a ação em `pendingActions` para o cliente confirmar. Isso impede que
+// uma injeção de prompt em conteúdo de terceiros dispare escritas sozinha.
+async function gateOrExec(name, args, ctx, pendingActions) {
+  if (isDangerousTool(name)) {
+    pendingActions.push({
+      id: crypto.randomUUID(),
+      tool: name,
+      args,
+      label: describeAction(name, args),
+    });
+    return {
+      status: 'pending_confirmation',
+      message:
+        'Ação de escrita NÃO executada: requer confirmação explícita do usuário na interface.',
+    };
+  }
+  return execChatTool(name, args, ctx);
+}
+const { makeRedmine, buildAuthHeaders, getMyUserId } = require('../lib/redmine');
 const handle = require('../lib/handle');
 const { createRateLimiter } = require('../middleware/rateLimit');
 const {
@@ -23,7 +44,11 @@ const {
   CHAT_TOOLS,
   CHAT_SYSTEM,
   execChatTool,
+  isDangerousTool,
+  describeAction,
 } = require('../services/ai');
+const aiUsage = require('../services/aiUsageStore');
+const { REDMINE_CF, REDMINE_STATUS, AI_MODELS } = require('../lib/config');
 
 // Limita o uso dos endpoints de IA: cada chamada custa dinheiro e bate em APIs
 // externas (Anthropic/OpenAI/Gemini). Janela generosa o suficiente para uso
@@ -38,6 +63,15 @@ const aiLimiter = createRateLimiter({
 // para TODA requisição /api que passa por aqui antes de cair no router seguinte,
 // fazendo o talk/mail/jitsi consumir o contador de IA e tomar 429 indevido.
 router.use('/ai', aiLimiter);
+
+// Uso/custo de IA do usuário atual (tokens acumulados por provider e por dia).
+router.get(
+  '/ai/usage',
+  handle(async (req, res) => {
+    const uid = await getMyUserId(req);
+    res.json(aiUsage.summary(uid));
+  }),
+);
 
 // Transcreve o áudio de uma reunião (Whisper/OpenAI) e gera um resumo estruturado
 // com o provider de IA preferido. Recebe o áudio como corpo binário (express.raw).
@@ -68,10 +102,11 @@ router.post(
       });
 
     // Resumo com o provider preferido (Claude por padrão).
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     let summary = '';
     if (key) {
       summary = await aiComplete(provider, key, {
+        uid,
         system:
           'Você é um assistente que resume reuniões de um time de desenvolvimento de software. Responda em português do Brasil, em markdown, de forma objetiva.',
         user: `Resuma a transcrição da reunião abaixo. Use exatamente estas seções (omita uma seção se não houver conteúdo):
@@ -108,7 +143,7 @@ ${transcript.slice(0, 24000)}`,
 router.post(
   '/ai/generate-prompt',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -149,7 +184,8 @@ router.post(
 
     // Resolve o ID do revisor (CF 210) para nome antes de montar o contexto.
     const redmineClient = makeRedmine(req);
-    const rawRevisorId = (issue.custom_fields || []).find((f) => f.id === 210)?.value || '';
+    const rawRevisorId =
+      (issue.custom_fields || []).find((f) => f.id === REDMINE_CF.reviewer)?.value || '';
     const revisorName = await resolveUserName(redmineClient, rawRevisorId);
 
     const inlineNames = new Set(fetchedImages.map((i) => i.filename));
@@ -181,6 +217,7 @@ router.post(
     }
 
     const prompt = await aiComplete(provider, key, {
+      uid,
       system: PROMPT_SYSTEM,
       userContent,
       maxTokens: 2048,
@@ -194,7 +231,7 @@ router.post(
 router.post(
   '/ai/summarize-history',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -211,6 +248,7 @@ router.post(
     if (!notes) return res.json({ summary: 'Sem comentários no histórico desta tarefa.' });
 
     const summary = await aiComplete(provider, key, {
+      uid,
       system:
         'Você é um assistente de desenvolvimento de software. Responda em português do Brasil.',
       user: `Resuma o histórico de comentários abaixo em bullets (•), destacando: o que foi feito, problemas encontrados, decisões tomadas e pendências. Seja direto. Máximo 8 bullets.
@@ -232,7 +270,7 @@ ${notes}`,
 router.post(
   '/ai/draft-note',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -242,10 +280,11 @@ router.post(
     if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
 
     const cf = (id) => (issue.custom_fields || []).find((f) => f.id === id)?.value || '';
-    const branch = cf(140);
+    const branch = cf(REDMINE_CF.branch);
     const lastNote = (issue.journals || []).filter((j) => j.notes?.trim()).slice(-1)[0];
 
     const draft = await aiComplete(provider, key, {
+      uid,
       system:
         'Você é um desenvolvedor do ERP B2click (frontend Delphi, backend Java 21). Escreva em português do Brasil, tom técnico e direto. Gere APENAS o texto da nota, sem título nem formatação extra.',
       user: `Gere um rascunho de nota de atualização para o journal desta tarefa. O desenvolvedor quer registrar progresso. Deve ser objetivo (2-4 parágrafos curtos), mencionar o que foi feito e próximos passos. Não invente detalhes técnicos — baseie-se no contexto.
@@ -266,7 +305,7 @@ ${lastNote ? `Último comentário (${lastNote.created_on?.slice(0, 10)}): ${last
 router.post(
   '/ai/draft-reply',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -285,6 +324,7 @@ router.post(
       .join('\n\n');
 
     const reply = await aiComplete(provider, key, {
+      uid,
       system:
         'Você é um analista de suporte da B2click respondendo a um cliente em um chamado. Escreva em português do Brasil, com tom cordial, profissional e claro. Trate o cliente com respeito. Seja conciso e objetivo, sem jargão técnico interno nem detalhes de implementação. Gere APENAS o texto da resposta, pronto para enviar.',
       user: `Escreva uma resposta para o cliente neste chamado.${instruction ? ` Objetivo da resposta: ${instruction}.` : ''} Baseie-se no histórico; não invente prazos ou fatos que não estejam no contexto. Se faltar informação, peça educadamente o que for necessário.
@@ -312,7 +352,7 @@ ${history || '(sem mensagens anteriores)'}`,
 router.post(
   '/ai/chat',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -324,6 +364,9 @@ router.post(
     const redmine = makeRedmine(req);
     const ctx = { redmine, req };
     const trace = [];
+    // Ações de escrita propostas pelo modelo, NÃO executadas: devolvidas ao
+    // cliente para confirmação explícita (ver /ai/confirm-action).
+    const pendingActions = [];
     const MAX_STEPS = 8;
 
     if (provider === 'anthropic') {
@@ -336,12 +379,13 @@ router.post(
       const convo = messages.map((m) => ({ role: m.role, content: m.content }));
       for (let step = 0; step < MAX_STEPS; step++) {
         const resp = await client.messages.create({
-          model: 'claude-sonnet-4-6',
+          model: AI_MODELS.anthropic.default,
           max_tokens: 1500,
           system: CHAT_SYSTEM,
           tools,
           messages: convo,
         });
+        aiUsage.record(uid, provider, aiUsage.usageFrom(resp));
         const toolUses = resp.content.filter((b) => b.type === 'tool_use');
         if (toolUses.length === 0) {
           const text = resp.content
@@ -349,17 +393,17 @@ router.post(
             .map((b) => b.text)
             .join('\n')
             .trim();
-          return res.json({ reply: text, trace });
+          return res.json({ reply: text, trace, pendingActions });
         }
         convo.push({ role: 'assistant', content: resp.content });
         const results = [];
         for (const tu of toolUses) {
           trace.push({ tool: tu.name, args: tu.input });
-          const out = await execChatTool(tu.name, tu.input, ctx);
+          const out = gateOrExec(tu.name, tu.input, ctx, pendingActions);
           results.push({
             type: 'tool_result',
             tool_use_id: tu.id,
-            content: JSON.stringify(out).slice(0, 8000),
+            content: JSON.stringify(await out).slice(0, 8000),
           });
         }
         convo.push({ role: 'user', content: results });
@@ -367,6 +411,7 @@ router.post(
       return res.json({
         reply: 'Não consegui concluir a consulta em tempo hábil. Tente reformular.',
         trace,
+        pendingActions,
       });
     }
 
@@ -387,9 +432,10 @@ router.post(
           messages: convo,
           tools,
         });
+        aiUsage.record(uid, provider, aiUsage.usageFrom(resp));
         const msg = resp.choices[0].message;
         if (!msg.tool_calls || msg.tool_calls.length === 0) {
-          return res.json({ reply: (msg.content || '').trim(), trace });
+          return res.json({ reply: (msg.content || '').trim(), trace, pendingActions });
         }
         convo.push(msg);
         for (const tc of msg.tool_calls) {
@@ -400,7 +446,7 @@ router.post(
             /* ignore */
           }
           trace.push({ tool: tc.function.name, args });
-          const out = await execChatTool(tc.function.name, args, ctx);
+          const out = await gateOrExec(tc.function.name, args, ctx, pendingActions);
           convo.push({
             role: 'tool',
             tool_call_id: tc.id,
@@ -411,6 +457,7 @@ router.post(
       return res.json({
         reply: 'Não consegui concluir a consulta em tempo hábil. Tente reformular.',
         trace,
+        pendingActions,
       });
     }
 
@@ -418,11 +465,27 @@ router.post(
   }),
 );
 
+// Confirmação explícita de uma ação de escrita proposta pelo chat de IA.
+// O gate de /ai/chat NÃO executa escritas; elas só rodam aqui, disparadas por um
+// clique do usuário autenticado — este endpoint é o controle de segurança contra
+// prompt-injection. Só ferramentas marcadas como `dangerous` são aceitas.
+router.post(
+  '/ai/confirm-action',
+  handle(async (req, res) => {
+    const { tool, args } = req.body || {};
+    if (!tool || !isDangerousTool(tool))
+      return res.status(400).json({ error: 'Ação não confirmável.' });
+    const out = await execChatTool(tool, args || {}, { redmine: makeRedmine(req), req });
+    if (out && out.erro) return res.status(502).json({ error: out.erro });
+    res.json({ ok: true, result: out });
+  }),
+);
+
 // Daily standup — gera texto de standup a partir das tarefas abertas.
 router.post(
   '/ai/standup',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -439,6 +502,7 @@ router.post(
       .join('\n');
 
     const standup = await aiComplete(provider, key, {
+      uid,
       system:
         'Você é um assistente de daily standup para um time de desenvolvimento. Responda em português do Brasil.',
       user: `Com base nas tarefas abaixo, gere um texto de daily standup no formato:
@@ -463,7 +527,7 @@ ${list}`,
 router.post(
   '/ai/weekly-digest',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -488,6 +552,7 @@ router.post(
     const inProgress = open.filter((i) => /andamento|progress/i.test(i.status?.name || ''));
 
     const digest = await aiComplete(provider, key, {
+      uid,
       system:
         'Você é um assistente que escreve retrospectivas semanais para um desenvolvedor de um time de software. Responda em português do Brasil, em markdown.',
       user: `Escreva uma retrospectiva semanal concisa e útil com base nas tarefas abaixo. Use exatamente estas seções:
@@ -528,7 +593,7 @@ ${fmt(open) || '(nenhuma)'}`,
 router.post(
   '/ai/assess-complexity',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -538,15 +603,19 @@ router.post(
     if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
 
     const cf = (id) => (issue.custom_fields || []).find((f) => f.id === id)?.value || '';
-    const impacto = cf(229);
+    const impacto = cf(REDMINE_CF.impact);
     const numReqs = (issue.children || []).length; // subtarefas como proxy de escopo
     const rejections = (issue.journals || []).filter((j) =>
       j.details?.some(
-        (d) => d.property === 'attr' && d.name === 'status_id' && d.new_value === '34',
+        (d) =>
+          d.property === 'attr' &&
+          d.name === 'status_id' &&
+          d.new_value === String(REDMINE_STATUS.pendingFix),
       ),
     ).length;
 
     const result = await aiComplete(provider, key, {
+      uid,
       system:
         'Você é um tech lead experiente no ERP B2click (frontend Delphi, backend Java 21 legado). Responda APENAS com JSON válido, sem markdown.',
       user: `Avalie a complexidade desta tarefa de desenvolvimento. Retorne um JSON com:
@@ -581,7 +650,7 @@ ${(issue.description || '(sem descrição)').slice(0, 1500)}`,
 router.post(
   '/ai/review-checklist',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -591,8 +660,8 @@ router.post(
     if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
 
     const cf = (id) => (issue.custom_fields || []).find((f) => f.id === id)?.value || '';
-    const impacto = cf(229);
-    const branch = cf(140);
+    const impacto = cf(REDMINE_CF.impact);
+    const branch = cf(REDMINE_CF.branch);
 
     const lastDevNotes = (issue.journals || [])
       .filter((j) => j.notes?.trim())
@@ -601,6 +670,7 @@ router.post(
       .join('\n');
 
     const checklist = await aiComplete(provider, key, {
+      uid,
       system:
         'Você é um revisor de software experiente no ERP B2click (frontend Delphi, backend Java 21). Responda em português do Brasil.',
       user: `Gere um checklist de revisão de código para a tarefa abaixo. Cada item deve ser uma pergunta ou verificação concreta que o revisor deve checar. Use formato markdown com checkboxes: "- [ ] Verificar que...". Entre 6 e 12 itens. Baseie nos requisitos descritos e no impacto informado.
@@ -625,7 +695,7 @@ ${lastDevNotes ? `Notas do desenvolvedor:\n${lastDevNotes}` : ''}`,
 router.post(
   '/ai/suggest-fields',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -641,6 +711,7 @@ router.post(
       'JAVA, B2CLICK, B2CLICKPAF, ROTEADORPDV, AUTOMACAO, B2CLICKPOS, B2CLICKPAY (pode combinar com +)';
 
     const result = await aiComplete(provider, key, {
+      uid,
       system:
         'Você é um assistente de triagem de tarefas do ERP B2click. Responda APENAS com JSON válido, sem markdown.',
       user: `Com base no título e descrição da tarefa abaixo, sugira os campos mais adequados. Retorne um JSON com:
@@ -671,7 +742,7 @@ Descrição: ${(description || '').slice(0, 500)}`,
 router.post(
   '/ai/review-note',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -681,6 +752,7 @@ router.post(
     if (!noteText) return res.status(400).json({ error: 'noteText obrigatório' });
 
     const feedback = await aiComplete(provider, key, {
+      uid,
       system:
         'Você é um revisor técnico de notas de progresso de software. Responda em português do Brasil. Seja direto e conciso.',
       user: `Revise a nota de journal abaixo e aponte em 2-4 bullets (•) o que poderia ser melhorado: informações faltando, pontos ambíguos, ou aspectos importantes não mencionados. Se a nota estiver boa, diga "✓ Nota clara e completa." sem bullets.
@@ -702,7 +774,7 @@ ${noteText.slice(0, 1000)}`,
 router.post(
   '/ai/detect-ambiguities',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -841,6 +913,7 @@ ${(issue.description || '(sem descrição)').slice(0, 2000)}`;
     }
 
     const result = await aiComplete(provider, key, {
+      uid,
       system:
         'Você é um analista de requisitos sênior no ERP B2click (frontend Delphi, backend Java 21). Responda APENAS com JSON válido, sem markdown.',
       userContent,
@@ -862,7 +935,7 @@ ${(issue.description || '(sem descrição)').slice(0, 2000)}`;
 router.post(
   '/ai/suggest-version-note',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -872,7 +945,7 @@ router.post(
     if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
 
     const cf = (id) => (issue.custom_fields || []).find((f) => f.id === id)?.value || '';
-    const currentNote = cf(213); // Nota de versão atual (CF 213)
+    const currentNote = cf(REDMINE_CF.versionNote); // Nota de versão atual
 
     const lastNotes = (issue.journals || [])
       .filter((j) => j.notes?.trim())
@@ -881,6 +954,7 @@ router.post(
       .join('\n');
 
     const result = await aiComplete(provider, key, {
+      uid,
       system:
         'Você é um desenvolvedor do ERP B2click. Responda APENAS com JSON válido, sem markdown.',
       user: `Gere uma sugestão de Nota de Versão para esta tarefa seguindo EXATAMENTE o padrão B2click:
@@ -926,7 +1000,7 @@ ${lastNotes ? `Histórico recente:\n${lastNotes}` : ''}`,
 router.post(
   '/ai/quick',
   handle(async (req, res) => {
-    const { provider, key } = await getAICredentials(req);
+    const { provider, key, uid } = await getAICredentials(req);
     if (!key)
       return res
         .status(400)
@@ -936,6 +1010,7 @@ router.post(
     if (!issue) return res.status(400).json({ error: 'issue obrigatória' });
 
     const oneLiner = await aiComplete(provider, key, {
+      uid,
       system: 'Você é um assistente de software. Responda em português do Brasil.',
       user: `Em no máximo 12 palavras, descreva o estado atual desta tarefa:
 Tarefa: ${issue.subject}

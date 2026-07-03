@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import type { Attachment, EditField } from '../types/redmine';
 import { RequiredFieldsModal } from './RequiredFieldsModal';
+import { matchMissingFields } from '../utils/requiredFields';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
 import { TimeTracker } from './TimeTracker';
 import { IssueAIPanel } from './IssueAIPanel';
@@ -1682,11 +1683,7 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
   );
   const missingFields = useMemo<EditField[]>(() => {
     if (!pendingRequired) return [];
-    return editFields.filter(
-      (f) =>
-        f.name !== 'status_id' &&
-        pendingRequired.errors.some((e) => e.toLowerCase().includes(f.label.toLowerCase())),
-    );
+    return matchMissingFields(pendingRequired.errors, editFields);
   }, [pendingRequired, editFields]);
   const { data: members } = useProjectMembers(issue?.project.id);
   const { data: allNotes = [] } = useNotes();

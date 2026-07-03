@@ -7,6 +7,7 @@ const path = require('path');
 const cookieParser = require('cookie-parser');
 const { authMiddleware } = require('./middleware/auth');
 const errorMiddleware = require('./lib/errorMiddleware');
+const { mountSpa } = require('./lib/staticAssets');
 
 function buildApp() {
   const app = express();
@@ -88,12 +89,18 @@ function buildApp() {
   app.use(express.json());
   app.use(cookieParser());
 
+  // Health-check público (liveness/readiness) — sem auth, para monitoração.
+  const { health, diagnostics } = require('./routes/health');
+  app.use('/api', health);
+
   // Rotas da API (todas montadas sob /api).
   app.use('/api', require('./routes/auth'));
   // Download de anexo de e-mail: autentica pelo token ?s= (o <img> do iframe não
   // envia cookie de sessão), então fica ANTES do authMiddleware de propósito.
   app.use('/api', require('./routes/mailAttachment'));
   app.use('/api', authMiddleware);
+  app.use('/api', diagnostics);
+  app.use('/api', require('./routes/update'));
   app.use('/api', require('./routes/issues'));
   app.use('/api', require('./routes/timeEntries'));
   app.use('/api', require('./routes/meta'));
@@ -111,17 +118,10 @@ function buildApp() {
   app.use('/api', require('./routes/secrets'));
 
   // =========================================================================
-  // Injeta o frontend compilado dentro do executável do backend.
+  // Frontend compilado (SPA). No build SEA vai EMBUTIDO no executável (single-
+  // file); em dev/pkg é servido da pasta dist. mountSpa cuida dos dois modos.
   // =========================================================================
-
-  // 1. Serve os arquivos estáticos compilados do frontend (HTML, CSS, JS)
-  app.use(express.static(path.join(__dirname, 'dist')));
-
-  // 2. Rotas de navegação do SPA caem no index.html; rotas /api/ não registradas retornam 404
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) return next();
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-  });
+  mountSpa(app, path.join(__dirname, 'dist'));
 
   // Tratamento centralizado de erros — deve ser o último middleware registrado
   app.use(errorMiddleware);

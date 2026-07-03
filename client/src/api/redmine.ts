@@ -30,6 +30,34 @@ export interface Upload {
   content_type: string;
 }
 
+// Ação de escrita proposta pelo chat de IA, aguardando confirmação do usuário.
+export interface PendingAiAction {
+  id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  label: string;
+}
+
+interface AIUsageBucket {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+export interface AIUsage {
+  total: AIUsageBucket;
+  byProvider: Record<string, AIUsageBucket>;
+  daily: Record<string, AIUsageBucket>;
+}
+
+export interface UpdateStatus {
+  enabled: boolean;
+  current: string;
+  latest?: string;
+  updateAvailable?: boolean;
+  notes?: string;
+  staged?: boolean;
+}
+
 export function getStoredAuth(): RedmineAuth | null {
   try {
     const raw = localStorage.getItem(AUTH_KEY);
@@ -315,6 +343,15 @@ export const redmineApi = {
     return data.issues ?? [];
   },
 
+  // Tarefas de uma versão em TODOS os projetos (versões compartilhadas). Usa só
+  // fixed_version_id, então pega tarefas mesmo em projetos que não são o dono.
+  getVersionIssuesAll: async (versionId: number): Promise<Issue[]> => {
+    const { data } = await api.get('/issues/by-version', {
+      params: { version_id: versionId },
+    });
+    return data.issues ?? [];
+  },
+
   getMentions: async (): Promise<Mention[]> => {
     const { data } = await api.get('/issues/mentions');
     return data.mentions ?? [];
@@ -359,9 +396,30 @@ export const redmineApi = {
 
   aiChat: async (
     messages: { role: 'user' | 'assistant'; content: string }[],
-  ): Promise<{ reply: string; trace: { tool: string; args: unknown }[] }> => {
+  ): Promise<{
+    reply: string;
+    trace: { tool: string; args: unknown }[];
+    pendingActions?: PendingAiAction[];
+  }> => {
     if (!aiConfigured()) throw new Error('AI_NOT_CONFIGURED');
     const { data } = await api.post('/ai/chat', { messages });
+    return data;
+  },
+
+  // Executa uma ação de escrita proposta pelo chat, após confirmação explícita do
+  // usuário. É o controle de segurança contra prompt-injection (o chat nunca
+  // executa escritas sozinho).
+  confirmAiAction: async (action: PendingAiAction): Promise<{ ok: boolean; result: unknown }> => {
+    const { data } = await api.post('/ai/confirm-action', {
+      tool: action.tool,
+      args: action.args,
+    });
+    return data;
+  },
+
+  // Uso/custo acumulado de IA (tokens) do usuário atual.
+  getAIUsage: async (): Promise<AIUsage> => {
+    const { data } = await api.get('/ai/usage');
     return data;
   },
 
@@ -460,6 +518,20 @@ export const redmineApi = {
       },
       timeout: 300000, // 5 minutes for large audio processing
     });
+    return data;
+  },
+
+  // ── Auto-update ───────────────────────────────────────────────────────
+  getUpdateStatus: async (): Promise<UpdateStatus> => {
+    const { data } = await api.get('/update/status');
+    return data;
+  },
+  downloadUpdate: async (): Promise<{ updated: boolean; version?: string; message?: string }> => {
+    const { data } = await api.post('/update/download');
+    return data;
+  },
+  applyUpdate: async (): Promise<{ applying: boolean }> => {
+    const { data } = await api.post('/update/apply');
     return data;
   },
 

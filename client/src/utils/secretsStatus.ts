@@ -5,13 +5,13 @@ import axios from 'axios';
 
 export interface SecretsStatus {
   ad: boolean;
-  ai: { anthropic: boolean; openai: boolean; gemini: boolean };
+  ai: { anthropic: boolean; openai: boolean; gemini: boolean; local: boolean };
   totpCount: number;
 }
 
 const EMPTY: SecretsStatus = {
   ad: false,
-  ai: { anthropic: false, openai: false, gemini: false },
+  ai: { anthropic: false, openai: false, gemini: false, local: false },
   totpCount: 0,
 };
 // Cache booleano de "o que está configurado" — NÃO contém segredos, só flags.

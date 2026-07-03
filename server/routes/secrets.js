@@ -39,6 +39,7 @@ router.get(
         anthropic: !!ai.anthropic,
         openai: !!ai.openai,
         gemini: !!ai.gemini,
+        local: !!ai.local,
       },
       totpCount: getTotp(uid).length,
     });
@@ -69,7 +70,9 @@ router.delete(
 );
 
 // ── Chaves de IA ────────────────────────────────────────────────────────────
-const AI_PROVIDERS = ['anthropic', 'openai', 'gemini'];
+// 'local' = servidor OpenAI-compatible on-prem (Ollama/vLLM/LM Studio). A "key"
+// pode ser um token qualquer (ou o sentinela 'local' quando o servidor não exige).
+const AI_PROVIDERS = ['anthropic', 'openai', 'gemini', 'local'];
 
 router.put(
   '/secrets/ai/:provider',

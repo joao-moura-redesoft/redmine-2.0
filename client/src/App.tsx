@@ -42,6 +42,8 @@ import { StandupModal } from './components/StandupModal';
 import { TalkChat } from './components/TalkChat';
 import { NotesView } from './components/NotesView';
 import { SprintsView } from './components/SprintsView';
+import { RoadmapView } from './components/RoadmapView';
+import { UpdateBanner } from './components/UpdateBanner';
 import { AssistantView } from './components/AssistantView';
 import { MailView } from './components/MailView';
 import { WikiView } from './components/WikiView';
@@ -87,6 +89,7 @@ import {
   Video,
   HardDrive,
   CalendarRange,
+  Milestone,
 } from 'lucide-react';
 import { useJitsi } from './components/jitsi/JitsiContext';
 import { CallWindow } from './components/jitsi/CallWindow';
@@ -112,6 +115,7 @@ type Tab =
   | 'myday'
   | 'kanban'
   | 'sprints'
+  | 'roadmap'
   | 'calendar'
   | 'review'
   | 'test'
@@ -218,9 +222,27 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  // Pré-preenchimento de "nova tarefa" disparado por outras áreas (ex.: e-mail
+  // do Zimbra → criar tarefa), via CustomEvent para desacoplar do MailView.
+  const [createPrefill, setCreatePrefill] = useState<{
+    subject?: string;
+    description?: string;
+  } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const watchedIds = useLocalWatches();
   const notifRef = useRef<HTMLDivElement>(null);
+
+  // Abre "nova tarefa" pré-preenchida quando outra área dispara o evento
+  // (ex.: botão "Criar tarefa" na leitura de um e-mail).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ subject?: string; description?: string }>).detail || {};
+      setCreatePrefill({ subject: detail.subject, description: detail.description });
+      setShowCreate(true);
+    };
+    window.addEventListener('bluemine:create-issue', handler);
+    return () => window.removeEventListener('bluemine:create-issue', handler);
+  }, []);
 
   const { focusedIssueId } = useShortcuts({
     onOpenIssue: openIssue,
@@ -344,6 +366,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     { id: 'myday', label: 'Meu Dia', icon: <Sun size={15} /> },
     { id: 'kanban', label: 'Minhas Tarefas', icon: <LayoutGrid size={15} /> },
     { id: 'sprints', label: 'Sprints', icon: <CalendarRange size={15} /> },
+    { id: 'roadmap', label: 'Roadmap', icon: <Milestone size={15} /> },
     { id: 'calendar', label: 'Calendário', icon: <CalendarDays size={15} /> },
     {
       id: 'review',
@@ -397,7 +420,10 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   ];
 
   const tabGroups: { label: string | null; ids: Tab[] }[] = [
-    { label: null, ids: ['inbox', 'dashboard', 'myday', 'kanban', 'sprints', 'calendar'] },
+    {
+      label: null,
+      ids: ['inbox', 'dashboard', 'myday', 'kanban', 'sprints', 'roadmap', 'calendar'],
+    },
     {
       label: 'Fila',
       ids: [
@@ -785,6 +811,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
               element={<NotesView onIssueClick={openIssue} seed={noteSeed} focus={notesFocus} />}
             />
             <Route path="/sprints" element={<SprintsView onIssueClick={openIssue} />} />
+            <Route path="/roadmap" element={<RoadmapView onIssueClick={openIssue} />} />
             <Route path="/assistant" element={<AssistantView onIssueClick={openIssue} />} />
             <Route path="/mail" element={<MailView />} />
             <Route path="/wiki" element={<WikiView />} />
@@ -992,7 +1019,10 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             id: 'create',
             label: 'Criar tarefa',
             icon: <Plus size={14} />,
-            run: () => setShowCreate(true),
+            run: () => {
+              setCreatePrefill(null);
+              setShowCreate(true);
+            },
           },
           {
             id: 'new-note',
@@ -1023,7 +1053,18 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         onSelectIssue={openIssue}
       />
 
-      {showCreate && <CreateIssueModal onClose={() => setShowCreate(false)} />}
+      {showCreate && (
+        <CreateIssueModal
+          onClose={() => {
+            setShowCreate(false);
+            setCreatePrefill(null);
+          }}
+          initialSubject={createPrefill?.subject}
+          initialDescription={createPrefill?.description}
+        />
+      )}
+
+      <UpdateBanner />
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
 
       {showStandup && (
