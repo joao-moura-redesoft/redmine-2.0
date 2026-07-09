@@ -18,6 +18,9 @@ import { useKeyboardTriage } from '../hooks/useKeyboardTriage';
 import { QuickEditPanel } from './inline/QuickEditPanel';
 import { SnoozeMenu } from './inline/SnoozeMenu';
 import { useSnoozes, snoozeStore, snoozeLabel } from '../utils/snooze';
+import { useWaitingOn, waitingStore, waitingLabel } from '../utils/waitingOn';
+import { Hourglass, Check } from 'lucide-react';
+import { BulkBar } from './inline/BulkBar';
 
 function isClosed(i: Issue): boolean {
   const n = i.status.name.toLowerCase();
@@ -84,6 +87,7 @@ export function InboxView({ onIssueClick }: Props) {
 
   // Adiadas (snooze): somem do Inbox até voltar; "mostrar" revela e permite desfazer.
   const snoozes = useSnoozes();
+  const waiting = useWaitingOn();
   const [showSnoozed, setShowSnoozed] = useState(false);
   const isSnoozedNow = (id: number) => (snoozes[id] ?? 0) > Date.now();
   const snoozedCount = sections.reduce(
@@ -99,9 +103,11 @@ export function InboxView({ onIssueClick }: Props) {
   const total = visibleSections.reduce((n, s) => n + s.items.length, 0);
   const loading = my.isLoading || toReview.isLoading;
 
-  // Triagem por teclado (j/k navega, e edita, z adia, enter abre, ? ajuda).
+  // Triagem por teclado (j/k navega, e edita, z adia, x seleciona, enter abre).
   const ordered = visibleSections.flatMap((s) => s.items);
   const byId = new Map(ordered.map((i) => [i.id, i]));
+  // Lookup amplo (inclui adiadas) pra resolver a seleção do lote.
+  const allById = new Map(sections.flatMap((s) => s.items).map((i) => [i.id, i]));
   const triage = useKeyboardTriage({
     ids: ordered.map((i) => i.id),
     issueById: (id) => byId.get(id),
@@ -186,9 +192,25 @@ export function InboxView({ onIssueClick }: Props) {
                     data-issue-id={issue.id}
                     onClick={() => onIssueClick(issue.id)}
                     className={`w-full text-left flex items-center gap-2.5 px-4 py-2 hover:bg-blue-50 transition-colors group ${
-                      triage.focusedId === issue.id ? 'bg-blue-50 ring-2 ring-inset ring-blue-400' : ''
+                      triage.selected.has(issue.id)
+                        ? 'bg-blue-50/70'
+                        : triage.focusedId === issue.id
+                          ? 'bg-blue-50 ring-2 ring-inset ring-blue-400'
+                          : ''
                     }`}
                   >
+                    {triage.selected.has(issue.id) && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          triage.toggleSelected(issue.id);
+                        }}
+                        title="Desselecionar"
+                        className="flex-shrink-0 w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center"
+                      >
+                        <Check size={11} />
+                      </span>
+                    )}
                     <span className="text-xs font-medium text-slate-400 flex-shrink-0 w-14">
                       #{issue.id}
                     </span>
@@ -214,6 +236,18 @@ export function InboxView({ onIssueClick }: Props) {
                         className="text-[10px] font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 px-1.5 py-0.5 rounded flex-shrink-0 inline-flex items-center gap-1"
                       >
                         <Clock size={10} /> {snoozeLabel(snoozes[issue.id])}
+                      </span>
+                    )}
+                    {waiting[issue.id] && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          waitingStore.clear(issue.id);
+                        }}
+                        title="Parar de aguardar"
+                        className="text-[10px] font-medium text-sky-600 bg-sky-50 hover:bg-sky-100 px-1.5 py-0.5 rounded flex-shrink-0 inline-flex items-center gap-1"
+                      >
+                        <Hourglass size={10} /> aguardando {waitingLabel(waiting[issue.id].since)}
                       </span>
                     )}
                   </button>
@@ -246,6 +280,16 @@ export function InboxView({ onIssueClick }: Props) {
         />
       )}
 
+      {/* Barra de ações em lote (seleção com x) */}
+      {triage.selected.size > 0 && (
+        <BulkBar
+          issues={[...triage.selected]
+            .map((id) => allById.get(id))
+            .filter((i): i is Issue => !!i)}
+          onClear={triage.clearSelected}
+        />
+      )}
+
       {/* Ajuda de atalhos */}
       {triage.showHelp && (
         <div
@@ -269,6 +313,8 @@ export function InboxView({ onIssueClick }: Props) {
                 ['s', 'Mudar status'],
                 ['a', 'Mudar responsável'],
                 ['z', 'Adiar (snooze)'],
+                ['w', 'Aguardando resposta'],
+                ['x', 'Selecionar (lote)'],
                 ['esc', 'Limpar foco / fechar'],
               ].map(([k, d]) => (
                 <div key={k} className="flex items-center justify-between gap-3">

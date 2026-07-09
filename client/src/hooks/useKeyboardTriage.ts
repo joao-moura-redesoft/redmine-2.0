@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Issue } from '../types/redmine';
 import type { QuickField } from '../components/inline/QuickEditPanel';
+import { waitingStore } from '../utils/waitingOn';
 
 interface QuickEdit {
   issue: Issue;
@@ -30,11 +31,22 @@ export function useKeyboardTriage({
   const [focusedId, setFocusedId] = useState<number | null>(null);
   const [quickEdit, setQuickEdit] = useState<QuickEdit | null>(null);
   const [snooze, setSnooze] = useState<{ issue: Issue; rect: DOMRect } | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [showHelp, setShowHelp] = useState(false);
 
+  const toggleSelected = useCallback((id: number) => {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }, []);
+  const clearSelected = useCallback(() => setSelected(new Set()), []);
+
   // refs estáveis pra não re-registrar o listener a cada render
-  const st = useRef({ ids, focusedId, quickEdit, snooze, issueById, onOpenIssue });
-  st.current = { ids, focusedId, quickEdit, snooze, issueById, onOpenIssue };
+  const st = useRef({ ids, focusedId, quickEdit, snooze, selected, issueById, onOpenIssue });
+  st.current = { ids, focusedId, quickEdit, snooze, selected, issueById, onOpenIssue };
 
   const rowRect = (id: number): DOMRect | null =>
     document.querySelector<HTMLElement>(`[data-issue-id="${id}"]`)?.getBoundingClientRect() ?? null;
@@ -120,6 +132,23 @@ export function useKeyboardTriage({
             openSnooze();
           }
           return;
+        case 'w':
+          if (fid != null) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            waitingStore.toggle(fid);
+          }
+          return;
+        case 'x':
+          if (fid != null) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            toggleSelected(fid);
+            // avança pro próximo (permite x x x rápido)
+            const cur = list.indexOf(fid);
+            if (cur >= 0 && cur < list.length - 1) setFocusedId(list[cur + 1]);
+          }
+          return;
         case '?':
           e.stopImmediatePropagation();
           e.preventDefault();
@@ -128,6 +157,8 @@ export function useKeyboardTriage({
         case 'Escape':
           if (showHelp) {
             setShowHelp(false);
+          } else if (st.current.selected.size) {
+            clearSelected();
           } else if (fid != null) {
             setFocusedId(null);
           }
@@ -137,7 +168,7 @@ export function useKeyboardTriage({
     // captura: roda antes do listener global (window bubble) do useShortcuts
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [enabled, onOpenIssue, openQuick, openSnooze, showHelp]);
+  }, [enabled, onOpenIssue, openQuick, openSnooze, toggleSelected, clearSelected, showHelp]);
 
   // Mantém a linha focada visível.
   useEffect(() => {
@@ -158,6 +189,9 @@ export function useKeyboardTriage({
     closeQuickEdit: () => setQuickEdit(null),
     snooze,
     closeSnooze: () => setSnooze(null),
+    selected,
+    toggleSelected,
+    clearSelected,
     showHelp,
     setShowHelp,
   };

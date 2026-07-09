@@ -34,6 +34,7 @@ import { useActivityNotifications } from './hooks/useActivityNotifications';
 import { useMailNotifications } from './hooks/useMailNotifications';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import { useSnoozeReminders } from './hooks/useSnoozeReminders';
+import { useWaitingReminders } from './hooks/useWaitingReminders';
 import { useBrowserNotifications } from './hooks/useBrowserNotifications';
 import { useTalkNotifications } from './hooks/useTalkNotifications';
 import { useTheme } from './hooks/useTheme';
@@ -342,6 +343,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   usePushNotifications();
   useTalkNotifications();
   useSnoozeReminders(allIssues);
+  useWaitingReminders(allIssues);
 
   const [pendingTalkToken, setPendingTalkToken] = useState<string | null>(null);
 
