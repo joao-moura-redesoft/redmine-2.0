@@ -29,9 +29,12 @@ export function FocusWidget() {
     if (finishing.current || !focus) return;
     finishing.current = true;
     setSaving(true);
-    const hours = Math.round(((Date.now() - focus.startedAt) / 3_600_000) * 100) / 100;
     const issueId = focus.issueId;
     const minutes = focus.minutes;
+    // Limita ao tempo da sessão: se passar do fim (app aberto demais / reaberto
+    // tarde), aponta os `minutes` planejados — não o elapsed real de horas.
+    const elapsedMin = (Date.now() - focus.startedAt) / 60_000;
+    const hours = Math.round((Math.min(elapsedMin, minutes) / 60) * 100) / 100;
     focusStore.clear();
     try {
       const res = await logHours(issueId, hours, { comments: `Sessão de foco (${minutes}min)` });

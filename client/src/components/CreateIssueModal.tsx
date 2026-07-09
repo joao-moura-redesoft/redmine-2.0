@@ -32,9 +32,11 @@ import { getAIKey } from '../utils/aiConfig';
 interface Props {
   onClose: () => void;
   defaultStatusId?: number;
-  // Pré-preenchimento (ex.: criar tarefa a partir de um e-mail do Zimbra).
+  // Pré-preenchimento (ex.: criar tarefa a partir de um e-mail do Zimbra / captura rápida).
   initialSubject?: string;
   initialDescription?: string;
+  initialPriorityId?: number;
+  initialDueDate?: string;
 }
 
 function fmtSize(bytes: number): string {
@@ -43,7 +45,13 @@ function fmtSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function CreateIssueModal({ onClose, initialSubject, initialDescription }: Props) {
+export function CreateIssueModal({
+  onClose,
+  initialSubject,
+  initialDescription,
+  initialPriorityId,
+  initialDueDate,
+}: Props) {
   const { data: projects } = useProjects();
   const { data: trackers } = useTrackers();
   const { data: priorities } = usePriorities();
@@ -54,8 +62,8 @@ export function CreateIssueModal({ onClose, initialSubject, initialDescription }
   const [description, setDescription] = useState(initialDescription ?? '');
   const [projectId, setProjectId] = useState<number | ''>('');
   const [trackerId, setTrackerId] = useState<number | ''>('');
-  const [priorityId, setPriorityId] = useState<number | ''>('');
-  const [dueDate, setDueDate] = useState('');
+  const [priorityId, setPriorityId] = useState<number | ''>(initialPriorityId ?? '');
+  const [dueDate, setDueDate] = useState(initialDueDate ?? '');
   const [assignedTo, setAssignedTo] = useState<number | ''>('');
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);

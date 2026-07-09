@@ -192,6 +192,16 @@ export function useKeyboardTriage({
     if (focusedId != null && !ids.includes(focusedId)) setFocusedId(null);
   }, [ids, focusedId]);
 
+  // Auto-foca o primeiro item quando a lista carrega (uma vez) — deixa o teclado
+  // operável imediatamente. Esc limpa e não re-foca.
+  const inited = useRef(false);
+  useEffect(() => {
+    if (!inited.current && ids.length) {
+      inited.current = true;
+      setFocusedId(ids[0]);
+    }
+  }, [ids]);
+
   return {
     focusedId,
     quickEdit,
@@ -205,3 +215,5 @@ export function useKeyboardTriage({
     setShowHelp,
   };
 }
+
+export type Triage = ReturnType<typeof useKeyboardTriage>;

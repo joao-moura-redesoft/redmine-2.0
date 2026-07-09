@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { RefreshCw, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { RefreshCw, Search, X, ChevronDown, ChevronRight, Check, Keyboard } from 'lucide-react';
 import type { Issue } from '../types/redmine';
 import { QuickEditButton } from './inline/QuickEditButton';
+import { useKeyboardTriage, type Triage } from '../hooks/useKeyboardTriage';
+import { TriageLayer } from './inline/TriageLayer';
 
 /* ── Status badge color ── */
 function statusColor(name: string): string {
@@ -34,19 +36,37 @@ function IssueRow({
   onClick,
   showAssignee,
   focused,
+  triage,
 }: {
   issue: Issue;
   onClick: (id: number) => void;
   showAssignee?: boolean;
   focused?: boolean;
+  triage?: Triage;
 }) {
+  const isFocused = focused || triage?.focusedId === issue.id;
+  const isSelected = !!triage?.selected.has(issue.id);
   return (
     <div className="relative group border-b border-slate-100 last:border-0">
     <button
       data-issue-id={issue.id}
       onClick={() => onClick(issue.id)}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left ${focused ? 'bg-blue-50 ring-1 ring-inset ring-blue-400' : ''}`}
+      className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left ${
+        isSelected ? 'bg-blue-50/70' : isFocused ? 'bg-blue-50 ring-1 ring-inset ring-blue-400' : ''
+      }`}
     >
+      {isSelected && (
+        <span
+          onClick={(e) => {
+            e.stopPropagation();
+            triage?.toggleSelected(issue.id);
+          }}
+          title="Desselecionar"
+          className="flex-shrink-0 w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center"
+        >
+          <Check size={11} />
+        </span>
+      )}
       {/* Priority dot */}
       <span
         className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOT[issue.priority.name] ?? 'bg-slate-400'}`}
@@ -103,12 +123,14 @@ function StatusGroup({
   onIssueClick,
   showAssignee,
   focusedIssueId,
+  triage,
 }: {
   name: string;
   issues: Issue[];
   onIssueClick: (id: number) => void;
   showAssignee?: boolean;
   focusedIssueId?: number;
+  triage?: Triage;
 }) {
   const [open, setOpen] = useState(true);
   return (
@@ -157,6 +179,7 @@ function StatusGroup({
               onClick={onIssueClick}
               showAssignee={showAssignee}
               focused={focusedIssueId === issue.id}
+              triage={triage}
             />
           ))}
         </div>
@@ -225,6 +248,15 @@ export function IssueListView({
     return ia - ib;
   });
 
+  // Triagem por teclado (mesma do Inbox): j/k navega, e/s/a edita, z/w/f, x lote.
+  const ordered = sortedGroups.flatMap(([, items]) => items);
+  const allById = new Map(filtered.map((i) => [i.id, i]));
+  const triage = useKeyboardTriage({
+    ids: ordered.map((i) => i.id),
+    issueById: (id) => allById.get(id),
+    onOpenIssue: onIssueClick,
+  });
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-48 text-slate-500 gap-2">
@@ -267,6 +299,13 @@ export function IssueListView({
         >
           <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} />
         </button>
+        <button
+          onClick={() => triage.setShowHelp(true)}
+          className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors text-slate-400 hover:text-slate-600"
+          title="Atalhos do teclado (?)"
+        >
+          <Keyboard size={15} />
+        </button>
       </div>
 
       {/* Groups */}
@@ -283,9 +322,12 @@ export function IssueListView({
             onIssueClick={onIssueClick}
             showAssignee={showAssignee}
             focusedIssueId={focusedIssueId}
+            triage={triage}
           />
         ))
       )}
+
+      <TriageLayer triage={triage} issueById={(id) => allById.get(id)} />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Zap, X, NotebookPen, ClipboardList, CalendarClock, Flag, Hash, Loader2 } from 'lucide-react';
 import { useCreateNote } from '../hooks/useNotes';
+import { usePriorities } from '../hooks/useRedmine';
 import { quickParse } from '../utils/quickParse';
 
 // Captura rápida em linguagem natural → vira nota ou tarefa. Parser heurístico
@@ -9,6 +10,7 @@ export function QuickAddModal({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
   const createNote = useCreateNote();
+  const { data: priorities } = usePriorities();
   const parsed = useMemo(() => quickParse(text), [text]);
   const empty = !text.trim();
 
@@ -30,9 +32,17 @@ export function QuickAddModal({ onClose }: { onClose: () => void }) {
   };
 
   const createAsTask = () => {
+    const pri = parsed.priorityName
+      ? priorities?.find((p) => p.name.toLowerCase() === parsed.priorityName!.toLowerCase())
+      : undefined;
     window.dispatchEvent(
       new CustomEvent('bluemine:create-issue', {
-        detail: { subject: parsed.title.slice(0, 120), description: text.trim() },
+        detail: {
+          subject: parsed.title.slice(0, 120),
+          description: text.trim(),
+          priorityId: pri?.id,
+          dueDate: parsed.dueDate,
+        },
       }),
     );
     onClose();

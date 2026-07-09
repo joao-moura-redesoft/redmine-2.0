@@ -242,6 +242,8 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const [createPrefill, setCreatePrefill] = useState<{
     subject?: string;
     description?: string;
+    priorityId?: number;
+    dueDate?: string;
   } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const watchedIds = useLocalWatches();
@@ -251,8 +253,16 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   // (ex.: botão "Criar tarefa" na leitura de um e-mail).
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ subject?: string; description?: string }>).detail || {};
-      setCreatePrefill({ subject: detail.subject, description: detail.description });
+      const detail =
+        (
+          e as CustomEvent<{
+            subject?: string;
+            description?: string;
+            priorityId?: number;
+            dueDate?: string;
+          }>
+        ).detail || {};
+      setCreatePrefill(detail);
       setShowCreate(true);
     };
     window.addEventListener('bluemine:create-issue', handler);
@@ -1132,6 +1142,8 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
           }}
           initialSubject={createPrefill?.subject}
           initialDescription={createPrefill?.description}
+          initialPriorityId={createPrefill?.priorityId}
+          initialDueDate={createPrefill?.dueDate}
         />
       )}
 

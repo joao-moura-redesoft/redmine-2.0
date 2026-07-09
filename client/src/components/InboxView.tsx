@@ -15,12 +15,10 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useKeyboardTriage } from '../hooks/useKeyboardTriage';
-import { QuickEditPanel } from './inline/QuickEditPanel';
-import { SnoozeMenu } from './inline/SnoozeMenu';
+import { TriageLayer } from './inline/TriageLayer';
 import { useSnoozes, snoozeStore, snoozeLabel } from '../utils/snooze';
 import { useWaitingOn, waitingStore, waitingLabel } from '../utils/waitingOn';
 import { Hourglass, Check } from 'lucide-react';
-import { BulkBar } from './inline/BulkBar';
 
 function isClosed(i: Issue): boolean {
   const n = i.status.name.toLowerCase();
@@ -258,77 +256,7 @@ export function InboxView({ onIssueClick }: Props) {
         </div>
       )}
 
-      {/* Popover de edição rápida (aberto por teclado: e / s / a) */}
-      {triage.quickEdit && (
-        <QuickEditPanel
-          issue={triage.quickEdit.issue}
-          anchorRect={triage.quickEdit.rect}
-          initialField={triage.quickEdit.field}
-          onClose={triage.closeQuickEdit}
-        />
-      )}
-
-      {/* Menu de adiar (aberto por teclado: z) */}
-      {triage.snooze && (
-        <SnoozeMenu
-          anchorRect={triage.snooze.rect}
-          onPick={(until) => {
-            snoozeStore.snooze(triage.snooze!.issue.id, until);
-            triage.closeSnooze();
-          }}
-          onClose={triage.closeSnooze}
-        />
-      )}
-
-      {/* Barra de ações em lote (seleção com x) */}
-      {triage.selected.size > 0 && (
-        <BulkBar
-          issues={[...triage.selected]
-            .map((id) => allById.get(id))
-            .filter((i): i is Issue => !!i)}
-          onClear={triage.clearSelected}
-        />
-      )}
-
-      {/* Ajuda de atalhos */}
-      {triage.showHelp && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
-          onClick={() => triage.setShowHelp(false)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xs p-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <Keyboard size={16} className="text-blue-500" />
-              <h3 className="text-sm font-semibold text-slate-800">Atalhos da triagem</h3>
-            </div>
-            <dl className="space-y-1.5 text-sm">
-              {[
-                ['j / ↓', 'Próxima tarefa'],
-                ['k / ↑', 'Tarefa anterior'],
-                ['enter / o', 'Abrir tarefa'],
-                ['e', 'Edição rápida'],
-                ['s', 'Mudar status'],
-                ['a', 'Mudar responsável'],
-                ['z', 'Adiar (snooze)'],
-                ['w', 'Aguardando resposta'],
-                ['x', 'Selecionar (lote)'],
-                ['f', 'Foco 25min (Pomodoro)'],
-                ['esc', 'Limpar foco / fechar'],
-              ].map(([k, d]) => (
-                <div key={k} className="flex items-center justify-between gap-3">
-                  <kbd className="text-xs font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
-                    {k}
-                  </kbd>
-                  <span className="text-slate-600">{d}</span>
-                </div>
-              ))}
-            </dl>
-          </div>
-        </div>
-      )}
+      <TriageLayer triage={triage} issueById={(id) => allById.get(id)} />
     </div>
   );
 }
