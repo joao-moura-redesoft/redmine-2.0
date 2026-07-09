@@ -57,6 +57,7 @@ import { MyDayView } from './components/MyDayView';
 import { FlowView } from './components/FlowView';
 import { FocusWidget } from './components/FocusWidget';
 import { TimesheetView } from './components/TimesheetView';
+import { QuickAddModal } from './components/QuickAddModal';
 import type { NotePatch } from './api/notes';
 import { mailApi } from './api/mail';
 import { isMailAvailable } from './utils/mailConfig';
@@ -99,6 +100,7 @@ import {
   CalendarRange,
   CalendarClock,
   Milestone,
+  Zap,
 } from 'lucide-react';
 import { useJitsi } from './components/jitsi/JitsiContext';
 import { CallWindow } from './components/jitsi/CallWindow';
@@ -315,6 +317,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showStandup, setShowStandup] = useState(false);
   const [showDigest, setShowDigest] = useState(false);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
 
   // Deep-link do Web Push do digest (?digest=1) → abre o resumo da manhã.
   useEffect(() => {
@@ -1077,6 +1080,12 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             run: () => openNewNote({}),
           },
           {
+            id: 'quick-add',
+            label: 'Captura rápida (linguagem natural)',
+            icon: <Zap size={14} />,
+            run: () => setShowQuickAdd(true),
+          },
+          {
             id: 'theme',
             label: theme === 'dark' ? 'Tema claro' : 'Tema escuro',
             icon: theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />,
@@ -1122,6 +1131,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
       )}
 
       {showDigest && <DigestModal onClose={() => setShowDigest(false)} />}
+      {showQuickAdd && <QuickAddModal onClose={() => setShowQuickAdd(false)} />}
 
       <TalkChat
         onIssueClick={openIssue}
