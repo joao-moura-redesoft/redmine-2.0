@@ -1,8 +1,17 @@
 // Ponto de entrada do servidor Bluemine: monta o app Express e sobe os workers
 // de background (polling de Web Push). A lógica vive em app.js, routes/ e services/.
 require('dotenv').config();
+
+// Empacotado como app GUI (bluemine.exe sem janela de console no Windows),
+// escritas em stdout/stderr podem falhar (EBADF/EPIPE) porque não há console.
+// Silencia esses erros para não derrubar o processo — os logs persistem em
+// arquivo (LOG_FILE). Precisa vir antes de qualquer console.log.
+process.stdout.on('error', () => {});
+process.stderr.on('error', () => {});
+
 const buildApp = require('./app');
 const { startPushPolling } = require('./services/push');
+const { startBridge } = require('./services/keyboardBridge');
 const { openAppWindow } = require('./lib/launcher');
 const { writeBootMarker } = require('./services/updater');
 
@@ -31,6 +40,8 @@ const server = app.listen(PORT, HOST, () => {
   writeBootMarker();
   // Abre a janela dedicada do app (Edge em app mode → navegador padrão).
   openAppWindow(APP_URL, { host: HOST });
+  // Sobe o processo-ponte da telinha do teclado K86 (best-effort).
+  startBridge();
 });
 
 // Se a porta já estiver em uso, provavelmente o .exe já está rodando: em vez de

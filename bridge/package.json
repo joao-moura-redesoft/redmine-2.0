@@ -1,0 +1,20 @@
+{
+  "name": "k86-bridge",
+  "version": "1.0.0",
+  "description": "Ponte da telinha do Attack Shark K86 para o Bluemine (node-hid + canvas nativos).",
+  "main": "index.js",
+  "bin": "index.js",
+  "private": true,
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.60",
+    "node-hid": "^3.1.2"
+  },
+  "pkg": {
+    "targets": ["node22-win-x64"],
+    "assets": [
+      "node_modules/@napi-rs/canvas-win32-x64-msvc/**/*",
+      "node_modules/node-hid/prebuilds/HID-win32-x64/*.node"
+    ],
+    "outputPath": ".."
+  }
+}

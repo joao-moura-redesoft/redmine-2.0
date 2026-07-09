@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useIssues, useToReviewIssues } from '../hooks/useRedmine';
 import type { Issue } from '../types/redmine';
 import {
@@ -8,9 +9,15 @@ import {
   CircleDot,
   Inbox,
   RefreshCw,
+  Keyboard,
+  Clock,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useKeyboardTriage } from '../hooks/useKeyboardTriage';
+import { QuickEditPanel } from './inline/QuickEditPanel';
+import { SnoozeMenu } from './inline/SnoozeMenu';
+import { useSnoozes, snoozeStore, snoozeLabel } from '../utils/snooze';
 
 function isClosed(i: Issue): boolean {
   const n = i.status.name.toLowerCase();
@@ -75,8 +82,31 @@ export function InboxView({ onIssueClick }: Props) {
     },
   ].filter((s) => s.items.length > 0);
 
-  const total = sections.reduce((n, s) => n + s.items.length, 0);
+  // Adiadas (snooze): somem do Inbox até voltar; "mostrar" revela e permite desfazer.
+  const snoozes = useSnoozes();
+  const [showSnoozed, setShowSnoozed] = useState(false);
+  const isSnoozedNow = (id: number) => (snoozes[id] ?? 0) > Date.now();
+  const snoozedCount = sections.reduce(
+    (n, s) => n + s.items.filter((i) => isSnoozedNow(i.id)).length,
+    0,
+  );
+  const visibleSections = showSnoozed
+    ? sections
+    : sections
+        .map((s) => ({ ...s, items: s.items.filter((i) => !isSnoozedNow(i.id)) }))
+        .filter((s) => s.items.length > 0);
+
+  const total = visibleSections.reduce((n, s) => n + s.items.length, 0);
   const loading = my.isLoading || toReview.isLoading;
+
+  // Triagem por teclado (j/k navega, e edita, z adia, enter abre, ? ajuda).
+  const ordered = visibleSections.flatMap((s) => s.items);
+  const byId = new Map(ordered.map((i) => [i.id, i]));
+  const triage = useKeyboardTriage({
+    ids: ordered.map((i) => i.id),
+    issueById: (id) => byId.get(id),
+    onOpenIssue: onIssueClick,
+  });
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -86,6 +116,14 @@ export function InboxView({ onIssueClick }: Props) {
           <p className="text-sm text-slate-500 mt-0.5">
             Tudo que depende da sua ação, reunido num lugar só.
           </p>
+          {total > 0 && (
+            <button
+              onClick={() => triage.setShowHelp(true)}
+              className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-600"
+            >
+              <Keyboard size={13} /> j/k navegar · e editar · enter abrir · ? atalhos
+            </button>
+          )}
         </div>
         <button
           onClick={() => {
@@ -102,6 +140,16 @@ export function InboxView({ onIssueClick }: Props) {
         </button>
       </div>
 
+      {snoozedCount > 0 && (
+        <button
+          onClick={() => setShowSnoozed((v) => !v)}
+          className="mb-3 inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 bg-slate-100 rounded-full px-3 py-1 transition-colors"
+        >
+          <Clock size={12} /> {snoozedCount} adiada{snoozedCount > 1 ? 's' : ''} —{' '}
+          {showSnoozed ? 'ocultar' : 'mostrar'}
+        </button>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-20 text-slate-400">
           <RefreshCw size={20} className="animate-spin" />
@@ -113,7 +161,7 @@ export function InboxView({ onIssueClick }: Props) {
         </div>
       ) : (
         <div className="space-y-4">
-          {sections.map((s) => (
+          {visibleSections.map((s) => (
             <div
               key={s.key}
               className="bg-white rounded-xl border border-slate-200 overflow-hidden"
@@ -135,8 +183,11 @@ export function InboxView({ onIssueClick }: Props) {
                 {s.items.map((issue) => (
                   <button
                     key={issue.id}
+                    data-issue-id={issue.id}
                     onClick={() => onIssueClick(issue.id)}
-                    className="w-full text-left flex items-center gap-2.5 px-4 py-2 hover:bg-blue-50 transition-colors group"
+                    className={`w-full text-left flex items-center gap-2.5 px-4 py-2 hover:bg-blue-50 transition-colors group ${
+                      triage.focusedId === issue.id ? 'bg-blue-50 ring-2 ring-inset ring-blue-400' : ''
+                    }`}
                   >
                     <span className="text-xs font-medium text-slate-400 flex-shrink-0 w-14">
                       #{issue.id}
@@ -153,11 +204,82 @@ export function InboxView({ onIssueClick }: Props) {
                     <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">
                       {issue.status.name}
                     </span>
+                    {isSnoozedNow(issue.id) && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          snoozeStore.unsnooze(issue.id);
+                        }}
+                        title="Desfazer adiamento"
+                        className="text-[10px] font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 px-1.5 py-0.5 rounded flex-shrink-0 inline-flex items-center gap-1"
+                      >
+                        <Clock size={10} /> {snoozeLabel(snoozes[issue.id])}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Popover de edição rápida (aberto por teclado: e / s / a) */}
+      {triage.quickEdit && (
+        <QuickEditPanel
+          issue={triage.quickEdit.issue}
+          anchorRect={triage.quickEdit.rect}
+          initialField={triage.quickEdit.field}
+          onClose={triage.closeQuickEdit}
+        />
+      )}
+
+      {/* Menu de adiar (aberto por teclado: z) */}
+      {triage.snooze && (
+        <SnoozeMenu
+          anchorRect={triage.snooze.rect}
+          onPick={(until) => {
+            snoozeStore.snooze(triage.snooze!.issue.id, until);
+            triage.closeSnooze();
+          }}
+          onClose={triage.closeSnooze}
+        />
+      )}
+
+      {/* Ajuda de atalhos */}
+      {triage.showHelp && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => triage.setShowHelp(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xs p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Keyboard size={16} className="text-blue-500" />
+              <h3 className="text-sm font-semibold text-slate-800">Atalhos da triagem</h3>
+            </div>
+            <dl className="space-y-1.5 text-sm">
+              {[
+                ['j / ↓', 'Próxima tarefa'],
+                ['k / ↑', 'Tarefa anterior'],
+                ['enter / o', 'Abrir tarefa'],
+                ['e', 'Edição rápida'],
+                ['s', 'Mudar status'],
+                ['a', 'Mudar responsável'],
+                ['z', 'Adiar (snooze)'],
+                ['esc', 'Limpar foco / fechar'],
+              ].map(([k, d]) => (
+                <div key={k} className="flex items-center justify-between gap-3">
+                  <kbd className="text-xs font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+                    {k}
+                  </kbd>
+                  <span className="text-slate-600">{d}</span>
+                </div>
+              ))}
+            </dl>
+          </div>
         </div>
       )}
     </div>

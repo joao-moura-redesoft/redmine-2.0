@@ -47,5 +47,10 @@ if ($LASTEXITCODE -ne 0) { Write-Host "Falha ao injetar o blob." -ForegroundColo
 Step 8 "Gravando o icone no executavel..."
 try { node scripts/set-exe-icon.cjs "bluemine.exe" } catch { Write-Host "Aviso: nao foi possivel gravar o icone." -ForegroundColor DarkYellow }
 
+Step 9 "Marcando o binario como GUI (sem janela de console)..."
+node scripts/set-gui-subsystem.cjs "bluemine.exe"
+if ($LASTEXITCODE -ne 0) { Write-Host "Falha ao marcar como GUI." -ForegroundColor Red; exit 1 }
+
 Write-Host "`nBuild concluido! bluemine.exe (SEA) gerado na raiz." -ForegroundColor Green
 Write-Host "Dica: assine o binario (signtool) antes de distribuir." -ForegroundColor DarkGray
+Write-Host "Opcional: a telinha do teclado K86 e um COMPANION a parte -> rode build_bridge.ps1" -ForegroundColor DarkGray

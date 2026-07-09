@@ -3,6 +3,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { RefreshCw, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
 import type { Issue } from '../types/redmine';
+import { QuickEditButton } from './inline/QuickEditButton';
 
 /* ── Status badge color ── */
 function statusColor(name: string): string {
@@ -40,10 +41,11 @@ function IssueRow({
   focused?: boolean;
 }) {
   return (
+    <div className="relative group border-b border-slate-100 last:border-0">
     <button
       data-issue-id={issue.id}
       onClick={() => onClick(issue.id)}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left group border-b border-slate-100 last:border-0 ${focused ? 'bg-blue-50 ring-1 ring-inset ring-blue-400' : ''}`}
+      className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left ${focused ? 'bg-blue-50 ring-1 ring-inset ring-blue-400' : ''}`}
     >
       {/* Priority dot */}
       <span
@@ -75,16 +77,22 @@ function IssueRow({
         </span>
       )}
 
-      {/* Projeto */}
-      <span className="text-xs text-slate-400 flex-shrink-0 w-32 truncate text-right hidden md:block">
+      {/* Projeto (some no hover pra dar espaço ao ✎) */}
+      <span className="text-xs text-slate-400 flex-shrink-0 w-32 truncate text-right hidden md:block transition-opacity group-hover:opacity-0">
         {issue.project.name}
       </span>
 
-      {/* Atualizado */}
-      <span className="text-xs text-slate-300 flex-shrink-0 w-24 text-right hidden lg:block">
+      {/* Atualizado (some no hover pra dar espaço ao ✎) */}
+      <span className="text-xs text-slate-300 flex-shrink-0 w-24 text-right hidden lg:block transition-opacity group-hover:opacity-0">
         {formatDistanceToNow(new Date(issue.updated_on), { addSuffix: true, locale: ptBR })}
       </span>
     </button>
+
+      {/* Edição rápida (aparece no hover) */}
+      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+        <QuickEditButton issue={issue} />
+      </div>
+    </div>
   );
 }
 

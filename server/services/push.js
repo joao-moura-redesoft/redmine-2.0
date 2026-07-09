@@ -10,6 +10,15 @@ const { buildAuthHeaders } = require('../lib/redmine');
 const { fetchAllIssues } = require('../lib/pagination');
 const { REDMINE_CF, REDMINE_STATUS } = require('../lib/config');
 const { dataFile, readJsonSecure, writeJsonSecure } = require('../lib/secureStore');
+const keyboard = require('./keyboardNotify');
+const digest = require('./digest');
+
+// Tag/tipo do card na telinha do teclado (K86) por categoria de issue.
+const KB_ISSUE = {
+  assigned: { type: 'issue', tag: 'Nova tarefa' },
+  review: { type: 'review', tag: 'Revisão' },
+  monitored: { type: 'issue', tag: 'Monitorando' },
+};
 
 // Web Push ligado por padrão. Desligue com PUSH_ENABLED=0 (ou false) no .env.
 const PUSH_ENABLED = !(
@@ -249,6 +258,12 @@ async function pollPush() {
             url: `/?issue=${issue.id}`,
             issueId: issue.id,
           });
+          keyboard.notify({
+            type: KB_ISSUE[type].type,
+            title: issue.subject,
+            subtitle: `#${issue.id} • ${issue.project?.name ?? ''}`,
+            tag: KB_ISSUE[type].tag,
+          });
         }
         // Talk é tratado num loop próprio e mais rápido (pollTalkPush) — não aqui,
         // para não ficar atrás da paginação pesada do Redmine.
@@ -344,6 +359,18 @@ async function pollTalkGroup({ auth, recs }) {
           url: `/?talkRoom=${room.token}`,
           talkToken: room.token,
         };
+        // Telinha do teclado (uma vez por mensagem nova). DM vira card "talk";
+        // grupo com menção vira "mention"; grupo normal vira "talk".
+        keyboard.notify(
+          isDM
+            ? { type: 'talk', title: sender || room.displayName, subtitle: body, tag: 'Talk • DM' }
+            : {
+                type: room.unreadMention ? 'mention' : 'talk',
+                title: room.displayName,
+                subtitle: sender ? `${sender}: ${body}` : body,
+                tag: `# ${room.displayName}`,
+              },
+        );
         for (const rec of recs) {
           // Filtro de ruído: em grupo, dispositivos com groupMentionsOnly só recebem se
           // a sala tem menção não lida. DMs sempre passam.
@@ -389,7 +416,60 @@ async function runTalkPoll(filterFn, getGuard, setGuard) {
   }
 }
 
+// ── DIGEST DIÁRIO ──────────────────────────────────────────────────────────
+// Uma vez por dia, por usuário, no horário configurado (padrão 08:00), monta o
+// "resumo da manhã" e entrega por Web Push (+ telinha K86, dentro do digest.build).
+const DIGEST_ENABLED = !(
+  process.env.DIGEST_ENABLED === '0' || /^false$/i.test(process.env.DIGEST_ENABLED || '')
+);
+const DIGEST_HOUR = Number.isFinite(Number(process.env.DIGEST_HOUR))
+  ? Number(process.env.DIGEST_HOUR)
+  : 8;
+const DIGEST_MIN = Number(process.env.DIGEST_MINUTE) || 0;
+const ymd = (d) => d.toISOString().slice(0, 10);
+let digestRunning = false;
+
+async function runDigests() {
+  if (!DIGEST_ENABLED || digestRunning) return;
+  const now = new Date();
+  const passed =
+    now.getHours() > DIGEST_HOUR || (now.getHours() === DIGEST_HOUR && now.getMinutes() >= DIGEST_MIN);
+  if (!passed) return;
+  const today = ymd(now);
+  const pending = subscriptions.filter((s) => s.uid && s.digestDate !== today);
+  if (!pending.length) return;
+
+  digestRunning = true;
+  try {
+    // Agrupa por usuário: monta 1 digest por pessoa (fetch+IA custam), entrega a
+    // todos os dispositivos dela.
+    const byUid = new Map();
+    for (const rec of pending) {
+      if (!byUid.has(rec.uid)) byUid.set(rec.uid, []);
+      byUid.get(rec.uid).push(rec);
+    }
+    for (const [uid, recs] of byUid) {
+      try {
+        const { result } = await digest.build(recs[0]);
+        const payload = digest.pushPayload(result);
+        for (const rec of recs) await sendPush(rec, payload);
+      } catch (err) {
+        console.warn('[digest] falhou para uid', uid, '—', err.response?.status || err.message);
+      }
+      // Marca como processado hoje (mesmo em erro: evita marteladas; tenta amanhã).
+      recs.forEach((r) => {
+        r.digestDate = today;
+      });
+    }
+    saveSubs();
+  } finally {
+    digestRunning = false;
+  }
+}
+
 function startPushPolling() {
+  if (DIGEST_ENABLED) setInterval(runDigests, 5 * 60 * 1000);
+
   if (!PUSH_ENABLED) {
     console.log('[push] polling desabilitado (PUSH_ENABLED!=1)');
     return;

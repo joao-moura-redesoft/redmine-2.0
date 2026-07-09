@@ -250,6 +250,51 @@ export function useUpdateIssue() {
   });
 }
 
+// Edição rápida (inline) com update OTIMISTA: corrige o cache na hora (sem esperar
+// o refetch) em TODAS as listas de issues + na tarefa aberta, com rollback no erro.
+// `optimistic` é o patch visual (ex.: { status: {id,name} }); `fields` é o que vai
+// pra API (ex.: { status_id }).
+function isIssueListKey(key: readonly unknown[]): boolean {
+  return key[0] === 'issues' || (typeof key[0] === 'string' && key[0].startsWith('issues-'));
+}
+export function useQuickEditIssue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, fields }: { id: number; fields: Record<string, unknown>; optimistic?: Partial<Issue> }) =>
+      redmineApi.updateIssue(id, fields),
+    onMutate: async ({ id, optimistic }) => {
+      const snapshots: [readonly unknown[], unknown][] = [];
+      if (!optimistic) return { snapshots };
+      await qc.cancelQueries();
+      qc.getQueriesData<Issue[]>({ predicate: (q) => isIssueListKey(q.queryKey) }).forEach(
+        ([key, data]) => {
+          if (!Array.isArray(data)) return;
+          snapshots.push([key, data]);
+          qc.setQueryData(
+            key,
+            data.map((it) => (it.id === id ? { ...it, ...optimistic } : it)),
+          );
+        },
+      );
+      const singleKey = ['issue', id] as const;
+      const prev = qc.getQueryData<Issue>(singleKey);
+      if (prev) {
+        snapshots.push([singleKey, prev]);
+        qc.setQueryData(singleKey, { ...prev, ...optimistic });
+      }
+      return { snapshots };
+    },
+    onError: (_e, _vars, ctx) => {
+      ctx?.snapshots.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: (_d, _e, { id }) => {
+      recordMutation(id);
+      qc.invalidateQueries({ queryKey: ['issue', id] });
+      qc.invalidateQueries({ predicate: (q) => isIssueListKey(q.queryKey) });
+    },
+  });
+}
+
 export function useTimeEntries(params: { from?: string; to?: string; issue_id?: number } = {}) {
   return useQuery({
     queryKey: ['time-entries', params],
