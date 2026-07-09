@@ -33,12 +33,14 @@ import { refreshSecretsStatus, resetSecretsStatus } from './utils/secretsStatus'
 import { useActivityNotifications } from './hooks/useActivityNotifications';
 import { useMailNotifications } from './hooks/useMailNotifications';
 import { usePushNotifications } from './hooks/usePushNotifications';
+import { useSnoozeReminders } from './hooks/useSnoozeReminders';
 import { useBrowserNotifications } from './hooks/useBrowserNotifications';
 import { useTalkNotifications } from './hooks/useTalkNotifications';
 import { useTheme } from './hooks/useTheme';
 import { useShortcuts } from './hooks/useShortcuts';
 import { SettingsModal } from './components/SettingsModal';
 import { StandupModal } from './components/StandupModal';
+import { DigestModal } from './components/DigestModal';
 import { TalkChat } from './components/TalkChat';
 import { NotesView } from './components/NotesView';
 import { SprintsView } from './components/SprintsView';
@@ -51,6 +53,7 @@ import { TotpView } from './components/TotpView';
 import { MeetingsView } from './components/MeetingsView';
 import { DriveView } from './components/drive/DriveView';
 import { MyDayView } from './components/MyDayView';
+import { FlowView } from './components/FlowView';
 import type { NotePatch } from './api/notes';
 import { mailApi } from './api/mail';
 import { isMailAvailable } from './utils/mailConfig';
@@ -67,8 +70,10 @@ import {
   BellOff,
   X,
   BarChart3,
+  Activity,
   Star,
   Sun,
+  Sunrise,
   Moon,
   Users,
   CalendarDays,
@@ -112,6 +117,7 @@ import type { Issue } from './types/redmine';
 type Tab =
   | 'inbox'
   | 'dashboard'
+  | 'flow'
   | 'myday'
   | 'kanban'
   | 'sprints'
@@ -303,6 +309,22 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showStandup, setShowStandup] = useState(false);
+  const [showDigest, setShowDigest] = useState(false);
+
+  // Deep-link do Web Push do digest (?digest=1) → abre o resumo da manhã.
+  useEffect(() => {
+    if (searchParams.get('digest')) {
+      setShowDigest(true);
+      setSearchParams(
+        (prev) => {
+          prev.delete('digest');
+          return prev;
+        },
+        { replace: true },
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [noteSeed, setNoteSeed] = useState<{ nonce: number; patch: NotePatch } | null>(null);
   const openNewNote = (patch: NotePatch = {}) => {
@@ -319,6 +341,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
 
   usePushNotifications();
   useTalkNotifications();
+  useSnoozeReminders(allIssues);
 
   const [pendingTalkToken, setPendingTalkToken] = useState<string | null>(null);
 
@@ -363,6 +386,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const tabs: { id: Tab; label: string; icon: React.ReactNode; count?: number }[] = [
     { id: 'inbox', label: 'Aguardando você', icon: <Inbox size={15} />, count: inboxCount },
     { id: 'dashboard', label: 'Dashboard', icon: <BarChart3 size={15} /> },
+    { id: 'flow', label: 'Fluxo', icon: <Activity size={15} /> },
     { id: 'myday', label: 'Meu Dia', icon: <Sun size={15} /> },
     { id: 'kanban', label: 'Minhas Tarefas', icon: <LayoutGrid size={15} /> },
     { id: 'sprints', label: 'Sprints', icon: <CalendarRange size={15} /> },
@@ -422,7 +446,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const tabGroups: { label: string | null; ids: Tab[] }[] = [
     {
       label: null,
-      ids: ['inbox', 'dashboard', 'myday', 'kanban', 'sprints', 'roadmap', 'calendar'],
+      ids: ['inbox', 'dashboard', 'flow', 'myday', 'kanban', 'sprints', 'roadmap', 'calendar'],
     },
     {
       label: 'Fila',
@@ -534,6 +558,16 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         <div
           className={`border-t border-slate-100 dark:border-slate-800 p-2 flex flex-col gap-1 flex-shrink-0 ${sidebarCollapsed ? 'items-center' : ''}`}
         >
+          {/* Resumo da manhã (digest) */}
+          <button
+            onClick={() => setShowDigest(true)}
+            title="Resumo da manhã"
+            className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-colors ${sidebarCollapsed ? 'justify-center' : ''}`}
+          >
+            <Sunrise size={14} className="flex-shrink-0" />
+            {!sidebarCollapsed && 'Resumo da manhã'}
+          </button>
+
           {/* Standup */}
           {getAIKey() && (
             <button
@@ -605,8 +639,8 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             <GlobalSearch onSelectIssue={openIssue} />
           </div>
 
-          {/* Project selector (Kanban only) */}
-          {location.pathname === '/kanban' && (
+          {/* Project selector (Kanban e Fluxo) */}
+          {(location.pathname === '/kanban' || location.pathname === '/flow') && (
             <div className="relative flex-shrink-0">
               <button
                 onClick={() => setShowProjectMenu(!showProjectMenu)}
@@ -801,6 +835,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/inbox" element={<InboxView onIssueClick={openIssue} />} />
             <Route path="/dashboard" element={<Dashboard onIssueClick={openIssue} />} />
+            <Route path="/flow" element={<FlowView projectId={selectedProject} onIssueClick={openIssue} />} />
             <Route path="/myday" element={<MyDayView onIssueClick={openIssue} />} />
             <Route path="/people" element={<PeopleView onIssueClick={openIssue} />} />
             <Route path="/team" element={<TeamView onIssueClick={openIssue} />} />
@@ -1074,6 +1109,8 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
           onClose={() => setShowStandup(false)}
         />
       )}
+
+      {showDigest && <DigestModal onClose={() => setShowDigest(false)} />}
 
       <TalkChat
         onIssueClick={openIssue}

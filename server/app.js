@@ -107,8 +107,11 @@ function buildApp() {
   app.use('/api', require('./routes/attachments'));
   app.use('/api', require('./routes/ai'));
   app.use('/api', require('./routes/push'));
+  app.use('/api', require('./routes/digest'));
+  app.use('/api', require('./routes/analytics'));
   app.use('/api', require('./routes/talk'));
   app.use('/api', require('./routes/notes'));
+  app.use('/api', require('./routes/events'));
   app.use('/api', require('./routes/sprints'));
   app.use('/api', require('./routes/boards'));
   app.use('/api', require('./routes/mail'));
