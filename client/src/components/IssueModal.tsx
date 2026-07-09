@@ -41,6 +41,7 @@ import {
 import type { Attachment, EditField } from '../types/redmine';
 import { RequiredFieldsModal } from './RequiredFieldsModal';
 import { matchMissingFields } from '../utils/requiredFields';
+import { recordRecentIssue } from '../utils/recentIssues';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
 import { TimeTracker } from './TimeTracker';
 import { IssueAIPanel } from './IssueAIPanel';
@@ -1652,6 +1653,10 @@ function WikiLinksSection({ issueId }: { issueId: number }) {
 
 export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNotes }: Props) {
   const { data: issue, isLoading } = useIssueDetail(issueId);
+  // Registra como "recente" pro command palette quando a tarefa carrega.
+  useEffect(() => {
+    if (issue) recordRecentIssue({ id: issue.id, subject: issue.subject, status: issue.status.name });
+  }, [issue?.id, issue?.subject, issue?.status.name]);
   const { data: statuses } = useStatuses();
   const { data: currentUser } = useCurrentUser();
   const { startCall: startJitsiCall, activeCall: activeJitsiCall } = useJitsi();

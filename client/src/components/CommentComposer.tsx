@@ -11,7 +11,6 @@ import {
   X,
   Eye,
   Pencil,
-  Image as ImageIcon,
   AtSign,
   Sparkles,
   Loader2,
@@ -39,6 +38,23 @@ function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// Nome decente pra screenshot colada (o clipboard entrega "image.png" genérico).
+function screenshotName(ext: string): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `screenshot-${stamp}-${Math.random().toString(36).slice(2, 5)}.${ext}`;
+}
+
+// Renomeia imagens sem nome real (coladas) pra algo identificável; mantém o resto.
+function normalizeFile(f: File): File {
+  if (f.type.startsWith('image/') && (!f.name || /^image\.(png|jpe?g|webp|gif)$/i.test(f.name))) {
+    const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+    return new File([f], screenshotName(ext), { type: f.type });
+  }
+  return f;
 }
 
 // Detecta uma menção sendo digitada (@parcial) imediatamente antes do cursor
@@ -117,10 +133,18 @@ export function CommentComposer({
   }, [text, preview]);
 
   const addFiles = (list: FileList | File[]) => {
-    const arr = Array.from(list);
+    const arr = Array.from(list).map(normalizeFile);
     if (arr.length) setFiles((f) => [...f, ...arr]);
   };
   const removeFile = (i: number) => setFiles((f) => f.filter((_, idx) => idx !== i));
+
+  // Miniaturas (object URLs) das imagens anexadas — recria e revoga ao mudar.
+  const [imgUrls, setImgUrls] = useState<(string | null)[]>([]);
+  useEffect(() => {
+    const urls = files.map((f) => (f.type.startsWith('image/') ? URL.createObjectURL(f) : null));
+    setImgUrls(urls);
+    return () => urls.forEach((u) => u && URL.revokeObjectURL(u));
+  }, [files]);
 
   const submit = () => {
     if ((!text.trim() && files.length === 0) || sending) return;
@@ -324,25 +348,49 @@ export function CommentComposer({
         </div>
       )}
 
-      {/* Anexos */}
+      {/* Anexos — miniatura pra imagens, chip pro resto */}
       {files.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-3 pb-2">
-          {files.map((f, i) => (
-            <span
-              key={i}
-              className="inline-flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 rounded-md pl-2 pr-1 py-1"
-            >
-              {f.type.startsWith('image/') ? <ImageIcon size={12} /> : <Paperclip size={12} />}
-              <span className="max-w-40 truncate">{f.name}</span>
-              <span className="text-slate-400">{fmtSize(f.size)}</span>
-              <button
-                onClick={() => removeFile(i)}
-                className="text-slate-400 hover:text-red-500 ml-0.5"
+        <div className="flex flex-wrap items-center gap-2 px-3 pb-2">
+          {files.map((f, i) => {
+            const url = imgUrls[i];
+            if (url) {
+              return (
+                <div
+                  key={i}
+                  className="relative group/att w-16 h-16 rounded-lg overflow-hidden border border-slate-200"
+                  title={`${f.name} · ${fmtSize(f.size)}`}
+                >
+                  <img src={url} alt={f.name} className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => removeFile(i)}
+                    title="Remover"
+                    className="absolute top-0.5 right-0.5 bg-black/50 hover:bg-black/75 text-white rounded p-0.5 opacity-0 group-hover/att:opacity-100 transition-opacity"
+                  >
+                    <X size={11} />
+                  </button>
+                  <span className="absolute bottom-0 inset-x-0 bg-black/40 text-white text-[9px] px-1 py-0.5 truncate">
+                    {fmtSize(f.size)}
+                  </span>
+                </div>
+              );
+            }
+            return (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1.5 text-xs bg-slate-100 text-slate-600 rounded-md pl-2 pr-1 py-1"
               >
-                <X size={12} />
-              </button>
-            </span>
-          ))}
+                <Paperclip size={12} />
+                <span className="max-w-40 truncate">{f.name}</span>
+                <span className="text-slate-400">{fmtSize(f.size)}</span>
+                <button
+                  onClick={() => removeFile(i)}
+                  className="text-slate-400 hover:text-red-500 ml-0.5"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            );
+          })}
         </div>
       )}
 

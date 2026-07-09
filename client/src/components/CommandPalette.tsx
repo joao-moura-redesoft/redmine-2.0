@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Search, Loader2, CornerDownLeft, Hash } from 'lucide-react';
 import { redmineApi } from '../api/redmine';
+import { getRecentIssues } from '../utils/recentIssues';
 
 interface TabItem {
   id: string;
@@ -27,7 +28,8 @@ interface Props {
 type Item =
   | { type: 'action'; id: string; label: string; icon: ReactNode; run: () => void }
   | { type: 'tab'; id: string; label: string; icon: ReactNode }
-  | { type: 'issue'; id: number; label: string; status: string };
+  | { type: 'issue'; id: number; label: string; status: string }
+  | { type: 'recent'; id: number; label: string; status: string };
 
 export function CommandPalette({
   open,
@@ -79,8 +81,18 @@ export function CommandPalette({
     [tabs, ql],
   );
 
+  // Recentes: só quando o campo está vazio (aparecem no topo).
+  const showRecents = q.trim() === '';
+  const recents = useMemo(() => (open && showRecents ? getRecentIssues() : []), [open, showRecents]);
+
   const items = useMemo<Item[]>(
     () => [
+      ...recents.map((r) => ({
+        type: 'recent' as const,
+        id: r.id,
+        label: r.subject,
+        status: r.status,
+      })),
       ...actionMatches.map((a) => ({
         type: 'action' as const,
         id: a.id,
@@ -96,7 +108,7 @@ export function CommandPalette({
         status: i.status.name,
       })),
     ],
-    [actionMatches, tabMatches, issues],
+    [recents, actionMatches, tabMatches, issues],
   );
 
   useEffect(() => {
@@ -158,10 +170,16 @@ export function CommandPalette({
         <div className="max-h-80 overflow-y-auto scrollbar-thin py-1">
           {items.map((item, i) => {
             const active = i === sel;
-            const isIssue = item.type === 'issue';
+            const isIssue = item.type === 'issue' || item.type === 'recent';
             const showHeader = i === 0 || items[i - 1].type !== item.type;
             const headerLabel =
-              item.type === 'action' ? 'Ações' : item.type === 'tab' ? 'Ir para' : 'Tarefas';
+              item.type === 'action'
+                ? 'Ações'
+                : item.type === 'tab'
+                  ? 'Ir para'
+                  : item.type === 'recent'
+                    ? 'Recentes'
+                    : 'Tarefas';
             return (
               <div key={`${item.type}-${item.id}`}>
                 {showHeader && (
