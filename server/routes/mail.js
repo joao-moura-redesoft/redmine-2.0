@@ -92,6 +92,27 @@ router.get(
   }),
 );
 
+// Criar compromisso/reunião no calendário. Dispara convites por e-mail aos
+// participantes (se houver). Body: { subject, start, end, location?, description?,
+// attendees?: [{ address, name?, role? }], allDay? }.
+router.post(
+  '/mail/calendar',
+  handle(async (req, res) => {
+    const { subject, start, end, location, description, attendees, allDay } = req.body || {};
+    res.json(
+      await zimbra.createAppointment(req, {
+        subject,
+        start,
+        end,
+        location,
+        description,
+        attendees,
+        allDay,
+      }),
+    );
+  }),
+);
+
 // Participantes de um compromisso e a resposta de cada um (aceitou/recusou/…).
 // Exige uma chamada extra ao Zimbra; o front busca sob demanda ao abrir o evento.
 router.get(

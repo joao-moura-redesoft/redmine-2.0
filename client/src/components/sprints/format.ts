@@ -3,9 +3,9 @@ import type { Issue } from '../../types/redmine';
 // Alguns status "Pendente ..." não são is_closed no Redmine, mas para fins de
 // progresso de sprint/roadmap o time considera a tarefa concluída (trabalho
 // entregue, só aguardando um passo administrativo). Contam como feitas nas
-// barras de progresso e no visual: revisão, atualização, integração fechado e
+// barras de progresso e no visual: revisão, atualização, integração e
 // fechamento.
-const DONE_FOR_SPRINT = /pendente\s*(revis|atualiza|fechamento|integra\w*\s*fechad)/i;
+const DONE_FOR_SPRINT = /pendente\s*(revis|atualiza|fechamento|integra)/i;
 
 // "Fechada" de forma confiável: o is_closed embutido na issue da listagem do
 // Redmine nem sempre vem, então conferimos também contra o conjunto de IDs de

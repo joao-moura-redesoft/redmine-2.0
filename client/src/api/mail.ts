@@ -52,6 +52,9 @@ export interface CalendarEvent {
   organizer: MailAddress | null;
   isOrganizer: boolean;
   snippet: string;
+  // Evento local (store por-usuário, não-Zimbra). Quando true, o chip mostra
+  // ação de excluir e não tenta responder convite/buscar participantes.
+  local?: boolean;
 }
 
 export interface EventAttendee {
@@ -169,4 +172,32 @@ export const mailApi = {
   replyToInvite: async (id: string, verb: InviteVerb, compNum = 0): Promise<void> => {
     await api.post(`/mail/calendar/${id}/reply`, { verb, compNum });
   },
+
+  createEvent: async (payload: CreateEventPayload): Promise<CreateEventResult> => {
+    const { data } = await api.post('/mail/calendar', payload);
+    return data;
+  },
 };
+
+export interface NewEventAttendee {
+  address: string;
+  name?: string;
+  role?: 'REQ' | 'OPT';
+}
+
+export interface CreateEventPayload {
+  subject: string;
+  start: number; // epoch ms
+  end: number; // epoch ms
+  location?: string;
+  description?: string;
+  attendees?: NewEventAttendee[];
+  allDay?: boolean;
+}
+
+export interface CreateEventResult {
+  success: boolean;
+  calItemId: string | null;
+  invId: string | null;
+  invitesSent: number;
+}

@@ -11,9 +11,10 @@ const {
   DEFAULT_KEY,
 } = require('../lib/redmine');
 const handle = require('../lib/handle');
-const { fetchAllPages, mapLimit, fetchAllIssues } = require('../lib/pagination');
+const { mapLimit, fetchAllIssues } = require('../lib/pagination');
 const { parseEditFormSchema } = require('../lib/editFormSchema');
 const { REDMINE_CF, REDMINE_STATUS } = require('../lib/config');
+const { sanitizeIssueBody, toLatin1Safe } = require('../lib/latin1');
 
 // Filtros nomeados por campo custom, resolvidos pela config central (env-overridable).
 const CF_DEVELOPER = `cf_${REDMINE_CF.developer}`;
@@ -368,10 +369,12 @@ router.put(
   '/issues/:id',
   handle(async (req, res) => {
     const redmine = makeRedmine(req);
+    // Guarda latin1: o banco do Redmine rejeita (500) caracteres > U+00FF.
+    // Fecha os caminhos de escrita que não passam pelo markdownToTextile do cliente.
+    sanitizeIssueBody(req.body);
     console.log(
       `[PUT /issues/:id] URL Alvo: ${req.headers['x-redmine-url']} -> /issues/${req.params.id}.json`,
     );
-    console.log('[PUT /issues/:id] Payload para Redmine:', JSON.stringify(req.body, null, 2));
     await redmine.put(`/issues/${req.params.id}.json`, req.body);
 
     const requestedStatusId = req.body?.issue?.status_id;
@@ -393,6 +396,10 @@ router.put(
 router.put(
   '/journals/:id',
   handle(async (req, res) => {
+    // Guarda latin1 (banco do Redmine rejeita > U+00FF com 500).
+    if (typeof req.body?.journal?.notes === 'string') {
+      req.body.journal.notes = toLatin1Safe(req.body.journal.notes);
+    }
     await makeRedmine(req).put(`/journals/${req.params.id}.json`, req.body);
     res.json({ success: true });
   }),
@@ -402,6 +409,7 @@ router.put(
 router.post(
   '/issues',
   handle(async (req, res) => {
+    sanitizeIssueBody(req.body);
     const { data } = await makeRedmine(req).post('/issues.json', req.body);
     res.json(data);
   }),

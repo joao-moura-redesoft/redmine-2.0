@@ -50,10 +50,16 @@ import {
   Eye,
   Filter,
   Inbox,
+  Plus,
+  Video,
+  Trash2,
 } from 'lucide-react';
 import { useIssues, useUserIssues, useAllMembers, useUpdateIssue } from '../hooks/useRedmine';
 import { useZimbraEvents, useReplyToInvite, useEventAttendees } from '../hooks/useZimbraEvents';
+import { useLocalEvents, useDeleteLocalEvent } from '../hooks/useLocalEvents';
+import type { LocalEvent } from '../api/events';
 import { isMailAvailable } from '../utils/mailConfig';
+import { NewEventModal } from './NewEventModal';
 import { useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { getPrevisaoRevisao, CF_IDS } from '../utils/alerts';
 import type { Issue } from '../types/redmine';
@@ -239,13 +245,37 @@ const PTST_BADGE: Record<string, { label: string; cls: string }> = {
 
 const POPOVER_W = 288; // largura fixa do popover (w-72)
 
+// Adapta um evento local ao formato CalendarEvent para reusar o EventChip.
+function localToCalendarEvent(le: LocalEvent): CalendarEvent {
+  return {
+    id: le.id,
+    invId: null,
+    uid: null,
+    compNum: 0,
+    subject: le.subject,
+    start: le.start,
+    end: le.end,
+    durationMs: le.end - le.start,
+    allDay: le.allDay,
+    location: le.location,
+    status: 'CONF',
+    ptst: 'AC',
+    organizer: null,
+    isOrganizer: true,
+    snippet: le.description,
+    local: true,
+  };
+}
+
 function EventChip({ ev }: { ev: CalendarEvent }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const reply = useReplyToInvite();
-  const attendees = useEventAttendees(ev.id, open);
+  const del = useDeleteLocalEvent();
+  // Eventos locais não têm convite/participantes no Zimbra: não busca attendees.
+  const attendees = useEventAttendees(ev.id, open && !ev.local);
 
   // Posição fixa ancorada no chip — o popover vai no portal (document.body) para
   // escapar do overflow-hidden do card do calendário, e vira pra cima se faltar
@@ -330,14 +360,26 @@ function EventChip({ ev }: { ev: CalendarEvent }) {
         ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         title={`${time} · ${ev.subject}`}
-        className={`w-full flex items-center gap-1 text-left rounded px-1 py-0.5 text-[11px] bg-teal-50 dark:bg-teal-900/30 hover:bg-teal-100 dark:hover:bg-teal-900/50 border-l-2 ${PTST_BORDER[ev.ptst] ?? 'border-l-teal-400'} transition-colors`}
+        className={
+          ev.local
+            ? 'w-full flex items-center gap-1 text-left rounded px-1 py-0.5 text-[11px] bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border-l-2 border-l-indigo-400 transition-colors'
+            : `w-full flex items-center gap-1 text-left rounded px-1 py-0.5 text-[11px] bg-teal-50 dark:bg-teal-900/30 hover:bg-teal-100 dark:hover:bg-teal-900/50 border-l-2 ${PTST_BORDER[ev.ptst] ?? 'border-l-teal-400'} transition-colors`
+        }
       >
-        <Clock size={9} className="text-teal-500 flex-shrink-0" />
+        {ev.local ? (
+          <Video size={9} className="text-indigo-500 flex-shrink-0" />
+        ) : (
+          <Clock size={9} className="text-teal-500 flex-shrink-0" />
+        )}
         {!ev.allDay && (
-          <span className="text-teal-600 dark:text-teal-400 font-medium flex-shrink-0">{time}</span>
+          <span
+            className={`font-medium flex-shrink-0 ${ev.local ? 'text-indigo-600 dark:text-indigo-400' : 'text-teal-600 dark:text-teal-400'}`}
+          >
+            {time}
+          </span>
         )}
         <span
-          className={`truncate text-teal-800 dark:text-teal-200 ${canceled ? 'line-through opacity-60' : ''}`}
+          className={`truncate ${ev.local ? 'text-indigo-800 dark:text-indigo-200' : 'text-teal-800 dark:text-teal-200'} ${canceled ? 'line-through opacity-60' : ''}`}
         >
           {ev.subject}
         </span>
@@ -387,46 +429,78 @@ function EventChip({ ev }: { ev: CalendarEvent }) {
               {canceled && <p className="text-red-500 font-medium">Cancelado</p>}
             </div>
 
-            {/* Participantes e a resposta de cada um (buscado sob demanda) */}
-            <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
-              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5 flex items-center gap-1">
-                <Users size={11} /> Participantes
-                {attendees.isLoading && <Loader2 size={10} className="animate-spin" />}
-              </p>
-              {attendees.data && attendees.data.attendees.length > 0 ? (
-                <ul className="space-y-1 max-h-44 overflow-y-auto scrollbar-thin">
-                  {attendees.data.attendees.map((a) => {
-                    const badge = PTST_BADGE[a.ptst] ?? PTST_BADGE.NE;
-                    return (
-                      <li key={a.address} className="flex items-center justify-between gap-2">
-                        <span
-                          className="truncate text-xs text-slate-600 dark:text-slate-300"
-                          title={a.address}
-                        >
-                          {a.name}
-                          {a.role === 'OPT' && <span className="text-slate-400"> · opcional</span>}
-                        </span>
-                        <span
-                          className={`flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${badge.cls}`}
-                        >
-                          {badge.label}
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : attendees.isLoading ? (
-                <p className="text-[11px] text-slate-400">Carregando…</p>
-              ) : attendees.isError ? (
-                <p className="text-[11px] text-red-400">
-                  Não foi possível carregar os participantes.
+            {/* Participantes e a resposta de cada um (buscado sob demanda) — só Zimbra */}
+            {!ev.local && (
+              <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                  <Users size={11} /> Participantes
+                  {attendees.isLoading && <Loader2 size={10} className="animate-spin" />}
                 </p>
-              ) : (
-                <p className="text-[11px] text-slate-400">Sem outros participantes.</p>
-              )}
-            </div>
+                {attendees.data && attendees.data.attendees.length > 0 ? (
+                  <ul className="space-y-1 max-h-44 overflow-y-auto scrollbar-thin">
+                    {attendees.data.attendees.map((a) => {
+                      const badge = PTST_BADGE[a.ptst] ?? PTST_BADGE.NE;
+                      return (
+                        <li key={a.address} className="flex items-center justify-between gap-2">
+                          <span
+                            className="truncate text-xs text-slate-600 dark:text-slate-300"
+                            title={a.address}
+                          >
+                            {a.name}
+                            {a.role === 'OPT' && (
+                              <span className="text-slate-400"> · opcional</span>
+                            )}
+                          </span>
+                          <span
+                            className={`flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${badge.cls}`}
+                          >
+                            {badge.label}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : attendees.isLoading ? (
+                  <p className="text-[11px] text-slate-400">Carregando…</p>
+                ) : attendees.isError ? (
+                  <p className="text-[11px] text-red-400">
+                    Não foi possível carregar os participantes.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-400">Sem outros participantes.</p>
+                )}
+              </div>
+            )}
 
-            {!ev.isOrganizer && !canceled && (
+            {/* Evento local: link da sala (se vídeo) + excluir */}
+            {ev.local && (
+              <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                {/^https?:\/\//.test(ev.location) && (
+                  <a
+                    href={ev.location}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-center gap-1.5 text-xs font-medium px-2 py-1.5 rounded-md bg-teal-600 hover:bg-teal-700 text-white"
+                  >
+                    <Video size={12} /> Entrar na sala
+                  </a>
+                )}
+                <button
+                  onClick={() => del.mutate(ev.id, { onSuccess: () => setOpen(false) })}
+                  disabled={del.isPending}
+                  className="w-full flex items-center justify-center gap-1.5 text-xs font-medium px-2 py-1.5 rounded-md border border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-60"
+                >
+                  {del.isPending ? (
+                    <Loader2 size={11} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={12} />
+                  )}
+                  Excluir
+                </button>
+              </div>
+            )}
+
+            {!ev.local && !ev.isOrganizer && !canceled && (
               <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
                 <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
                   {currentPtst === 'AC'
@@ -887,6 +961,7 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dragging, setDragging] = useState<{ issue: Issue; type: DateField } | null>(null);
   const [showEvents, setShowEvents] = useState(true);
+  const [showNewEvent, setShowNewEvent] = useState(false);
   const mailOn = isMailAvailable();
 
   // Backlog (tarefas sem data) — arraste para um dia para agendar.
@@ -940,22 +1015,25 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
   const rangeEnd = format(days[days.length - 1], 'yyyy-MM-dd');
 
   // Agenda Zimbra na janela visível (epoch ms: início do 1º dia → fim do último).
-  const eventsQuery = useZimbraEvents(
-    days[0].getTime(),
-    days[days.length - 1].getTime() + 86_400_000,
-  );
+  const winStart = days[0].getTime();
+  const winEnd = days[days.length - 1].getTime() + 86_400_000;
+  const eventsQuery = useZimbraEvents(winStart, winEnd);
+  // Eventos/reuniões locais (store por-usuário, independem do Zimbra).
+  const localEventsQuery = useLocalEvents(winStart, winEnd);
   const byEvent = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
-    if (!showEvents) return map;
-    (eventsQuery.data ?? []).forEach((ev) => {
+    const push = (ev: CalendarEvent) => {
       if (ev.start == null) return;
       const d = format(new Date(ev.start), 'yyyy-MM-dd');
       const arr = map.get(d);
       if (arr) arr.push(ev);
       else map.set(d, [ev]);
-    });
+    };
+    // Agenda Zimbra respeita o toggle "Agenda"; eventos locais sempre aparecem.
+    if (showEvents) (eventsQuery.data ?? []).forEach(push);
+    (localEventsQuery.data ?? []).forEach((le) => push(localToCalendarEvent(le)));
     return map;
-  }, [eventsQuery.data, showEvents]);
+  }, [eventsQuery.data, localEventsQuery.data, showEvents]);
 
   // Campos ativos: "Tudo" → prazo + revisão; senão só o escolhido.
   const activeFields: DateField[] = useMemo(
@@ -1205,8 +1283,19 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
               Agenda
             </button>
           )}
+
+          {/* Nova reunião — Zimbra + Jitsi quando há e-mail; senão, evento local */}
+          <button
+            onClick={() => setShowNewEvent(true)}
+            title="Criar reunião no calendário"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-teal-600 bg-teal-600 text-white hover:bg-teal-700 transition-colors"
+          >
+            <Plus size={13} /> Nova reunião
+          </button>
         </div>
       </div>
+
+      {showNewEvent && <NewEventModal onClose={() => setShowNewEvent(false)} />}
 
       {/* Barra de navegação */}
       <div className="flex items-center justify-between mb-3">

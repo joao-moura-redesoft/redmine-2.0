@@ -421,6 +421,89 @@ async function replyToInvite(req, { id, verb, compNum = 0 }) {
   return { success: true, verb: v };
 }
 
+function badRequest(msg) {
+  const err = new Error(msg);
+  err.statusCode = 400;
+  err.isSafe = true; // mensagem intencional para o front
+  return err;
+}
+
+// Formata um instante (epoch ms) no formato de data/hora UTC do iCalendar/Zimbra:
+// 20260710T170000Z. Sem ambiguidade de fuso — o Zimbra converte para o fuso de
+// cada convidado ao exibir.
+function fmtZimbraUtc(ms) {
+  return new Date(Number(ms))
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}/, '');
+}
+
+// Data local (YYYYMMDD) para eventos de dia inteiro. Como o app roda como exe
+// local (1 instância por usuário), o fuso do servidor == fuso do usuário.
+function fmtZimbraDate(ms) {
+  const d = new Date(Number(ms));
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+}
+
+// Cria um compromisso no calendário do usuário via CreateAppointmentRequest.
+// Se houver convidados, o Zimbra dispara os convites por e-mail automaticamente
+// (o organizador é o próprio usuário autenticado). `attendees` é uma lista de
+// { address, name?, role? } — role REQ (padrão) ou OPT. `start`/`end` em epoch ms.
+async function createAppointment(
+  req,
+  { subject, start, end, location = '', description = '', attendees = [], allDay = false } = {},
+) {
+  if (!subject || !String(subject).trim()) throw badRequest('Assunto obrigatório.');
+  if (start == null || end == null) throw badRequest('Início e fim são obrigatórios.');
+  if (Number(end) <= Number(start)) throw badRequest('O fim deve ser depois do início.');
+
+  const at = (attendees || [])
+    .filter((a) => a && a.address)
+    .map((a) => ({
+      a: String(a.address),
+      d: a.name || String(a.address),
+      role: a.role === 'OPT' ? 'OPT' : 'REQ',
+      ptst: 'NE', // ninguém respondeu ainda
+      rsvp: '1', // pedir confirmação
+    }));
+  // Destinatários do e-mail de convite (mesmas pessoas dos <at>).
+  const e = at.map((a) => ({ a: a.a, p: a.d, t: 't' }));
+
+  const s = allDay ? { d: fmtZimbraDate(start) } : { d: fmtZimbraUtc(start) };
+  const eTime = allDay ? { d: fmtZimbraDate(end) } : { d: fmtZimbraUtc(end) };
+
+  const comp = {
+    name: String(subject),
+    loc: String(location || ''),
+    fb: 'B', // free/busy: ocupado
+    transp: 'O', // opaco (bloqueia agenda)
+    status: 'CONF',
+    class: 'PUB',
+    allDay: allDay ? '1' : '0',
+    s,
+    e: eTime,
+  };
+  // Só inclui <at> quando há convidados (evita elemento vazio no invite).
+  if (at.length) comp.at = at;
+
+  const m = {
+    su: { _content: String(subject) },
+    inv: { comp },
+    mp: [{ ct: 'text/plain', content: { _content: String(description || '') } }],
+  };
+  // <e> = destinatários do e-mail de convite; omitido em compromisso pessoal.
+  if (e.length) m.e = e;
+
+  const resp = await mailSoap(req, 'urn:zimbraMail', 'CreateAppointmentRequest', { m });
+  return {
+    success: true,
+    calItemId: resp?.calItemId ?? null,
+    invId: resp?.invId ?? null,
+    invitesSent: at.length,
+  };
+}
+
 // Normaliza um convidado (<at>) do convite. ptst = participação de CADA pessoa
 // (a busca de agenda só traz a SUA; os demais só vêm no convite completo).
 //   role: REQ=obrigatório OPT=opcional NON=informativo CHA=presidente
@@ -524,4 +607,5 @@ module.exports = {
   listAppointments,
   getAppointmentAttendees,
   replyToInvite,
+  createAppointment,
 };

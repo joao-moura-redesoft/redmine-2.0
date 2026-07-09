@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { mailApi, type InviteVerb } from '../api/mail';
+import { mailApi, type InviteVerb, type CreateEventPayload } from '../api/mail';
 import { isMailAvailable } from '../utils/mailConfig';
 
 /**
@@ -37,6 +37,17 @@ export function useReplyToInvite() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['zimbra-calendar'] });
       qc.invalidateQueries({ queryKey: ['zimbra-attendees'] });
+    },
+  });
+}
+
+/** Cria um compromisso/reunião no calendário e revalida a agenda. */
+export function useCreateEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateEventPayload) => mailApi.createEvent(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['zimbra-calendar'] });
     },
   });
 }

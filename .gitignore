@@ -170,6 +170,7 @@ server/secrets.json
 server/notes.json
 server/boards.json
 server/sprints.json
+server/events.json
 
 # Saída de execução do servidor (stdout/stderr) — gerada em runtime
 srv.out
