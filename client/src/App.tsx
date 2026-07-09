@@ -56,6 +56,7 @@ import { DriveView } from './components/drive/DriveView';
 import { MyDayView } from './components/MyDayView';
 import { FlowView } from './components/FlowView';
 import { FocusWidget } from './components/FocusWidget';
+import { TimesheetView } from './components/TimesheetView';
 import type { NotePatch } from './api/notes';
 import { mailApi } from './api/mail';
 import { isMailAvailable } from './utils/mailConfig';
@@ -96,6 +97,7 @@ import {
   Video,
   HardDrive,
   CalendarRange,
+  CalendarClock,
   Milestone,
 } from 'lucide-react';
 import { useJitsi } from './components/jitsi/JitsiContext';
@@ -140,6 +142,7 @@ type Tab =
   | 'mail'
   | 'wiki'
   | 'drive'
+  | 'timesheet'
   | 'totp';
 
 export function App() {
@@ -442,6 +445,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     { id: 'wiki', label: 'Wiki', icon: <BookOpen size={15} /> },
     { id: 'drive', label: 'Arquivos', icon: <HardDrive size={15} /> },
     { id: 'notes', label: 'Notas', icon: <NotebookPen size={15} /> },
+    { id: 'timesheet', label: 'Apontamentos', icon: <CalendarClock size={15} /> },
     { id: 'assistant', label: 'Assistente', icon: <Bot size={15} /> },
     { id: 'totp', label: 'Autenticação 2FA', icon: <ShieldCheck size={15} /> },
   ];
@@ -462,7 +466,10 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     },
     { label: 'Descoberta', ids: ['authored', 'watched'] },
     { label: 'Colaboração', ids: ['people', 'team', 'release', 'meetings'] },
-    { label: 'Ferramentas', ids: ['mail', 'wiki', 'drive', 'notes', 'assistant', 'totp'] },
+    {
+      label: 'Ferramentas',
+      ids: ['mail', 'wiki', 'drive', 'notes', 'timesheet', 'assistant', 'totp'],
+    },
   ];
 
   const tabMap = Object.fromEntries(tabs.map((t) => [t.id, t])) as Record<Tab, (typeof tabs)[0]>;
@@ -854,6 +861,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             <Route path="/mail" element={<MailView />} />
             <Route path="/wiki" element={<WikiView />} />
             <Route path="/drive" element={<DriveView />} />
+            <Route path="/timesheet" element={<TimesheetView onIssueClick={openIssue} />} />
             <Route path="/totp" element={<TotpView />} />
 
             <Route
