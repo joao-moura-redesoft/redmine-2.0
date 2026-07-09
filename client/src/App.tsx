@@ -58,6 +58,7 @@ import { FlowView } from './components/FlowView';
 import { FocusWidget } from './components/FocusWidget';
 import { TimesheetView } from './components/TimesheetView';
 import { QuickAddModal } from './components/QuickAddModal';
+import { TemplatesModal } from './components/TemplatesModal';
 import type { NotePatch } from './api/notes';
 import { mailApi } from './api/mail';
 import { isMailAvailable } from './utils/mailConfig';
@@ -101,6 +102,7 @@ import {
   CalendarClock,
   Milestone,
   Zap,
+  FileText,
 } from 'lucide-react';
 import { useJitsi } from './components/jitsi/JitsiContext';
 import { CallWindow } from './components/jitsi/CallWindow';
@@ -318,6 +320,14 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const [showStandup, setShowStandup] = useState(false);
   const [showDigest, setShowDigest] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+
+  // Abrir gestão de templates a partir do compositor de comentário.
+  useEffect(() => {
+    const h = () => setShowTemplates(true);
+    window.addEventListener('bluemine:manage-templates', h);
+    return () => window.removeEventListener('bluemine:manage-templates', h);
+  }, []);
 
   // Deep-link do Web Push do digest (?digest=1) → abre o resumo da manhã.
   useEffect(() => {
@@ -1086,6 +1096,12 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             run: () => setShowQuickAdd(true),
           },
           {
+            id: 'templates',
+            label: 'Gerenciar templates',
+            icon: <FileText size={14} />,
+            run: () => setShowTemplates(true),
+          },
+          {
             id: 'theme',
             label: theme === 'dark' ? 'Tema claro' : 'Tema escuro',
             icon: theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />,
@@ -1132,6 +1148,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
 
       {showDigest && <DigestModal onClose={() => setShowDigest(false)} />}
       {showQuickAdd && <QuickAddModal onClose={() => setShowQuickAdd(false)} />}
+      {showTemplates && <TemplatesModal onClose={() => setShowTemplates(false)} />}
 
       <TalkChat
         onIssueClick={openIssue}

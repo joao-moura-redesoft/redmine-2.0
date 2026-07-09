@@ -14,10 +14,12 @@ import {
   AtSign,
   Sparkles,
   Loader2,
+  FileText,
 } from 'lucide-react';
 import { Markdown } from './Markdown';
 import { redmineApi } from '../api/redmine';
 import { getAIKey } from '../utils/aiConfig';
+import { useTemplates } from '../utils/templates';
 
 interface Member {
   id: number;
@@ -81,8 +83,26 @@ export function CommentComposer({
   const [midx, setMidx] = useState(0);
   const [aiReviewing, setAiReviewing] = useState(false);
   const [aiFeedback, setAiFeedback] = useState<string | null>(null);
+  const [tplOpen, setTplOpen] = useState(false);
+  const templates = useTemplates();
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Insere um texto no ponto do cursor (usado pelos templates).
+  const insertText = (str: string) => {
+    const ta = taRef.current;
+    if (!ta) {
+      setText((t) => t + str);
+      return;
+    }
+    const s = ta.selectionStart;
+    const e = ta.selectionEnd;
+    setText(text.slice(0, s) + str + text.slice(e));
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = s + str.length;
+    });
+  };
 
   const storageKey = draftKey ? `rk_draft_${draftKey}` : null;
 
@@ -252,6 +272,52 @@ export function CommentComposer({
         >
           <Paperclip size={14} />
         </button>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setTplOpen((v) => !v)}
+            title="Templates"
+            className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <FileText size={14} />
+          </button>
+          {tplOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setTplOpen(false)} />
+              <div className="absolute z-20 top-full mt-1 left-0 w-56 max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-xl py-1 scrollbar-thin">
+                {templates.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-slate-400">Nenhum template ainda.</p>
+                ) : (
+                  templates.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => {
+                        insertText(t.body);
+                        setTplOpen(false);
+                      }}
+                      title={t.body}
+                      className="w-full text-left px-3 py-1.5 text-sm text-slate-700 hover:bg-blue-50 truncate"
+                    >
+                      {t.name}
+                    </button>
+                  ))
+                )}
+                <div className="border-t border-slate-100 my-1" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTplOpen(false);
+                    window.dispatchEvent(new CustomEvent('bluemine:manage-templates'));
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50"
+                >
+                  Gerenciar templates…
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         <div className="flex-1" />
         <button
           type="button"
