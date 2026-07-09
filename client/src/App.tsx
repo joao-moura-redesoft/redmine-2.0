@@ -55,6 +55,7 @@ import { MeetingsView } from './components/MeetingsView';
 import { DriveView } from './components/drive/DriveView';
 import { MyDayView } from './components/MyDayView';
 import { FlowView } from './components/FlowView';
+import { FocusWidget } from './components/FocusWidget';
 import type { NotePatch } from './api/notes';
 import { mailApi } from './api/mail';
 import { isMailAvailable } from './utils/mailConfig';
@@ -1120,6 +1121,9 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         onRoomOpened={() => setPendingTalkToken(null)}
         onOpenSettings={() => setShowSettings(true)}
       />
+
+      {/* Sessão de foco (Pomodoro) com auto-apontamento */}
+      <FocusWidget />
 
       {/* Janela flutuante de vídeo (Jitsi War Room) */}
       <CallWindow />

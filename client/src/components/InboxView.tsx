@@ -315,6 +315,7 @@ export function InboxView({ onIssueClick }: Props) {
                 ['z', 'Adiar (snooze)'],
                 ['w', 'Aguardando resposta'],
                 ['x', 'Selecionar (lote)'],
+                ['f', 'Foco 25min (Pomodoro)'],
                 ['esc', 'Limpar foco / fechar'],
               ].map(([k, d]) => (
                 <div key={k} className="flex items-center justify-between gap-3">

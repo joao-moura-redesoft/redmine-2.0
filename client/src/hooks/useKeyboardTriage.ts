@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Issue } from '../types/redmine';
 import type { QuickField } from '../components/inline/QuickEditPanel';
 import { waitingStore } from '../utils/waitingOn';
+import { focusStore } from '../utils/focus';
 
 interface QuickEdit {
   issue: Issue;
@@ -137,6 +138,14 @@ export function useKeyboardTriage({
             e.stopImmediatePropagation();
             e.preventDefault();
             waitingStore.toggle(fid);
+          }
+          return;
+        case 'f':
+          if (fid != null) {
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            const issue = st.current.issueById(fid);
+            focusStore.start(fid, issue?.subject ?? `#${fid}`);
           }
           return;
         case 'x':
