@@ -245,30 +245,19 @@ function WorkflowRow({
   const actionCount = wf.nodes.filter((n) => n.kind === 'action').length;
   const trigger = wf.nodes.find((n) => n.kind === 'trigger');
   const TriggerIcon = trigger ? descriptorFor(trigger.type)?.icon : undefined;
+  const [dialog, setDialog] = useState<'blockers' | 'risky' | null>(null);
 
   // Ativar daqui também pode disparar uma varredura ampla com escrita — mesmo
   // aviso do editor (é o ato de ativar que causa o estrago, não o de salvar).
   const risky =
     trigger?.type === 'issue.scan' && trigger.config?.scope === 'all' && hasWriteAction(wf.nodes);
+  const blockers = activationBlockers(wf.nodes);
 
   const requestToggle = (checked: boolean) => {
-    if (checked) {
-      const blockers = activationBlockers(wf.nodes);
-      if (blockers.length) {
-        alert(`Não dá para ativar "${wf.name}" ainda:\n\n• ${blockers.join('\n• ')}`);
-        return;
-      }
-      if (
-        risky &&
-        !confirm(
-          `"${wf.name}" age sobre TODAS as suas tarefas e executa ações de escrita. Não há desfazer.\n\n` +
-            'Abra a automação e use "Prévia" antes. Ativar mesmo assim?',
-        )
-      ) {
-        return;
-      }
-    }
-    onToggle(checked);
+    if (!checked) return onToggle(false);
+    if (blockers.length) return setDialog('blockers');
+    if (risky) return setDialog('risky');
+    onToggle(true);
   };
 
   return (
@@ -317,6 +306,42 @@ function WorkflowRow({
       <button onClick={onDelete} className="p-1.5 text-slate-400 hover:text-red-500" title="Excluir">
         <Trash2 size={16} />
       </button>
+
+      {dialog === 'blockers' && (
+        <ConfirmDialog
+          title="Ainda não dá para ativar"
+          message={
+            <>
+              Complete antes de ativar <strong>{wf.name}</strong>:
+              <ul className="mt-2 list-disc pl-4 space-y-0.5">
+                {blockers.map((b, i) => (
+                  <li key={i}>{b}</li>
+                ))}
+              </ul>
+            </>
+          }
+          confirmLabel="Entendi"
+          hideCancel
+          onConfirm={() => {}}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === 'risky' && (
+        <ConfirmDialog
+          danger
+          title="Ativar varredura ampla?"
+          message={
+            <>
+              <strong>{wf.name}</strong> age sobre <strong>todas</strong> as suas tarefas e executa
+              ações de escrita — não há desfazer. Abra a automação e use <strong>Prévia</strong>{' '}
+              antes.
+            </>
+          }
+          confirmLabel="Ativar mesmo assim"
+          onConfirm={() => onToggle(true)}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </li>
   );
 }

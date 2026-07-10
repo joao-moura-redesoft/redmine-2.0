@@ -41,6 +41,7 @@ import { WorkflowNodeView, type WfNodeData } from './nodes/WorkflowNodeView';
 import { NodeConfigPanel } from './NodeConfigPanel';
 import { RunLogPanel } from './RunLogPanel';
 import { PreviewModal } from './PreviewModal';
+import { ConfirmDialog } from './ConfirmDialog';
 import { WorkflowMetaProvider } from './WorkflowMetaContext';
 import { WorkflowEdge, EdgeActionsContext } from './edges/WorkflowEdge';
 import { RunTrailProvider } from './RunTrailContext';
@@ -116,6 +117,7 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
   const [testing, setTesting] = useState(false);
   const [tab, setTab] = useState<'config' | 'runs'>('config');
   const [showLastRun, setShowLastRun] = useState(false);
+  const [confirmRisky, setConfirmRisky] = useState(false);
   const [query, setQuery] = useState('');
   const [flash, setFlash] = useState<{ ok: boolean; msg: string } | null>(null);
   const [preview, setPreview] = useState<{
@@ -449,15 +451,10 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
                   showFlash(false, `Complete antes de ativar: ${blockers[0]}`);
                   return;
                 }
-                // Ativar é o momento do estrago (varredura ampla + escrita), não salvar.
-                if (
-                  riskyScan &&
-                  !confirm(
-                    'Esta varredura age sobre TODAS as suas tarefas e executa ações de escrita ' +
-                      '(comentar/atualizar/enviar). Não há desfazer.\n\n' +
-                      'Recomendado: use "Prévia" antes. Ativar mesmo assim?',
-                  )
-                ) {
+                // Ativar é o momento do estrago (varredura ampla + escrita), não
+                // salvar. Confirma num diálogo in-app antes de ligar.
+                if (riskyScan) {
+                  setConfirmRisky(true);
                   return;
                 }
               }
@@ -668,6 +665,26 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
           loading={preview.loading}
           error={preview.error}
           onClose={() => setPreview(null)}
+        />
+      )}
+
+      {confirmRisky && (
+        <ConfirmDialog
+          danger
+          title="Ativar varredura ampla?"
+          message={
+            <>
+              Esta varredura age sobre <strong>todas</strong> as suas tarefas e executa ações de
+              escrita (comentar/atualizar/enviar) — não há desfazer. Use <strong>Prévia</strong>{' '}
+              antes.
+            </>
+          }
+          confirmLabel="Ativar mesmo assim"
+          onConfirm={() => {
+            setEnabled(true);
+            markDirty();
+          }}
+          onClose={() => setConfirmRisky(false)}
         />
       )}
     </div>

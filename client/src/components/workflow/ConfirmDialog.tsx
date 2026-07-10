@@ -8,6 +8,7 @@ export function ConfirmDialog({
   confirmLabel = 'Confirmar',
   cancelLabel = 'Cancelar',
   danger = false,
+  hideCancel = false,
   onConfirm,
   onClose,
 }: {
@@ -16,6 +17,8 @@ export function ConfirmDialog({
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  /** Esconde "Cancelar" — para diálogos apenas informativos (só "Entendi"). */
+  hideCancel?: boolean;
   onConfirm: () => void;
   onClose: () => void;
 }) {
@@ -40,12 +43,14 @@ export function ConfirmDialog({
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="text-sm px-3 py-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            {cancelLabel}
-          </button>
+          {!hideCancel && (
+            <button
+              onClick={onClose}
+              className="text-sm px-3 py-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              {cancelLabel}
+            </button>
+          )}
           <button
             onClick={() => {
               onConfirm();
