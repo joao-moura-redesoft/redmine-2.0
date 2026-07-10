@@ -1,0 +1,799 @@
+// MOTOR DE AUTOMAÇÕES — roda no loop de polling (push.js). A cada tick:
+//  1) agrupa inscrições por usuário (credenciais + uid);
+//  2) para cada usuário com automações ativas, detecta eventos:
+//     - issues (created / status_changed / assigned_changed) via collectPushState + snapshot;
+//     - Talk (mensagem/menção) via listagem de salas + talkSeen;
+//     - schedule (diário/intervalo) via lastScheduleRuns;
+//  3) para cada workflow cujo gatilho casa o evento, caminha o grafo
+//     (filter para/segue o ramo; action executa) resolvendo variáveis {{ }}.
+// O dedup vem do snapshot-diff / talkSeen: um evento só é emitido quando o campo
+// muda de fato. Toda ação é try/catch: uma falha não derruba o tick (e pode parar
+// só o ramo, via `onError: 'stop'`).
+const axios = require('axios');
+const { buildAuthHeaders, getMyUserId } = require('../lib/redmine');
+const { sanitizeIssueBody, toLatin1Safe } = require('../lib/latin1');
+const { safeAgents } = require('../lib/ssrfGuard');
+const keyboard = require('./keyboardNotify');
+const talkStore = require('./talkStore');
+const zimbra = require('../zimbra');
+const { resolveInput } = require('../lib/variableResolver');
+const {
+  evalFilter,
+  triggerMatches,
+  scheduleDue,
+  scanIssues,
+  scanRepeatAllows,
+  scanCap,
+  filterNeedsMissingOutput,
+  localYmd,
+} = require('../lib/workflowRules');
+const { listWorkflows, saveWorkflows } = require('./workflowStore');
+const { getState, saveState } = require('./workflowState');
+const workflowRuns = require('./workflowRuns');
+const ai = require('./ai');
+const { providerFor } = require('./digest');
+
+const ISSUE_TRIGGERS = ['issue.created', 'issue.status_changed', 'issue.assigned_changed'];
+
+// ── entrada do loop ─────────────────────────────────────────────────────────
+let running = false;
+async function tick(subscriptions, sendPush) {
+  if (running) return;
+  running = true;
+  try {
+    const byUid = await collectRunners(subscriptions);
+    if (byUid.size === 0) return;
+    for (const [uid, rec] of byUid) {
+      try {
+        await tickUser(uid, rec, sendPush, subscriptions);
+      } catch (e) {
+        console.warn('[workflow] uid', uid, 'falhou:', e.response?.status || e.message);
+      }
+    }
+  } finally {
+    running = false;
+  }
+}
+
+// Monta o mapa uid → credenciais (rec) para rodar as automações. Duas fontes:
+//  1) inscrições de Web Push (têm uid + subscription, permitem a ação notify);
+//  2) sessões ativas de login (permitem rodar SEM push inscrito — resolve o uid
+//     via getMyUserId, cacheado). Um rec por usuário basta.
+async function collectRunners(subscriptions) {
+  const byUid = new Map();
+  for (const rec of subscriptions || []) {
+    if (rec.uid && !byUid.has(rec.uid)) byUid.set(rec.uid, rec);
+  }
+  try {
+    const { listSessions } = require('../lib/session');
+    for (const s of listSessions()) {
+      if (!s.url) continue;
+      const rec = { url: s.url, key: s.apiKey || '', username: s.username || '', password: s.password || '' };
+      let uid;
+      try {
+        uid = await getMyUserId(reqShim(rec));
+      } catch {
+        continue; // credencial inválida/offline — ignora esta sessão
+      }
+      if (uid && !byUid.has(uid)) {
+        rec.uid = uid;
+        byUid.set(uid, rec);
+      }
+    }
+  } catch (e) {
+    console.warn('[workflow] falha ao listar sessões:', e.message);
+  }
+  return byUid;
+}
+
+async function tickUser(uid, rec, sendPush, subscriptions) {
+  const workflows = listWorkflows(uid).filter(
+    (w) => w.enabled && Array.isArray(w.nodes) && w.nodes.some((n) => n.kind === 'trigger'),
+  );
+  if (workflows.length === 0) return;
+
+  const state = getState(uid);
+  let dirty = false;
+
+  const triggerTypes = new Set(
+    workflows.map((w) => w.nodes.find((n) => n.kind === 'trigger')?.type).filter(Boolean),
+  );
+  const needIssues = ISSUE_TRIGGERS.some((t) => triggerTypes.has(t));
+  const needScan = triggerTypes.has('issue.scan');
+  const needTalk = triggerTypes.has('talk.message');
+
+  const events = [];
+  let issuesData = null; // { issues: Map, seen } — usado por eventos E pela varredura
+
+  if (needIssues || needScan) {
+    const { collectPushState } = require('./push'); // lazy: evita ciclo de require
+    issuesData = await collectPushState(
+      rec.url,
+      rec.key || '',
+      rec.username || '',
+      rec.password || '',
+    );
+    // detectIssueEvents diffa/atualiza o snapshot — só para gatilhos de evento.
+    if (needIssues) {
+      const r = detectIssueEvents(state, issuesData.issues, issuesData.seen);
+      events.push(...r.events);
+      if (r.changed) dirty = true;
+    }
+  }
+
+  if (needTalk) {
+    const r = await detectTalkEvents(state, uid);
+    events.push(...r.events);
+    if (r.changed) dirty = true;
+  }
+
+  const user = { id: uid };
+  // Só reescrevemos workflows.json (cifrado, arquivo inteiro) UMA vez por tick,
+  // no fim — em vez de uma vez por evento disparado.
+  let workflowsDirty = false;
+
+  for (const w of workflows) {
+    const trigger = w.nodes.find((n) => n.kind === 'trigger');
+    if (!trigger) continue;
+
+    // Schedule é por-nó (não depende de evento externo).
+    if (trigger.type === 'schedule') {
+      if (scheduleDue(state, trigger)) {
+        dirty = true; // scheduleDue mutou lastScheduleRuns
+        const ctx = { issue: null, room: null, message: null, event: { type: 'schedule' }, user, now: nowIso() };
+        const run = { actions: [] };
+        await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
+        if (touchWorkflow(w, run)) workflowsDirty = true;
+        if (trackFailure(uid, state, w, run)) { workflowsDirty = true; dirty = true; }
+        recordRun(uid, w, trigger, 'auto', 'schedule', run);
+      }
+      continue;
+    }
+
+    // Varredura agendada: no horário definido, roda o grafo UMA VEZ POR TAREFA no
+    // escopo (as condições de idade/prazo/CF filtram por tarefa).
+    if (trigger.type === 'issue.scan') {
+      if (issuesData && scheduleDue(state, trigger)) {
+        dirty = true;
+        const run = { actions: [] };
+        const cfg = trigger.config || {};
+        const scoped = scanIssues(issuesData, cfg.scope);
+        if (!state.scanFired[w.id]) state.scanFired[w.id] = {};
+        const fired = state.scanFired[w.id];
+        const now = Date.now();
+
+        // Teto de segurança: limita quantas tarefas sofrem AÇÃO por execução.
+        // Ao bater o teto, `break` — as restantes não são marcadas em `fired`,
+        // então entram na próxima execução. O teto é rate limit, não perda.
+        const cap = scanCap(cfg);
+        let acted = 0;
+
+        for (let i = 0; i < scoped.length; i++) {
+          const issue = scoped[i];
+          // Política 'once'/'cooldown': não age de novo na mesma tarefa.
+          if (!scanRepeatAllows(fired, issue.id, cfg, now)) continue;
+          if (acted >= cap) {
+            run.truncated = scoped.length - i; // sobrou para a próxima execução
+            break;
+          }
+          const ctx = { issue, room: null, message: null, event: { type: 'issue.scan' }, user, now: nowIso() };
+          const before = run.actions.length;
+          await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
+          // Só marca se alguma ação REALMENTE rodou — caso contrário uma tarefa
+          // barrada pelo filtro seria contada como "já avisada".
+          if (run.actions.length > before) {
+            fired[issue.id] = now;
+            acted++;
+          }
+        }
+
+        // Poda tarefas que saíram do escopo (evita o mapa crescer para sempre).
+        // Nota: com repeat='once', uma tarefa que sai e volta ao escopo é avisada
+        // de novo — é o preço de não guardar histórico infinito.
+        const inScope = new Set(scoped.map((i) => String(i.id)));
+        for (const id of Object.keys(fired)) if (!inScope.has(id)) delete fired[id];
+
+        if (touchWorkflow(w, run)) workflowsDirty = true;
+        if (trackFailure(uid, state, w, run)) { workflowsDirty = true; dirty = true; }
+        recordRun(uid, w, trigger, 'auto', 'issue.scan', run);
+      }
+      continue;
+    }
+
+    for (const ev of events) {
+      if (!triggerMatches(trigger, ev, uid)) continue;
+      // Dedup é feito pelo snapshot-diff (issues) / talkSeen (Talk): um evento só é
+      // emitido quando o campo muda de fato — nunca a cada poll. Não usamos uma
+      // lista de "firedKeys" porque ela suprimiria re-disparos legítimos (ex.: uma
+      // tarefa que entra em Pendente Teste, sai e volta a entrar).
+      dirty = true;
+      const ctx = {
+        issue: ev.ctx?.issue ?? null,
+        room: ev.ctx?.room ?? null,
+        message: ev.ctx?.message ?? null,
+        // Os dados do evento (de/para status, categoria, novo responsável) ficam
+        // disponíveis nas condições e em {{event.*}} — antes eram descartados.
+        event: {
+          type: ev.type,
+          fromStatus: ev.fromStatus,
+          toStatus: ev.toStatus,
+          category: ev.category,
+          newAssignee: ev.newAssignee,
+        },
+        user,
+        now: nowIso(),
+      };
+      const run = { actions: [] };
+      await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
+      if (touchWorkflow(w, run)) workflowsDirty = true;
+        if (trackFailure(uid, state, w, run)) { workflowsDirty = true; dirty = true; }
+      recordRun(uid, w, trigger, 'auto', ev.type, run);
+    }
+  }
+
+  if (workflowsDirty) saveWorkflows();
+  if (dirty) saveState();
+}
+
+// ── detecção de eventos ─────────────────────────────────────────────────────
+// Devolve { events, changed }. `changed` diz se o snapshot mudou de fato — sem
+// isso, gravaríamos o arquivo de estado (cifrado) a cada tick, para sempre.
+function detectIssueEvents(state, issues, seen) {
+  const events = [];
+  const prev = state.issues || {};
+  const firstRun = !state.issuesInit;
+  const next = {};
+  let changed = firstRun;
+
+  // Categoria (assigned/review/monitored) da issue, para o gatilho issue.created.
+  const category = {};
+  for (const c of ['assigned', 'review', 'monitored']) {
+    for (const id of seen[c] || []) if (!category[id]) category[id] = c;
+  }
+
+  for (const [id, issue] of issues) {
+    const cur = {
+      status_id: issue.status?.id ?? null,
+      priority_id: issue.priority?.id ?? null,
+      assigned_to_id: issue.assigned_to?.id ?? null,
+    };
+    const snap = prev[id];
+    if (
+      !snap ||
+      snap.status_id !== cur.status_id ||
+      snap.priority_id !== cur.priority_id ||
+      snap.assigned_to_id !== cur.assigned_to_id
+    ) {
+      changed = true;
+    }
+    if (!firstRun) {
+      const ctx = { issue };
+      if (!snap) {
+        events.push({ type: 'created', category: category[id] || null, issueId: id, ctx });
+      } else {
+        if (snap.status_id !== cur.status_id) {
+          events.push({
+            type: 'status_changed',
+            fromStatus: snap.status_id,
+            toStatus: cur.status_id,
+            issueId: id,
+            ctx,
+          });
+        }
+        if (snap.assigned_to_id !== cur.assigned_to_id) {
+          events.push({ type: 'assigned_changed', newAssignee: cur.assigned_to_id, issueId: id, ctx });
+        }
+      }
+    }
+    next[id] = cur;
+  }
+
+  // Tarefas que sumiram do escopo (fecharam, foram reatribuídas) também são mudança.
+  if (Object.keys(prev).length !== Object.keys(next).length) changed = true;
+
+  state.issues = next;
+  state.issuesInit = true;
+  return { events, changed };
+}
+
+async function detectTalkEvents(state, uid) {
+  const auth = talkStore.getTalkAuth(uid);
+  if (!(auth?.url && auth?.user && auth?.token)) return { events: [], changed: false };
+  const client = axios.create({
+    baseURL: auth.url,
+    auth: { username: auth.user, password: auth.token },
+    headers: { 'OCS-APIRequest': 'true', Accept: 'application/json' },
+  });
+  const { data } = await client.get('/ocs/v2.php/apps/spreed/api/v4/room?format=json');
+
+  const events = [];
+  const firstRun = !state.talkInit;
+  let changed = firstRun;
+  const seen = state.talkSeen || {};
+  for (const room of data.ocs.data || []) {
+    if (room.type === 6) continue; // changelog
+    const lastMsgId = room.lastMessage?.id || 0;
+    const prevId = seen[room.token] || 0;
+    if (lastMsgId && lastMsgId !== prevId) changed = true;
+    if (!firstRun && lastMsgId > prevId && prevId > 0) {
+      const msg = room.lastMessage;
+      events.push({
+        type: 'talk.message',
+        roomToken: room.token,
+        mention: !!room.unreadMention,
+        issueId: null,
+        ctx: {
+          room: { token: room.token, name: room.displayName },
+          message: {
+            text: resolveMessageText(msg),
+            actor: msg?.actorDisplayName || '',
+            id: lastMsgId,
+            mention: !!room.unreadMention,
+          },
+        },
+      });
+    }
+    if (lastMsgId) seen[room.token] = lastMsgId;
+  }
+  state.talkSeen = seen;
+  state.talkInit = true;
+  return { events, changed };
+}
+
+// ── caminhada no grafo ──────────────────────────────────────────────────────
+// `bypassFilters` (teste manual) faz filtros passarem e branch seguir o ramo
+// "verdadeiro". `dryRun` (prévia) avalia os filtros DE VERDADE mas não executa
+// nenhuma ação. `run` coleta o resultado de cada ação para o run log/prévia.
+async function runGraph(
+  w,
+  trigger,
+  ctx,
+  rec,
+  sendPush,
+  subscriptions,
+  { bypassFilters, dryRun, run } = {},
+) {
+  const nodeById = new Map(w.nodes.map((n) => [n.id, n]));
+  const visited = new Set();
+
+  // Numa prévia, condições que dependem da saída de uma ação (ex.: {{ai.label}})
+  // são INDECIDÍVEIS — a ação não rodou. Marcamos e paramos o ramo, em vez de
+  // fingir "falso" e sumir com o ramo verdadeiro da prévia.
+  const undecidable = (node) => {
+    if (!dryRun || !filterNeedsMissingOutput(node.config, ctx)) return false;
+    if (run) run.indeterminate = true;
+    return true;
+  };
+
+  async function walk(id) {
+    if (visited.has(id)) return; // guarda contra ciclos acidentais
+    visited.add(id);
+    const node = nodeById.get(id);
+    if (!node) return;
+
+    if (node.kind === 'filter') {
+      if (undecidable(node)) return;
+      if (!bypassFilters && !evalFilter(node.config, ctx, rec.uid)) return; // para o ramo
+    } else if (node.kind === 'branch') {
+      // Se/senão: segue nextIds (verdadeiro) ou elseIds (falso). Não cai no walk
+      // genérico de nextIds embaixo (senão o ramo verdadeiro rodaria em dobro).
+      if (undecidable(node)) return;
+      const pass = bypassFilters || evalFilter(node.config, ctx, rec.uid);
+      for (const t of pass ? node.nextIds || [] : node.elseIds || []) await walk(t);
+      return;
+    } else if (node.kind === 'action') {
+      if (dryRun) {
+        if (run) run.actions.push({ type: node.type, ok: true, preview: true });
+      } else {
+        try {
+          await execAction(node, ctx, rec, sendPush, subscriptions);
+          if (run) run.actions.push({ type: node.type, ok: true });
+        } catch (e) {
+          const msg = e.response?.data?.errors?.join?.('; ') || e.response?.status || e.message;
+          console.warn('[workflow] ação', node.type, 'falhou:', msg);
+          // `onError: 'stop'` interrompe ESTE ramo (os demais seguem). O padrão
+          // continua sendo 'continue', preservando o comportamento anterior.
+          const stopped = node.config?.onError === 'stop';
+          if (run) run.actions.push({ type: node.type, ok: false, error: String(msg), stopped });
+          if (stopped) return;
+        }
+      }
+    }
+    for (const nextId of node.nextIds || []) await walk(nextId);
+  }
+
+  for (const nextId of trigger.nextIds || []) await walk(nextId);
+}
+
+// ── dispatch de ações ───────────────────────────────────────────────────────
+async function execAction(node, ctx, rec, sendPush, subscriptions) {
+  const cfg = resolveInput(node.config || {}, ctx); // resolve {{ }} em todo o config
+
+  switch (node.type) {
+    case 'notify': {
+      const recs = pushRecsFor(rec, subscriptions);
+      if (recs.length === 0)
+        return void console.warn('[workflow] notify: sem inscrição push p/ uid', rec.uid);
+      // A tag identifica a notificação: com a MESMA tag, o service worker substitui
+      // a anterior. Numa varredura que avisa 5 tarefas, um `tag` fixo por nó
+      // deixaria só a última visível — por isso entra o id da tarefa/mensagem.
+      const subject = ctx.issue?.id ?? ctx.message?.id ?? '';
+      const payload = {
+        title: cfg.title || 'Automação',
+        body: cfg.body || '',
+        tag: subject ? `wf-${node.id}-${subject}` : `wf-${node.id}`,
+        ...(ctx.issue?.id ? { url: `/?issue=${ctx.issue.id}`, issueId: ctx.issue.id } : {}),
+      };
+      // Fan-out para todos os dispositivos do usuário (o digest já faz assim).
+      for (const r of recs) await sendPush(r, payload);
+      return;
+    }
+    case 'k86.screen':
+      keyboard.notify({ type: 'summary', title: cfg.title || '', subtitle: cfg.subtitle || '' });
+      return;
+    case 'talk.send':
+      await talkStore.sendTalkMessage(rec.uid, cfg.roomToken, cfg.message);
+      return;
+    case 'issue.update': {
+      const id = ctx.issue?.id;
+      if (!id) return;
+      const fields = {};
+      if (cfg.status_id) fields.status_id = Number(cfg.status_id);
+      if (cfg.assigned_to_id)
+        fields.assigned_to_id = cfg.assigned_to_id === 'me' ? rec.uid : Number(cfg.assigned_to_id);
+      if (cfg.priority_id) fields.priority_id = Number(cfg.priority_id);
+      if (cfg.due_date) fields.due_date = cfg.due_date;
+      if (Object.keys(fields).length === 0) return;
+      await redmineWrite(rec, id, { issue: fields });
+      return;
+    }
+    case 'issue.comment': {
+      const id = ctx.issue?.id;
+      if (!id || !cfg.body) return;
+      await redmineWrite(rec, id, { issue: { notes: String(cfg.body) } });
+      return;
+    }
+    case 'webhook': {
+      if (!cfg.url) return;
+      // SSRF: a URL vem do usuário. Só http(s), e os agentes com lookup seguro
+      // bloqueiam IPs internos/loopback/metadata — inclusive após redirect.
+      let target;
+      try {
+        target = new URL(String(cfg.url));
+      } catch {
+        throw new Error('URL de webhook inválida');
+      }
+      if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+        throw new Error(`Protocolo não permitido no webhook: ${target.protocol}`);
+      }
+      const method = String(cfg.method || 'POST').toLowerCase();
+      const headers = cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {};
+      let data = cfg.body;
+      if (typeof data === 'string' && data.trim().startsWith('{')) {
+        try {
+          data = JSON.parse(data);
+        } catch {
+          /* mantém como texto */
+        }
+      }
+      const res = await axios({
+        method,
+        url: target.toString(),
+        headers,
+        data,
+        timeout: 10000,
+        maxRedirects: 3,
+        validateStatus: () => true, // deixa o status virar contexto, não exceção
+        ...safeAgents(),
+      });
+      // Disponibiliza para os nós seguintes: {{webhook.status}}, {{webhook.body}}.
+      ctx.webhook = { status: res.status, body: res.data };
+      if (res.status >= 400) throw new Error(`webhook respondeu ${res.status}`);
+      return;
+    }
+    case 'email.send': {
+      if (!cfg.to) return;
+      await zimbra.sendMessage(reqShim(rec), {
+        to: cfg.to,
+        subject: cfg.subject || '',
+        text: cfg.text || '',
+      });
+      return;
+    }
+    case 'ai.generate': {
+      if (!cfg.prompt) return;
+      const prov = providerFor(rec.uid);
+      if (!prov) {
+        console.warn('[workflow] ai.generate: IA não configurada p/ uid', rec.uid);
+        ctx.ai = { text: '' };
+        return;
+      }
+      const text = await ai.aiComplete(prov.provider, prov.key, {
+        system: 'Você é um assistente que gera textos curtos e objetivos para automações de tarefas.',
+        user: String(cfg.prompt),
+        maxTokens: 800,
+        uid: rec.uid,
+      });
+      // Disponibiliza o resultado para os nós seguintes via {{ai.text}}.
+      ctx.ai = { text: text || '' };
+      return;
+    }
+    case 'ai.classify': {
+      const labels = (Array.isArray(cfg.labels) ? cfg.labels : []).map(String).filter(Boolean);
+      if (!cfg.prompt || labels.length === 0) return;
+      const prov = providerFor(rec.uid);
+      if (!prov) {
+        console.warn('[workflow] ai.classify: IA não configurada p/ uid', rec.uid);
+        ctx.ai = { text: '', label: '' };
+        return;
+      }
+      const raw = await ai.aiComplete(prov.provider, prov.key, {
+        system:
+          `Classifique a entrada em EXATAMENTE um destes rótulos: ${labels.join(', ')}. ` +
+          'Responda apenas com o rótulo escolhido, sem pontuação nem explicação.',
+        user: String(cfg.prompt),
+        maxTokens: 20,
+        uid: rec.uid,
+      });
+      const norm = String(raw || '').trim().toLowerCase();
+      const label = labels.find((l) => l.toLowerCase() === norm);
+      ctx.ai = { text: String(raw || '').trim(), label: label || '' };
+      // Sem match: é um erro real (respeita o onError do nó) — melhor falhar alto
+      // do que ramificar silenciosamente pelo "falso".
+      if (!label) throw new Error(`IA devolveu "${raw}", fora dos rótulos [${labels.join(', ')}]`);
+      return;
+    }
+    case 'issue.create': {
+      if (!cfg.project_id || !cfg.subject) return;
+      const issue = { project_id: Number(cfg.project_id), subject: String(cfg.subject) };
+      if (cfg.tracker_id) issue.tracker_id = Number(cfg.tracker_id);
+      if (cfg.description) issue.description = String(cfg.description);
+      if (cfg.priority_id) issue.priority_id = Number(cfg.priority_id);
+      if (cfg.assigned_to_id)
+        issue.assigned_to_id = cfg.assigned_to_id === 'me' ? rec.uid : Number(cfg.assigned_to_id);
+      if (cfg.due_date) issue.due_date = cfg.due_date;
+      // "Subtarefa da tarefa do evento" — só quando o gatilho produz uma tarefa.
+      if (cfg.parent === 'event' && ctx.issue?.id) issue.parent_issue_id = ctx.issue.id;
+
+      const body = { issue };
+      sanitizeIssueBody(body);
+      const { data } = await redmineClient(rec).post('/issues.json', body);
+      // Disponibiliza {{created.id}} / {{created.subject}} para os nós seguintes.
+      ctx.created = { id: data?.issue?.id, subject: data?.issue?.subject };
+      return;
+    }
+    case 'time.log': {
+      const issueId = cfg.issue === 'id' ? Number(cfg.issue_id) : ctx.issue?.id;
+      const hours = Number(cfg.hours);
+      if (!issueId || !hours || !cfg.activity_id) return;
+      const entry = {
+        issue_id: issueId,
+        hours,
+        activity_id: Number(cfg.activity_id),
+        spent_on: cfg.spent_on || localYmd(new Date()),
+      };
+      if (cfg.comments) entry.comments = toLatin1Safe(String(cfg.comments));
+      await redmineClient(rec).post('/time_entries.json', { time_entry: entry });
+      return;
+    }
+    default:
+      console.warn('[workflow] ação desconhecida:', node.type);
+  }
+}
+
+// Registra a execução no run log (resumo + resultado por ação). Não persiste se
+// nada rodou (sem ações no grafo). Cap nas ações (uma varredura pode acionar
+// muitas tarefas — não deixa uma entrada crescer sem limite).
+function recordRun(uid, w, trigger, mode, eventType, run) {
+  if (!run || run.actions.length === 0) return;
+  workflowRuns.record(uid, {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    workflowId: w.id,
+    at: Date.now(),
+    mode, // 'auto' | 'manual'
+    trigger: trigger.type,
+    event: eventType,
+    ok: run.actions.every((a) => a.ok),
+    actions: run.actions.slice(0, 50),
+    ...(run.truncated ? { truncated: run.truncated } : {}),
+  });
+}
+
+// Cliente Redmine autenticado a partir das credenciais do usuário (headless).
+function redmineClient(rec) {
+  return axios.create({
+    baseURL: rec.url,
+    headers: {
+      ...buildAuthHeaders(rec.key || '', rec.username || '', rec.password || ''),
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+async function redmineWrite(rec, issueId, body) {
+  sanitizeIssueBody(body); // guarda latin1 (mesma do fluxo normal de escrita)
+  await redmineClient(rec).put(`/issues/${issueId}.json`, body);
+}
+
+// Para notify: se o rec não é uma inscrição (ex.: teste manual via req), procura
+// uma inscrição push do mesmo usuário.
+// TODAS as inscrições push do usuário (celular + desktop). Se o `rec` veio de uma
+// sessão de login (teste manual), ele não tem `subscription` — aí procuramos as
+// inscrições dele na lista.
+function pushRecsFor(rec, subscriptions) {
+  const mine = (subscriptions || []).filter((s) => s.uid === rec.uid && s.subscription);
+  if (mine.length > 0) return mine;
+  return rec.subscription ? [rec] : [];
+}
+
+// Shim de `req` para o zimbra.sendMessage (que só usa req p/ resolver credenciais).
+function reqShim(rec) {
+  return {
+    headers: {
+      'x-redmine-url': rec.url,
+      'x-redmine-key': rec.key || '',
+      'x-redmine-user': rec.username || '',
+      'x-redmine-pass': rec.password || '',
+    },
+  };
+}
+
+// Marca a execução SÓ quando alguma ação de fato rodou. Uma varredura em que
+// nenhuma tarefa passou no filtro não é "uma execução" — contar inflaria o
+// runCount e faria o "rodou há X min" mentir. Não persiste: quem chama agrupa a
+// gravação (workflows.json é reescrito inteiro, cifrado).
+function touchWorkflow(w, run) {
+  if (!run || run.actions.length === 0) return false;
+  w.lastRunAt = Date.now();
+  w.runCount = (w.runCount || 0) + 1;
+  return true;
+}
+
+// Auto-pausa: um workflow quebrado (ex.: webhook morto, sala do Talk apagada)
+// tentaria e falharia a cada tick, para sempre. Após N execuções em que TODAS as
+// ações falharam, desativa e registra o motivo. Qualquer sucesso zera a contagem.
+const MAX_FAIL_STREAK = 5;
+
+function trackFailure(uid, state, w, run) {
+  if (!run || run.actions.length === 0) return false;
+  const allFailed = run.actions.every((a) => !a.ok);
+  if (!allFailed) {
+    if (state.failStreak[w.id]) delete state.failStreak[w.id];
+    return false;
+  }
+  const streak = (state.failStreak[w.id] || 0) + 1;
+  state.failStreak[w.id] = streak;
+  if (streak < MAX_FAIL_STREAK) return false;
+
+  w.enabled = false;
+  delete state.failStreak[w.id];
+  console.warn(`[workflow] "${w.name}" desativada após ${streak} execuções falhando`);
+  workflowRuns.record(uid, {
+    id: `${Date.now()}-auto`,
+    workflowId: w.id,
+    at: Date.now(),
+    mode: 'auto',
+    trigger: 'system',
+    event: 'auto_paused',
+    ok: false,
+    actions: [
+      { type: 'system.paused', ok: false, error: `Desativada após ${streak} execuções falhando` },
+    ],
+  });
+  return true; // workflow mudou (enabled) — precisa persistir
+}
+
+// ── teste manual (POST /workflows/:id/run) ──────────────────────────────────
+// Executa o grafo com um contexto de EXEMPLO, ignorando filtros, para validar as
+// ações sem esperar um evento real. issue.id=0 (falsy) faz issue.update/comment
+// virarem no-op — o teste não escreve em tarefas reais.
+async function runWorkflowManual(uid, w, rec, sendPush, subscriptions) {
+  const trigger = w.nodes.find((n) => n.kind === 'trigger');
+  if (!trigger) return;
+  const ctx = sampleContext(trigger, uid);
+  const run = { actions: [] };
+  await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { bypassFilters: true, run });
+  if (touchWorkflow(w, run)) saveWorkflows();
+  recordRun(uid, w, trigger, 'manual', trigger.type, run);
+}
+
+// ── prévia da varredura (POST /workflows/:id/preview) ───────────────────────
+// Avalia as CONDIÇÕES contra as tarefas reais, sem executar nenhuma ação. É o
+// inverso do "Testar" (que ignora filtros e executa as ações).
+//
+// Não toca o estado: nada de scheduleDue (mutaria lastScheduleRuns) nem de
+// detectIssueEvents (mutaria o snapshot). Também ignora `scanFired` — a prévia
+// responde "o que casa agora", não "o que ainda não foi avisado".
+const PREVIEW_LIST_LIMIT = 50;
+
+async function previewScan(uid, w, rec) {
+  const trigger = w.nodes.find((n) => n.kind === 'trigger');
+  if (!trigger || trigger.type !== 'issue.scan') {
+    throw Object.assign(new Error('Prévia disponível apenas para o gatilho de varredura'), {
+      statusCode: 400,
+      isSafe: true,
+    });
+  }
+
+  const { collectPushState } = require('./push');
+  const issuesData = await collectPushState(rec.url, rec.key || '', rec.username || '', rec.password || '');
+  const cfg = trigger.config || {};
+  const scoped = scanIssues(issuesData, cfg.scope);
+
+  const matched = []; // lista (truncada para a UI)
+  let matchedCount = 0; // total de tarefas que casam
+  let indeterminate = 0;
+
+  for (const issue of scoped) {
+    const ctx = {
+      issue,
+      room: null,
+      message: null,
+      event: { type: 'issue.scan' },
+      user: { id: uid },
+      now: nowIso(),
+    };
+    const run = { actions: [] };
+    await runGraph(w, trigger, ctx, rec, null, null, { dryRun: true, run });
+    if (run.indeterminate) indeterminate++;
+    if (run.actions.length === 0) continue;
+    matchedCount++;
+    if (matched.length < PREVIEW_LIST_LIMIT) {
+      matched.push({
+        id: issue.id,
+        subject: issue.subject,
+        actions: [...new Set(run.actions.map((a) => a.type))],
+        indeterminate: !!run.indeterminate,
+      });
+    }
+  }
+
+  return {
+    scopeCount: scoped.length,
+    matchedCount,
+    indeterminate,
+    cap: scanCap(cfg),
+    matched,
+  };
+}
+
+function sampleContext(trigger, uid) {
+  return {
+    issue: {
+      id: 0,
+      subject: '[Exemplo] Tarefa de teste',
+      status: { id: 0, name: 'Exemplo' },
+      project: { id: 0, name: 'Projeto Exemplo' },
+      priority: { id: 0, name: 'Normal' },
+      tracker: { id: 0, name: 'Tarefa' },
+      assigned_to: { id: uid, name: 'Você' },
+    },
+    room: { token: '', name: 'Sala Exemplo' },
+    message: { text: 'mensagem de exemplo', actor: 'Fulano', id: 0, mention: false },
+    event: { type: trigger.type, fromStatus: 0, toStatus: 0, category: 'assigned', newAssignee: uid },
+    ai: { text: '', label: '' },
+    webhook: { status: 0, body: null },
+    created: { id: 0, subject: '' },
+    user: { id: uid },
+    now: nowIso(),
+  };
+}
+
+// ── utils ───────────────────────────────────────────────────────────────────
+// (as regras puras — fieldValue/evalRule/scheduleDue/scanIssues — vivem em
+//  lib/workflowRules.js, onde são cobertas por testes.)
+const nowIso = () => new Date().toISOString();
+
+function resolveMessageText(msg) {
+  if (!msg) return '';
+  if (msg.message === '{file}') {
+    const f = msg.messageParameters?.file;
+    return f?.name ? `📎 ${f.name}` : '📎 Arquivo';
+  }
+  return String(msg.message || '').replace(/\{([\w-]+)\}/g, (_, k) => {
+    const p = msg.messageParameters?.[k];
+    return p?.name ? `@${p.name}` : k;
+  });
+}
+
+module.exports = { tick, runWorkflowManual, previewScan };

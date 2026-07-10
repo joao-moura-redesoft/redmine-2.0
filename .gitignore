@@ -171,6 +171,10 @@ server/notes.json
 server/boards.json
 server/sprints.json
 server/events.json
+server/workflows.json
+server/workflow-state.json
+server/workflow-runs.json
+server/digest-*.json
 
 # Saída de execução do servidor (stdout/stderr) — gerada em runtime
 srv.out

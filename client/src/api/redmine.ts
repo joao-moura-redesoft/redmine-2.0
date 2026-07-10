@@ -324,6 +324,23 @@ export const redmineApi = {
     return data.time_entry;
   },
 
+  updateTimeEntry: async (
+    id: number,
+    entry: {
+      hours?: number;
+      activity_id?: number;
+      comments?: string;
+      spent_on?: string;
+    },
+  ): Promise<TimeEntry> => {
+    const { data } = await api.put(`/time_entries/${id}`, { time_entry: entry });
+    return data.time_entry;
+  },
+
+  deleteTimeEntry: async (id: number): Promise<void> => {
+    await api.delete(`/time_entries/${id}`);
+  },
+
   getTimeEntryActivities: async (): Promise<TimeEntryActivity[]> => {
     const { data } = await api.get('/enumerations/time_entry_activities');
     return data.time_entry_activities ?? [];

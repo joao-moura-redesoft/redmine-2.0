@@ -467,8 +467,27 @@ async function runDigests() {
   }
 }
 
+// ── AUTOMAÇÕES (workflow engine) ────────────────────────────────────────────
+// Motor de automações roda no mesmo loop de polling, reaproveitando as
+// inscrições (credenciais + uid por usuário) e o sendPush interno. Desligável
+// com WORKFLOWS_ENABLED=0. O tick lê `subscriptions` via arrow (pega o binding
+// atual mesmo após poda/unsubscribe).
+const WORKFLOWS_ENABLED = !(
+  process.env.WORKFLOWS_ENABLED === '0' || /^false$/i.test(process.env.WORKFLOWS_ENABLED || '')
+);
+const WORKFLOW_POLL_MS = Number(process.env.WORKFLOW_POLL_MS) || 60 * 1000;
+
 function startPushPolling() {
   if (DIGEST_ENABLED) setInterval(runDigests, 5 * 60 * 1000);
+
+  if (WORKFLOWS_ENABLED) {
+    const workflowEngine = require('./workflowEngine');
+    setInterval(() => {
+      workflowEngine.tick(subscriptions, sendPush).catch((e) => {
+        console.error('[workflow] tick falhou:', e.message);
+      });
+    }, WORKFLOW_POLL_MS);
+  }
 
   if (!PUSH_ENABLED) {
     console.log('[push] polling desabilitado (PUSH_ENABLED!=1)');
@@ -499,4 +518,20 @@ function startPushPolling() {
   );
 }
 
-module.exports = { getVapidPublicKey, subscribe, unsubscribe, startPushPolling };
+// sendPush e collectPushState são reaproveitados pelo motor de automações
+// (workflowEngine): o primeiro entrega notify; o segundo traz as issues do
+// usuário para detecção de eventos. getSubscriptions dá acesso às inscrições
+// (para o endpoint de teste manual achar a subscription de um uid).
+function getSubscriptions() {
+  return subscriptions;
+}
+
+module.exports = {
+  getVapidPublicKey,
+  subscribe,
+  unsubscribe,
+  startPushPolling,
+  sendPush,
+  collectPushState,
+  getSubscriptions,
+};

@@ -40,6 +40,23 @@ export function usePriorities() {
   });
 }
 
+// Campos personalizados distintos vistos nas tarefas do usuário. Derivado das
+// issues atribuídas (o endpoint /custom_fields do Redmine é admin-only e dá 403
+// com key não-admin), então listamos o que aparece de fato nas tarefas.
+export function useCustomFieldDefs() {
+  return useQuery({
+    queryKey: ['custom-field-defs'],
+    queryFn: async () => {
+      const issues = await redmineApi.getIssues();
+      const map = new Map<number, string>();
+      for (const it of issues)
+        for (const cf of it.custom_fields ?? []) if (!map.has(cf.id)) map.set(cf.id, cf.name);
+      return [...map.entries()].map(([id, name]) => ({ id, name }));
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useIssues(projectId?: number) {
   return useQuery({
     queryKey: ['issues', projectId],
@@ -260,8 +277,14 @@ function isIssueListKey(key: readonly unknown[]): boolean {
 export function useQuickEditIssue() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, fields }: { id: number; fields: Record<string, unknown>; optimistic?: Partial<Issue> }) =>
-      redmineApi.updateIssue(id, fields),
+    mutationFn: ({
+      id,
+      fields,
+    }: {
+      id: number;
+      fields: Record<string, unknown>;
+      optimistic?: Partial<Issue>;
+    }) => redmineApi.updateIssue(id, fields),
     onMutate: async ({ id, optimistic }) => {
       const snapshots: [readonly unknown[], unknown][] = [];
       if (!optimistic) return { snapshots };
@@ -328,6 +351,49 @@ export function useCreateTimeEntry() {
       qc.invalidateQueries({ queryKey: ['time-entries'] });
       qc.invalidateQueries({ queryKey: ['time-entries-issue', vars.issue_id] });
       qc.invalidateQueries({ queryKey: ['issue', vars.issue_id] });
+    },
+  });
+}
+
+// `issueId` não é enviado ao Redmine — serve só para invalidar as queries da
+// tarefa afetada (horas gastas no card, lista de registros do modal).
+export function useUpdateTimeEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      id: number;
+      issueId?: number;
+      hours?: number;
+      activity_id?: number;
+      comments?: string;
+      spent_on?: string;
+    }) =>
+      redmineApi.updateTimeEntry(vars.id, {
+        hours: vars.hours,
+        activity_id: vars.activity_id,
+        comments: vars.comments,
+        spent_on: vars.spent_on,
+      }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ['time-entries'] });
+      if (vars.issueId) {
+        qc.invalidateQueries({ queryKey: ['time-entries-issue', vars.issueId] });
+        qc.invalidateQueries({ queryKey: ['issue', vars.issueId] });
+      }
+    },
+  });
+}
+
+export function useDeleteTimeEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: number; issueId?: number }) => redmineApi.deleteTimeEntry(id),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ['time-entries'] });
+      if (vars.issueId) {
+        qc.invalidateQueries({ queryKey: ['time-entries-issue', vars.issueId] });
+        qc.invalidateQueries({ queryKey: ['issue', vars.issueId] });
+      }
     },
   });
 }

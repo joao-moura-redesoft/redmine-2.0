@@ -44,6 +44,7 @@ import { StandupModal } from './components/StandupModal';
 import { DigestModal } from './components/DigestModal';
 import { TalkChat } from './components/TalkChat';
 import { NotesView } from './components/NotesView';
+import { WorkflowsView } from './components/WorkflowsView';
 import { SprintsView } from './components/SprintsView';
 import { RoadmapView } from './components/RoadmapView';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -103,6 +104,7 @@ import {
   Milestone,
   Zap,
   FileText,
+  Workflow as WorkflowIcon,
 } from 'lucide-react';
 import { useJitsi } from './components/jitsi/JitsiContext';
 import { CallWindow } from './components/jitsi/CallWindow';
@@ -147,6 +149,7 @@ type Tab =
   | 'wiki'
   | 'drive'
   | 'timesheet'
+  | 'workflows'
   | 'totp';
 
 export function App() {
@@ -469,6 +472,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     { id: 'drive', label: 'Arquivos', icon: <HardDrive size={15} /> },
     { id: 'notes', label: 'Notas', icon: <NotebookPen size={15} /> },
     { id: 'timesheet', label: 'Apontamentos', icon: <CalendarClock size={15} /> },
+    { id: 'workflows', label: 'Automações', icon: <WorkflowIcon size={15} /> },
     { id: 'assistant', label: 'Assistente', icon: <Bot size={15} /> },
     { id: 'totp', label: 'Autenticação 2FA', icon: <ShieldCheck size={15} /> },
   ];
@@ -491,7 +495,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     { label: 'Colaboração', ids: ['people', 'team', 'release', 'meetings'] },
     {
       label: 'Ferramentas',
-      ids: ['mail', 'wiki', 'drive', 'notes', 'timesheet', 'assistant', 'totp'],
+      ids: ['mail', 'wiki', 'drive', 'notes', 'timesheet', 'workflows', 'assistant', 'totp'],
     },
   ];
 
@@ -885,6 +889,7 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             <Route path="/wiki" element={<WikiView />} />
             <Route path="/drive" element={<DriveView />} />
             <Route path="/timesheet" element={<TimesheetView onIssueClick={openIssue} />} />
+            <Route path="/workflows" element={<WorkflowsView onIssueClick={openIssue} />} />
             <Route path="/totp" element={<TotpView />} />
 
             <Route

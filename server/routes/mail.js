@@ -84,11 +84,15 @@ router.post(
 );
 
 // Compromissos do calendário numa janela [start, end] (epoch ms).
+// `raw=1` devolve o JSON cru do Zimbra, para conferir nomes de campo (os do
+// slimAppointment foram inferidos, não documentados).
 router.get(
   '/mail/calendar',
   handle(async (req, res) => {
-    const { start, end } = req.query;
-    res.json({ events: await zimbra.listAppointments(req, { start, end }) });
+    const { start, end, raw } = req.query;
+    const isRaw = raw === '1' || raw === 'true';
+    const result = await zimbra.listAppointments(req, { start, end, raw: isRaw });
+    res.json(isRaw ? { raw: result } : { events: result });
   }),
 );
 

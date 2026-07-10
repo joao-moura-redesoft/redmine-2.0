@@ -12,6 +12,9 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.ts',
       includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png'],
+      // O bundle passou de 2 MiB (default do Workbox) e o build falhava. É um app
+      // exe-local servido pelo loopback, então precachear alguns MB não custa banda.
+      injectManifest: { maximumFileSizeToCacheInBytes: 6 * 1024 * 1024 },
       manifest: {
         name: 'Bluemine',
         short_name: 'Bluemine',

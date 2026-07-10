@@ -39,8 +39,12 @@ export interface MailAttachment {
 export interface CalendarEvent {
   id: string;
   invId: string | null;
-  uid: string | null;
+  uid: string | null; // identifica a SÉRIE (comum a todas as ocorrências)
   compNum: number;
+  recurring: boolean; // faz parte de uma série (RRULE)
+  ridZ: string | null; // recurrence-id desta ocorrência (ex.: 20260710T143000Z)
+  isException: boolean; // ocorrência remarcada, destacada da série
+  occurrencesInWindow: number; // ocorrências da série na janela visível (≠ tamanho da série)
   subject: string;
   start: number | null; // epoch ms
   end: number | null;

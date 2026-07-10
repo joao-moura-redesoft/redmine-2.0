@@ -111,6 +111,7 @@ function buildApp() {
   app.use('/api', require('./routes/analytics'));
   app.use('/api', require('./routes/talk'));
   app.use('/api', require('./routes/notes'));
+  app.use('/api', require('./routes/workflows'));
   app.use('/api', require('./routes/events'));
   app.use('/api', require('./routes/sprints'));
   app.use('/api', require('./routes/boards'));

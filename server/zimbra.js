@@ -348,12 +348,19 @@ async function sendMessage(req, { to, cc, subject, text, html, inReplyTo }) {
 //
 // ⚠️ Os nomes de campo abaixo (name, loc, dur, inst.s, ptst, or…) foram
 // inferidos da API do Zimbra e devem ser CONFERIDOS contra o servidor real
-// via GET /api/mail/calendar/_debug (engenharia reversa, como no mail).
+// via GET /api/mail/calendar?raw=1 (engenharia reversa, como no mail).
 
 // Normaliza um <appt> da busca em uma ou mais ocorrências (uma por instância).
+//
+// O Zimbra já devolve a série agrupada: UM <appt> com N <inst>. Achatamos em N
+// eventos para o grid, mas carregamos em cada um o que identifica a série
+// (uid, recurring, occurrencesInWindow) e a ocorrência (ridZ) — sem isso o
+// cliente não consegue distinguir "22 ocorrências de uma daily" de "22 eventos".
 function slimAppointment(appt) {
   const baseDur = Number(appt.dur) || 0;
   const insts = Array.isArray(appt.inst) ? appt.inst : appt.inst ? [appt.inst] : [{}];
+  // `recur` só vem (como true) em séries; em evento único a chave nem existe.
+  const recurring = !!appt.recur;
   return insts.map((inst) => {
     const start = Number(inst.s ?? appt.s);
     const dur = Number(inst.dur ?? baseDur) || 0;
@@ -363,6 +370,14 @@ function slimAppointment(appt) {
       invId: appt.invId ?? null, // id do convite (para responder)
       uid: appt.uid ?? null,
       compNum: Number(appt.compNum) || 0,
+      recurring,
+      // Recurrence-id desta ocorrência (ex.: 20260710T143000Z). Necessário para
+      // responder/excluir UMA ocorrência (exceptId) em vez da série inteira.
+      ridZ: inst.ridZ ?? null,
+      isException: !!inst.ex, // ocorrência destacada da série (remarcada)
+      // Ocorrências desta série DENTRO da janela consultada — não o tamanho real
+      // da série (a RRULE pode ser infinita). Serve para medir densidade no grid.
+      occurrencesInWindow: insts.length,
       subject: appt.name || appt.su || '(sem título)',
       start: hasStart ? start : null, // epoch ms
       end: hasStart ? start + dur : null,

@@ -9,16 +9,11 @@ import {
   useTimeEntryActivities,
   useCreateTimeEntry,
 } from '../hooks/useRedmine';
+import { ymd, parseSpentOn, fmtHours as fmtH } from '../utils/time';
 
 interface Props {
   issueId: number;
   spentHours?: number;
-}
-
-function fmtH(h: number): string {
-  if (h === 0) return '0h';
-  if (h < 1) return `${Math.round(h * 60)}min`;
-  return `${h % 1 === 0 ? h : h.toFixed(1)}h`;
 }
 
 export function TimeTracker({ issueId, spentHours }: Props) {
@@ -37,7 +32,7 @@ export function TimeTracker({ issueId, spentHours }: Props) {
   const [hours, setHours] = useState('');
   const [activityId, setActivityId] = useState<number | ''>('');
   const [comment, setComment] = useState('');
-  const [spentOn, setSpentOn] = useState(new Date().toISOString().split('T')[0]);
+  const [spentOn, setSpentOn] = useState(ymd(new Date()));
   const [showEntries, setShowEntries] = useState(false);
   // Confirmação transitória após apontamento automático ao parar o timer.
   const [justLogged, setJustLogged] = useState<number | null>(null);
@@ -82,7 +77,7 @@ export function TimeTracker({ issueId, spentHours }: Props) {
     setFormOpen(false);
     setHours('');
     setComment('');
-    setSpentOn(new Date().toISOString().split('T')[0]);
+    setSpentOn(ymd(new Date()));
   };
 
   return (
@@ -266,7 +261,7 @@ export function TimeTracker({ issueId, spentHours }: Props) {
                     <span className="text-slate-500 truncate flex-1">{e.comments}</span>
                   )}
                   <span className="text-slate-300 flex-shrink-0 ml-auto">
-                    {formatDistanceToNow(new Date(e.spent_on + 'T12:00:00'), {
+                    {formatDistanceToNow(parseSpentOn(e.spent_on), {
                       addSuffix: true,
                       locale: ptBR,
                     })}

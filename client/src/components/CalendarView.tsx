@@ -53,10 +53,15 @@ import {
   Plus,
   Video,
   Trash2,
+  Repeat,
+  BellOff,
+  Bell,
 } from 'lucide-react';
 import { useIssues, useUserIssues, useAllMembers, useUpdateIssue } from '../hooks/useRedmine';
 import { useZimbraEvents, useReplyToInvite, useEventAttendees } from '../hooks/useZimbraEvents';
 import { useLocalEvents, useDeleteLocalEvent } from '../hooks/useLocalEvents';
+import { useMutedSeries } from '../hooks/useMutedSeries';
+import { isDenseSeries, type Series } from '../utils/series';
 import type { LocalEvent } from '../api/events';
 import { isMailAvailable } from '../utils/mailConfig';
 import { NewEventModal } from './NewEventModal';
@@ -252,6 +257,10 @@ function localToCalendarEvent(le: LocalEvent): CalendarEvent {
     invId: null,
     uid: null,
     compNum: 0,
+    recurring: false,
+    ridZ: null,
+    isException: false,
+    occurrencesInWindow: 1,
     subject: le.subject,
     start: le.start,
     end: le.end,
@@ -267,25 +276,19 @@ function localToCalendarEvent(le: LocalEvent): CalendarEvent {
   };
 }
 
-function EventChip({ ev }: { ev: CalendarEvent }) {
-  const [open, setOpen] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
+// Posição fixa ancorada no gatilho — o popover vai no portal (document.body) para
+// escapar do overflow-hidden do card do calendário, e vira pra cima se faltar
+// espaço embaixo. Fecha ao clicar fora.
+function useAnchoredPopover<T extends HTMLElement>(open: boolean, close: () => void) {
+  const btnRef = useRef<T>(null);
   const popRef = useRef<HTMLDivElement>(null);
-  const qc = useQueryClient();
-  const reply = useReplyToInvite();
-  const del = useDeleteLocalEvent();
-  // Eventos locais não têm convite/participantes no Zimbra: não busca attendees.
-  const attendees = useEventAttendees(ev.id, open && !ev.local);
-
-  // Posição fixa ancorada no chip — o popover vai no portal (document.body) para
-  // escapar do overflow-hidden do card do calendário, e vira pra cima se faltar
-  // espaço embaixo.
   const [coords, setCoords] = useState<{
     left: number;
     top?: number;
     bottom?: number;
     maxHeight: number;
   } | null>(null);
+
   const place = useCallback(() => {
     const r = btnRef.current?.getBoundingClientRect();
     if (!r) return;
@@ -319,11 +322,92 @@ function EventChip({ ev }: { ev: CalendarEvent }) {
     if (!open) return;
     const h = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (!btnRef.current?.contains(t) && !popRef.current?.contains(t)) setOpen(false);
+      if (!btnRef.current?.contains(t) && !popRef.current?.contains(t)) close();
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
-  }, [open]);
+  }, [open, close]);
+
+  return { btnRef, popRef, coords };
+}
+
+const VERB_TO_PTST: Record<InviteVerb, string> = { ACCEPT: 'AC', TENTATIVE: 'TE', DECLINE: 'DE' };
+
+const RSVP_PALETTE = {
+  ACCEPT: {
+    label: 'Aceitar',
+    sel: 'bg-emerald-500 border-emerald-500 text-white',
+    out: 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30',
+  },
+  TENTATIVE: {
+    label: 'Talvez',
+    sel: 'bg-amber-500 border-amber-500 text-white',
+    out: 'border-amber-200 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30',
+  },
+  DECLINE: {
+    label: 'Recusar',
+    sel: 'bg-red-500 border-red-500 text-white',
+    out: 'border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30',
+  },
+} as const;
+
+/** Os três botões de resposta a convite. Só apresentação — quem responde é o pai. */
+function RsvpButtons({
+  currentPtst,
+  pending,
+  sentVerb,
+  onPick,
+}: {
+  currentPtst: string;
+  pending: boolean;
+  sentVerb?: InviteVerb;
+  onPick: (verb: InviteVerb) => void;
+}) {
+  return (
+    <div className="flex gap-1.5">
+      {(['ACCEPT', 'TENTATIVE', 'DECLINE'] as const).map((verb) => {
+        const { label, sel, out } = RSVP_PALETTE[verb];
+        const selected = VERB_TO_PTST[verb] === currentPtst;
+        const sending = pending && sentVerb === verb;
+        return (
+          <button
+            key={verb}
+            onClick={() => onPick(verb)}
+            disabled={pending || selected}
+            className={`flex-1 flex items-center justify-center gap-1 text-xs font-medium px-2 py-1 rounded-md border transition-colors disabled:opacity-60 ${
+              selected ? sel : out
+            }`}
+          >
+            {sending ? (
+              <Loader2 size={11} className="animate-spin" />
+            ) : selected ? (
+              <Check size={11} />
+            ) : null}
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Rótulo do estado atual da sua resposta, acima dos botões. */
+function rsvpHeading(ptst: string): string {
+  if (ptst === 'AC') return 'Você aceitou — clique para alterar';
+  if (ptst === 'DE') return 'Você recusou — clique para alterar';
+  if (ptst === 'TE') return 'Você respondeu talvez — clique para alterar';
+  return 'Responder convite';
+}
+
+function EventChip({ ev }: { ev: CalendarEvent }) {
+  const [open, setOpen] = useState(false);
+  const closePop = useCallback(() => setOpen(false), []);
+  const { btnRef, popRef, coords } = useAnchoredPopover<HTMLButtonElement>(open, closePop);
+  const qc = useQueryClient();
+  const reply = useReplyToInvite();
+  const del = useDeleteLocalEvent();
+  // Eventos locais não têm convite/participantes no Zimbra: não busca attendees.
+  const attendees = useEventAttendees(ev.id, open && !ev.local);
 
   const time = ev.allDay || ev.start == null ? 'Dia todo' : format(new Date(ev.start), 'HH:mm');
   const range =
@@ -331,7 +415,6 @@ function EventChip({ ev }: { ev: CalendarEvent }) {
       ? `${format(new Date(ev.start), 'HH:mm')} – ${format(new Date(ev.end), 'HH:mm')}`
       : 'Dia todo';
   const canceled = ev.status === 'CANC';
-  const verbToPtst: Record<InviteVerb, string> = { ACCEPT: 'AC', TENTATIVE: 'TE', DECLINE: 'DE' };
 
   // SendInviteReply do Zimbra usa o id da MENSAGEM do convite (invId), não o id do
   // item de calendário (ev.id) — usar ev.id dá "no such message" (mail.NO_SUCH_MSG).
@@ -342,7 +425,7 @@ function EventChip({ ev }: { ev: CalendarEvent }) {
       old
         ? {
             ...old,
-            attendees: old.attendees.map((a) => (a.isMe ? { ...a, ptst: verbToPtst[verb] } : a)),
+            attendees: old.attendees.map((a) => (a.isMe ? { ...a, ptst: VERB_TO_PTST[verb] } : a)),
           }
         : old,
     );
@@ -352,7 +435,7 @@ function EventChip({ ev }: { ev: CalendarEvent }) {
   // Resposta atual: a do servidor (ev.ptst), mas reflete na hora a recém-enviada
   // (reply.variables) enquanto o refetch não chega; em caso de erro, volta para ev.ptst.
   const sentVerb = reply.variables?.verb;
-  const currentPtst = !reply.isError && sentVerb ? verbToPtst[sentVerb] : ev.ptst;
+  const currentPtst = !reply.isError && sentVerb ? VERB_TO_PTST[sentVerb] : ev.ptst;
 
   return (
     <>
@@ -503,57 +586,14 @@ function EventChip({ ev }: { ev: CalendarEvent }) {
             {!ev.local && !ev.isOrganizer && !canceled && (
               <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
                 <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
-                  {currentPtst === 'AC'
-                    ? 'Você aceitou — clique para alterar'
-                    : currentPtst === 'DE'
-                      ? 'Você recusou — clique para alterar'
-                      : currentPtst === 'TE'
-                        ? 'Você respondeu talvez — clique para alterar'
-                        : 'Responder convite'}
+                  {rsvpHeading(currentPtst)}
                 </p>
-                <div className="flex gap-1.5">
-                  {(
-                    [
-                      ['ACCEPT', 'Aceitar', 'emerald'],
-                      ['TENTATIVE', 'Talvez', 'amber'],
-                      ['DECLINE', 'Recusar', 'red'],
-                    ] as const
-                  ).map(([verb, label, color]) => {
-                    const selected = verbToPtst[verb] === currentPtst;
-                    const sending = reply.isPending && sentVerb === verb;
-                    const palette =
-                      color === 'emerald'
-                        ? {
-                            sel: 'bg-emerald-500 border-emerald-500 text-white',
-                            out: 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30',
-                          }
-                        : color === 'amber'
-                          ? {
-                              sel: 'bg-amber-500 border-amber-500 text-white',
-                              out: 'border-amber-200 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30',
-                            }
-                          : {
-                              sel: 'bg-red-500 border-red-500 text-white',
-                              out: 'border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30',
-                            };
-                    return (
-                      <button
-                        key={verb}
-                        onClick={() => doReply(verb)}
-                        disabled={reply.isPending || selected}
-                        className={`flex-1 flex items-center justify-center gap-1 text-xs font-medium px-2 py-1 rounded-md border transition-colors disabled:opacity-60
-                        ${selected ? palette.sel : palette.out}`}
-                      >
-                        {sending ? (
-                          <Loader2 size={11} className="animate-spin" />
-                        ) : selected ? (
-                          <Check size={11} />
-                        ) : null}
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
+                <RsvpButtons
+                  currentPtst={currentPtst}
+                  pending={reply.isPending}
+                  sentVerb={sentVerb}
+                  onPick={doReply}
+                />
                 {reply.isError && (
                   <p className="text-[11px] text-red-500 mt-1.5">
                     Falha ao responder. Tente novamente.
@@ -561,6 +601,127 @@ function EventChip({ ev }: { ev: CalendarEvent }) {
                 )}
               </div>
             )}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+/* ── Filete de série recorrente (dentro da célula do dia) ── */
+function SeriesStrip({ series }: { series: Series }) {
+  const [open, setOpen] = useState(false);
+  const closePop = useCallback(() => setOpen(false), []);
+  const { btnRef, popRef, coords } = useAnchoredPopover<HTMLButtonElement>(open, closePop);
+  const reply = useReplyToInvite();
+  const { mute } = useMutedSeries();
+
+  const ev = series.sample;
+  const range =
+    ev.start != null && ev.end != null && !ev.allDay
+      ? `${format(new Date(ev.start), 'HH:mm')} – ${format(new Date(ev.end), 'HH:mm')}`
+      : 'Dia todo';
+
+  const sentVerb = reply.variables?.verb;
+  const currentPtst = !reply.isError && sentVerb ? VERB_TO_PTST[sentVerb] : ev.ptst;
+
+  return (
+    <>
+      {/* Filete de 3px sangrando até as bordas da célula. Sem texto: o nome da
+          série fica na legenda, uma vez só — repetir "11:30 Daily Dev" em 22
+          células é o ruído que estamos justamente tentando remover. Como vive
+          DENTRO da célula, não rouba altura nem separa o número do dia. */}
+      <button
+        ref={btnRef}
+        onClick={() => setOpen((o) => !o)}
+        title={`${range} · ${ev.subject}${ev.ptst === 'NE' ? ' · sem resposta' : ''}`}
+        aria-label={`${ev.subject}, série recorrente`}
+        className={`-mx-1.5 -mt-1.5 mb-0.5 h-[3px] hover:h-[5px] transition-all ${
+          ev.ptst === 'NE' ? 'bg-slate-300 dark:bg-slate-600' : 'bg-teal-400 dark:bg-teal-500'
+        }`}
+      />
+
+      {open &&
+        coords &&
+        createPortal(
+          <div
+            ref={popRef}
+            style={{
+              position: 'fixed',
+              left: coords.left,
+              top: coords.top,
+              bottom: coords.bottom,
+              width: POPOVER_W,
+              maxHeight: coords.maxHeight,
+            }}
+            className="z-50 overflow-y-auto bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 p-3"
+          >
+            <div className="flex items-start gap-2">
+              <Repeat size={13} className="text-teal-500 mt-0.5 flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-tight">
+                  {ev.subject}
+                </p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{range}</p>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-500 mt-2">
+              Série recorrente · <strong>{series.days.size}</strong> ocorrências no período exibido
+            </p>
+            {ev.organizer && (
+              <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                Organizador: {ev.organizer.name}
+              </p>
+            )}
+            {ev.location && (
+              <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
+                <MapPin size={10} /> {ev.location}
+              </p>
+            )}
+
+            {!ev.isOrganizer && (
+              <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                  {rsvpHeading(currentPtst)}
+                </p>
+                <RsvpButtons
+                  currentPtst={currentPtst}
+                  pending={reply.isPending}
+                  sentVerb={sentVerb}
+                  onPick={(verb) =>
+                    reply.mutate({ id: ev.invId ?? ev.id, verb, compNum: ev.compNum })
+                  }
+                />
+                {/* O Zimbra responde à SÉRIE quando não mandamos exceptId — e é isso
+                    que fazemos. Dizer isso em voz alta evita que a pessoa ache que
+                    está respondendo só ao dia que clicou. */}
+                <p className="text-[10px] text-slate-400 mt-1.5">
+                  A resposta vale para a série inteira e notifica o organizador.
+                </p>
+                {reply.isError && (
+                  <p className="text-[11px] text-red-500 mt-1.5">
+                    Falha ao responder. Tente novamente.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+              <button
+                onClick={() => {
+                  if (series.uid) mute(series.uid);
+                  setOpen(false);
+                }}
+                className="w-full flex items-center justify-center gap-1.5 text-xs font-medium px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                <BellOff size={12} /> Silenciar no mês
+              </button>
+              <p className="text-[10px] text-slate-400 mt-1.5">
+                Some do panorama mensal, mas continua aparecendo na visão <strong>Semana</strong>.
+                Não recusa o convite nem avisa o organizador.
+              </p>
+            </div>
           </div>,
           document.body,
         )}
@@ -1020,7 +1181,18 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
   const eventsQuery = useZimbraEvents(winStart, winEnd);
   // Eventos/reuniões locais (store por-usuário, independem do Zimbra).
   const localEventsQuery = useLocalEvents(winStart, winEnd);
-  const byEvent = useMemo(() => {
+  const { muted, unmute } = useMutedSeries();
+
+  // Reparte a agenda em duas camadas: séries densas viram FAIXAS (uma linha por
+  // semana) e o resto vira chip no dia. Sem isso uma daily de 22 ocorrências
+  // ocupa 22 células e esconde as tarefas.
+  //
+  // As duas visões têm propósitos diferentes, e a série é tratada de acordo:
+  //   MÊS    → panorama. A daily é ruído: colapsa em faixa, e se silenciada, some.
+  //   SEMANA → o seu dia. A daily é compromisso: aparece como chip no horário,
+  //            mesmo silenciada. Silenciar é "tire do panorama", não "esqueça".
+  const collapseSeries = view !== 'week';
+  const { byEvent, series, seriesByDay, mutedSeries } = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
     const push = (ev: CalendarEvent) => {
       if (ev.start == null) return;
@@ -1029,11 +1201,48 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
       if (arr) arr.push(ev);
       else map.set(d, [ev]);
     };
-    // Agenda Zimbra respeita o toggle "Agenda"; eventos locais sempre aparecem.
-    if (showEvents) (eventsQuery.data ?? []).forEach(push);
+
+    const dense = new Map<string, Series>();
+    const silenced = new Map<string, Series>();
+
+    if (showEvents) {
+      for (const ev of eventsQuery.data ?? []) {
+        if (ev.start == null) continue;
+        // Cancelado pelo organizador ou recusado por você: não é compromisso,
+        // não ocupa espaço. (Recusar é reversível pelo próprio Zimbra.)
+        if (ev.status === 'CANC' || ev.ptst === 'DE') continue;
+
+        const uid = ev.uid;
+        if (collapseSeries && uid && isDenseSeries(ev, days.length)) {
+          const bucket = muted.has(uid) ? silenced : dense;
+          const s = bucket.get(uid) ?? { uid, sample: ev, days: new Set<string>() };
+          s.days.add(format(new Date(ev.start), 'yyyy-MM-dd'));
+          bucket.set(uid, s);
+          continue;
+        }
+        push(ev);
+      }
+    }
+    // Eventos locais sempre aparecem: são seus, você os criou.
     (localEventsQuery.data ?? []).forEach((le) => push(localToCalendarEvent(le)));
-    return map;
-  }, [eventsQuery.data, localEventsQuery.data, showEvents]);
+
+    // Índice dia → séries que ocorrem nele, para o filete dentro da célula.
+    const byDaySeries = new Map<string, Series[]>();
+    for (const s of dense.values()) {
+      for (const d of s.days) {
+        const arr = byDaySeries.get(d);
+        if (arr) arr.push(s);
+        else byDaySeries.set(d, [s]);
+      }
+    }
+
+    return {
+      byEvent: map,
+      series: [...dense.values()],
+      seriesByDay: byDaySeries,
+      mutedSeries: [...silenced.values()],
+    };
+  }, [eventsQuery.data, localEventsQuery.data, showEvents, days.length, muted, collapseSeries]);
 
   // Campos ativos: "Tudo" → prazo + revisão; senão só o escolhido.
   const activeFields: DateField[] = useMemo(
@@ -1284,6 +1493,38 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
             </button>
           )}
 
+          {/* Séries silenciadas: silenciar não pode ser porta sem volta — se some do
+              grid e não sobra nenhuma pista, é jeito garantido de perder reunião.
+              Na visão Semana a lista fica vazia (lá nada é silenciado), então o
+              botão some sozinho. */}
+          {mutedSeries.length > 0 && (
+            <div className="relative group">
+              <button
+                title="Séries ocultas no panorama mensal (visíveis na visão Semana)"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+              >
+                <BellOff size={13} />
+                {mutedSeries.length} silenciada{mutedSeries.length > 1 ? 's' : ''}
+              </button>
+              <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block w-64 bg-white dark:bg-slate-900 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 p-1.5">
+                {mutedSeries.map((s) => (
+                  <div key={s.uid} className="flex items-center gap-2 px-1.5 py-1">
+                    <span className="text-[11px] text-slate-600 dark:text-slate-300 truncate flex-1">
+                      {s.sample.subject}
+                    </span>
+                    <button
+                      onClick={() => unmute(s.uid)}
+                      title="Voltar a mostrar no panorama mensal"
+                      className="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 flex-shrink-0"
+                    >
+                      <Bell size={10} /> Restaurar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Nova reunião — Zimbra + Jitsi quando há e-mail; senão, evento local */}
           <button
             onClick={() => setShowNewEvent(true)}
@@ -1384,6 +1625,11 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
                         !inMonth ? 'bg-slate-50/60' : weekend ? 'bg-slate-50/40' : 'bg-white'
                       }`}
                     >
+                      {/* Séries recorrentes: filete no topo, sem texto e sem altura própria. */}
+                      {(seriesByDay.get(dayStr) ?? []).map((s) => (
+                        <SeriesStrip key={s.uid} series={s} />
+                      ))}
+
                       <div className="flex justify-end">
                         <span
                           className={`text-xs w-5 h-5 flex items-center justify-center rounded-full ${
@@ -1436,6 +1682,24 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
 
               {/* Legenda */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 border-t border-slate-100 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-900/50 text-[11px] text-slate-500 dark:text-slate-400">
+                {/* Nome das séries colapsadas: dito uma vez, aqui, em vez de
+                    repetido em cada uma das ~22 células que elas ocupam. */}
+                {series.map((s) => (
+                  <span key={s.uid} className="flex items-center gap-1">
+                    <span
+                      className={`w-3 h-[3px] rounded-full ${
+                        s.sample.ptst === 'NE' ? 'bg-slate-300 dark:bg-slate-600' : 'bg-teal-400'
+                      }`}
+                    />
+                    <Repeat size={10} className="text-slate-400" />
+                    {s.sample.start != null && `${format(new Date(s.sample.start), 'HH:mm')} `}
+                    {s.sample.subject}
+                    {s.sample.ptst === 'NE' && (
+                      <span className="text-slate-400 dark:text-slate-500">· sem resposta</span>
+                    )}
+                  </span>
+                ))}
+                {series.length > 0 && <span className="text-slate-200 dark:text-slate-700">|</span>}
                 {field === 'all' && (
                   <>
                     <span className="flex items-center gap-1">

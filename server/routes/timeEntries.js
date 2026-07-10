@@ -4,6 +4,14 @@ const router = express.Router();
 const { makeRedmine } = require('../lib/redmine');
 const handle = require('../lib/handle');
 const { fetchAllPages } = require('../lib/pagination');
+const { toLatin1Safe } = require('../lib/latin1');
+
+// Guarda latin1: o banco do Redmine rejeita (500) caracteres > U+00FF.
+function sanitizeEntryBody(body) {
+  const entry = body && body.time_entry;
+  if (entry && typeof entry.comments === 'string') entry.comments = toLatin1Safe(entry.comments);
+  return body;
+}
 
 // Time entries (minhas horas apontadas)
 router.get(
@@ -28,8 +36,30 @@ router.get(
 router.post(
   '/time_entries',
   handle(async (req, res) => {
+    sanitizeEntryBody(req.body);
     const { data } = await makeRedmine(req).post('/time_entries.json', req.body);
     res.json(data);
+  }),
+);
+
+// O Redmine responde 204 sem corpo no PUT; devolvemos a entrada atualizada para
+// o cliente não precisar de um refetch só para reexibir o que acabou de salvar.
+router.put(
+  '/time_entries/:id',
+  handle(async (req, res) => {
+    sanitizeEntryBody(req.body);
+    const redmine = makeRedmine(req);
+    await redmine.put(`/time_entries/${req.params.id}.json`, req.body);
+    const { data } = await redmine.get(`/time_entries/${req.params.id}.json`);
+    res.json(data);
+  }),
+);
+
+router.delete(
+  '/time_entries/:id',
+  handle(async (req, res) => {
+    await makeRedmine(req).delete(`/time_entries/${req.params.id}.json`);
+    res.json({ success: true });
   }),
 );
 

@@ -67,8 +67,15 @@ function cleanupSessions() {
 
 setInterval(cleanupSessions, 12 * 60 * 60 * 1000); // Roda a cada 12h
 
+// Todas as sessões ativas (valores). Usado pelo motor de automações para rodar
+// no background com as credenciais de quem está logado, mesmo sem Web Push.
+function listSessions() {
+  return Array.from(sessionsMap.values());
+}
+
 module.exports = {
   createSession,
   getSession,
   destroySession,
+  listSessions,
 };

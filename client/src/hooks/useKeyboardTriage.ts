@@ -86,7 +86,8 @@ export function useKeyboardTriage({
         e.preventDefault();
         if (!list.length) return;
         const cur = fid != null ? list.indexOf(fid) : -1;
-        const next = cur < 0 ? 0 : (cur + dir + list.length) % list.length;
+        // sem foco: a primeira tecla de navegação entra na lista (j → topo, k → fim)
+        const next = cur < 0 ? (dir === 1 ? 0 : list.length - 1) : (cur + dir + list.length) % list.length;
         setFocusedId(list[next]);
       };
 
@@ -192,15 +193,19 @@ export function useKeyboardTriage({
     if (focusedId != null && !ids.includes(focusedId)) setFocusedId(null);
   }, [ids, focusedId]);
 
-  // Auto-foca o primeiro item quando a lista carrega (uma vez) — deixa o teclado
-  // operável imediatamente. Esc limpa e não re-foca.
-  const inited = useRef(false);
+  // Clicar fora de uma linha sai da navegação (assim como Esc). Com popover aberto
+  // o clique é dele, não mexe no foco.
   useEffect(() => {
-    if (!inited.current && ids.length) {
-      inited.current = true;
-      setFocusedId(ids[0]);
-    }
-  }, [ids]);
+    if (!enabled) return;
+    const handler = (e: PointerEvent) => {
+      if (st.current.quickEdit || st.current.snooze) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('[data-issue-id]')) return;
+      setFocusedId(null);
+    };
+    window.addEventListener('pointerdown', handler);
+    return () => window.removeEventListener('pointerdown', handler);
+  }, [enabled]);
 
   return {
     focusedId,
