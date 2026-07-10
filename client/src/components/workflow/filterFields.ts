@@ -40,6 +40,8 @@ export const FILTER_FIELD_DEFS: FieldDef[] = [
   { id: 'message.actor', name: 'Autor da mensagem', type: 'text', group: 'Mensagem (Talk)' },
   { id: 'message.mention', name: 'É menção a mim', type: 'bool', group: 'Mensagem (Talk)' },
   { id: 'room.name', name: 'Nome da sala', type: 'text', group: 'Mensagem (Talk)' },
+  { id: 'comment.text', name: 'Texto do comentário', type: 'text', group: 'Comentário' },
+  { id: 'comment.author', name: 'Autor do comentário', type: 'text', group: 'Comentário' },
   // Saídas publicadas por nós ANTERIORES (ver ACTION_OUTPUTS).
   { id: 'ai.label', name: 'IA › Rótulo', type: 'aiLabel', group: G_OUTPUT },
   { id: 'ai.text', name: 'IA › Texto', type: 'text', group: G_OUTPUT },
@@ -49,7 +51,15 @@ export const FILTER_FIELD_DEFS: FieldDef[] = [
   { id: 'now.weekday', name: 'Dia da semana', type: 'weekday', group: 'Horário' },
 ];
 
-export const FIELD_GROUPS = ['Tarefa', 'Prazo & idade', G_EVENT, 'Mensagem (Talk)', G_OUTPUT, 'Horário'];
+export const FIELD_GROUPS = [
+  'Tarefa',
+  'Prazo & idade',
+  G_EVENT,
+  'Mensagem (Talk)',
+  'Comentário',
+  G_OUTPUT,
+  'Horário',
+];
 
 export const CATEGORY_OPTS: Opt[] = [
   { id: 'assigned', name: 'Atribuída a mim' },
@@ -96,6 +106,8 @@ export function fieldAvailable(fieldId: string, ctx: TriggerContext, outputs: Se
       return ctx.eventFields.has(fieldId.replace('event.', ''));
     case 'Mensagem (Talk)':
       return ctx.talk;
+    case 'Comentário':
+      return ctx.comment;
     case G_OUTPUT:
       return outputs.has(fieldId);
     case 'Horário':

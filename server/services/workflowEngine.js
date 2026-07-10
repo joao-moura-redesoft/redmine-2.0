@@ -12,6 +12,7 @@
 const axios = require('axios');
 const { buildAuthHeaders, getMyUserId } = require('../lib/redmine');
 const { sanitizeIssueBody, toLatin1Safe } = require('../lib/latin1');
+const { mapLimit } = require('../lib/pagination');
 const { safeAgents } = require('../lib/ssrfGuard');
 const keyboard = require('./keyboardNotify');
 const talkStore = require('./talkStore');
@@ -99,7 +100,8 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
   const triggerTypes = new Set(
     workflows.map((w) => w.nodes.find((n) => n.kind === 'trigger')?.type).filter(Boolean),
   );
-  const needIssues = ISSUE_TRIGGERS.some((t) => triggerTypes.has(t));
+  const needComments = triggerTypes.has('issue.commented');
+  const needIssues = ISSUE_TRIGGERS.some((t) => triggerTypes.has(t)) || needComments;
   const needScan = triggerTypes.has('issue.scan');
   const needTalk = triggerTypes.has('talk.message');
 
@@ -119,6 +121,11 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
       const r = detectIssueEvents(state, issuesData.issues, issuesData.seen);
       events.push(...r.events);
       if (r.changed) dirty = true;
+      // Comentários novos: busca journals só das tarefas que mudaram.
+      if (needComments && r.commentCandidates.length) {
+        events.push(...(await detectCommentEvents(state, r.commentCandidates, rec)));
+        dirty = true;
+      }
     }
   }
 
@@ -226,6 +233,7 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
         issue: ev.ctx?.issue ?? null,
         room: ev.ctx?.room ?? null,
         message: ev.ctx?.message ?? null,
+        comment: ev.ctx?.comment ?? null,
         // Os dados do evento (de/para status, categoria, novo responsável) ficam
         // disponíveis nas condições e em {{event.*}} — antes eram descartados.
         event: {
@@ -273,18 +281,23 @@ function detectIssueEvents(state, issues, seen) {
     for (const id of seen[c] || []) if (!category[id]) category[id] = c;
   }
 
+  const commentCandidates = []; // issues cujo updated_on mudou → checar comentário
   for (const [id, issue] of issues) {
+    const snap = prev[id];
     const cur = {
       status_id: issue.status?.id ?? null,
       priority_id: issue.priority?.id ?? null,
       assigned_to_id: issue.assigned_to?.id ?? null,
+      updated_on: issue.updated_on ?? null,
+      // Preserva o baseline de comentários entre ticks (detectCommentEvents mexe nele).
+      lastJournalId: snap ? snap.lastJournalId : undefined,
     };
-    const snap = prev[id];
     if (
       !snap ||
       snap.status_id !== cur.status_id ||
       snap.priority_id !== cur.priority_id ||
-      snap.assigned_to_id !== cur.assigned_to_id
+      snap.assigned_to_id !== cur.assigned_to_id ||
+      snap.updated_on !== cur.updated_on
     ) {
       changed = true;
     }
@@ -305,6 +318,8 @@ function detectIssueEvents(state, issues, seen) {
         if (snap.assigned_to_id !== cur.assigned_to_id) {
           events.push({ type: 'assigned_changed', newAssignee: cur.assigned_to_id, issueId: id, ctx });
         }
+        // updated_on mudou → algo aconteceu; pode ter sido um comentário novo.
+        if (snap.updated_on !== cur.updated_on) commentCandidates.push({ id, issue });
       }
     }
     next[id] = cur;
@@ -315,7 +330,47 @@ function detectIssueEvents(state, issues, seen) {
 
   state.issues = next;
   state.issuesInit = true;
-  return { events, changed };
+  return { events, changed, commentCandidates };
+}
+
+// Comentários novos (gatilho issue.commented). Só busca os journals das tarefas
+// que MUDARAM (candidates), com concorrência limitada — não varre tudo. Guarda o
+// último journal visto por tarefa; na primeira vez faz baseline sem disparar
+// (mesma regra "não retroativo" dos outros gatilhos).
+async function detectCommentEvents(state, candidates, rec) {
+  if (!candidates || candidates.length === 0) return [];
+  const client = redmineClient(rec);
+  const events = [];
+
+  await mapLimit(candidates, 4, async ({ id, issue }) => {
+    let journals;
+    try {
+      const { data } = await client.get(`/issues/${id}.json`, { params: { include: 'journals' } });
+      journals = (data.issue.journals || []).filter((j) => j.notes && String(j.notes).trim());
+    } catch (e) {
+      console.warn('[workflow] issue.commented: falha ao ler journals de', id, e.response?.status || e.message);
+      return;
+    }
+    if (journals.length === 0) return;
+    const maxId = Math.max(...journals.map((j) => j.id));
+    const snap = state.issues[id];
+    const last = snap?.lastJournalId;
+    if (snap) snap.lastJournalId = maxId;
+    if (last == null) return; // baseline — não dispara para comentários já existentes
+
+    for (const j of journals.filter((jj) => jj.id > last)) {
+      events.push({
+        type: 'commented',
+        issueId: id,
+        authorId: j.user?.id ?? null,
+        ctx: {
+          issue,
+          comment: { text: String(j.notes), author: j.user?.name || '', authorId: j.user?.id ?? null },
+        },
+      });
+    }
+  });
+  return events;
 }
 
 async function detectTalkEvents(state, uid) {
@@ -892,6 +947,7 @@ function sampleContext(trigger, uid) {
     },
     room: { token: '', name: 'Sala Exemplo' },
     message: { text: 'mensagem de exemplo', actor: 'Fulano', id: 0, mention: false },
+    comment: { text: 'comentário de exemplo', author: 'Fulano', authorId: 0 },
     event: { type: trigger.type, fromStatus: 0, toStatus: 0, category: 'assigned', newAssignee: uid },
     ai: { text: '', label: '' },
     webhook: { status: 0, body: null },

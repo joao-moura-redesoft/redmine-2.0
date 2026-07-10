@@ -140,6 +140,7 @@ function VarHint({ ctx, outputs }: { ctx: TriggerContext; outputs: Set<string> }
   const tokens: string[] = [];
   if (ctx.issue) tokens.push('{{issue.id}}', '{{issue.subject}}', '{{issue.status.name}}');
   if (ctx.talk) tokens.push('{{message.text}}', '{{message.actor}}', '{{room.name}}');
+  if (ctx.comment) tokens.push('{{comment.text}}', '{{comment.author}}');
   if (ctx.eventFields.has('from_status')) tokens.push('{{event.fromStatus}}');
   if (ctx.eventFields.has('to_status')) tokens.push('{{event.toStatus}}');
   // Saídas publicadas por nós anteriores.
@@ -507,6 +508,14 @@ export function NodeConfigPanel({
           checked={!!c.toMe}
           onChange={(v) => patch({ toMe: v })}
           label="Somente quando atribuída a mim"
+        />
+      )}
+
+      {node.type === 'issue.commented' && (
+        <Toggle
+          checked={c.fromOthers !== false}
+          onChange={(v) => patch({ fromOthers: v })}
+          label="Somente comentários de outras pessoas"
         />
       )}
 

@@ -90,6 +90,12 @@ function fieldValue(field, ctx, now = Date.now()) {
     case 'room.name':
       return ctx.room?.name;
 
+    // Comentário novo (gatilho issue.commented).
+    case 'comment.text':
+      return ctx.comment?.text;
+    case 'comment.author':
+      return ctx.comment?.author;
+
     // Saídas de ações anteriores (namespaces nomeados).
     case 'ai.text':
       return ctx.ai?.text;
@@ -171,6 +177,11 @@ function triggerMatches(trigger, ev, uid) {
       if (ev.type !== 'talk.message') return false;
       if (c.roomToken && c.roomToken !== ev.roomToken) return false;
       if (c.mentionsOnly && !ev.mention) return false;
+      return true;
+    case 'issue.commented':
+      if (ev.type !== 'commented') return false;
+      // "Somente de outras pessoas": ignora comentários feitos pelo próprio dono.
+      if (c.fromOthers && String(ev.authorId) === String(uid)) return false;
       return true;
     default:
       return false;

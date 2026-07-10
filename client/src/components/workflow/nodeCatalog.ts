@@ -22,6 +22,7 @@ import {
   Tags,
   FilePlus2,
   Timer,
+  MessageSquareText,
   type LucideIcon,
 } from 'lucide-react';
 import type { NodeKind, WorkflowNode } from '../../api/workflows';
@@ -69,6 +70,15 @@ export const TRIGGERS: NodeDescriptor[] = [
     icon: UserPlus,
     accent: TRIGGER_ACCENT,
     defaultConfig: () => ({ toMe: false }),
+  },
+  {
+    kind: 'trigger',
+    type: 'issue.commented',
+    label: 'Comentário na tarefa',
+    description: 'Dispara quando alguém adiciona um comentário numa tarefa sua.',
+    icon: MessageSquareText,
+    accent: TRIGGER_ACCENT,
+    defaultConfig: () => ({ fromOthers: true }),
   },
   {
     kind: 'trigger',
@@ -279,29 +289,33 @@ export function triggerSummary(nodes: WorkflowNode[]): string {
 export interface TriggerContext {
   issue: boolean;
   talk: boolean; // message + room
+  comment: boolean; // comment.* (gatilho issue.commented)
   /** Campos de `event.*` que ESTE gatilho produz (from_status, category, …). */
   eventFields: Set<string>;
 }
 
 export function triggerContext(type: string | undefined): TriggerContext {
-  const base = (issue: boolean, talk: boolean, eventFields: string[] = []) => ({
+  const base = (issue: boolean, talk: boolean, comment: boolean, eventFields: string[] = []) => ({
     issue,
     talk,
+    comment,
     eventFields: new Set(eventFields),
   });
   switch (type) {
     case 'issue.status_changed':
-      return base(true, false, ['from_status', 'to_status']);
+      return base(true, false, false, ['from_status', 'to_status']);
     case 'issue.created':
-      return base(true, false, ['category']);
+      return base(true, false, false, ['category']);
     case 'issue.assigned_changed':
-      return base(true, false, ['new_assignee']);
+      return base(true, false, false, ['new_assignee']);
+    case 'issue.commented':
+      return base(true, false, true);
     case 'issue.scan':
-      return base(true, false); // varredura não tem "mudança", só a tarefa
+      return base(true, false, false); // varredura não tem "mudança", só a tarefa
     case 'talk.message':
-      return base(false, true);
+      return base(false, true, false);
     default: // schedule, ou sem gatilho
-      return base(false, false);
+      return base(false, false, false);
   }
 }
 
@@ -365,6 +379,8 @@ export function summarize(node: WorkflowNode): string {
     }
     case 'issue.assigned_changed':
       return c.toMe ? 'quando for para mim' : 'qualquer responsável';
+    case 'issue.commented':
+      return c.fromOthers ? 'de outras pessoas' : 'qualquer comentário';
     case 'talk.message':
       return c.mentionsOnly ? 'somente menções' : s('roomToken') ? 'sala escolhida' : 'qualquer sala';
 

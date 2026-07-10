@@ -73,6 +73,14 @@ describe('fieldValue', () => {
     expect(fieldValue('ai.label', ctx, NOW)).toBeUndefined();
   });
 
+  it('resolve campos de comentário (gatilho issue.commented)', () => {
+    const c = { issue, comment: { text: 'pode fechar?', author: 'Bia', authorId: 50 } };
+    expect(fieldValue('comment.text', c, NOW)).toBe('pode fechar?');
+    expect(fieldValue('comment.author', c, NOW)).toBe('Bia');
+    // fora do contexto de comentário → indisponível
+    expect(fieldValue('comment.text', { issue }, NOW)).toBeUndefined();
+  });
+
   it('resolve saídas de ações anteriores', () => {
     const c = { ...ctx, ai: { text: 'oi', label: 'urgente' }, webhook: { status: 201 }, created: { id: 99 } };
     expect(fieldValue('ai.label', c, NOW)).toBe('urgente');
@@ -188,6 +196,18 @@ describe('triggerMatches', () => {
     const a = { type: 'assigned_changed', newAssignee: 337 };
     expect(triggerMatches({ type: 'issue.assigned_changed', config: { toMe: true } }, a, 337)).toBe(true);
     expect(triggerMatches({ type: 'issue.assigned_changed', config: { toMe: true } }, a, 999)).toBe(false);
+  });
+
+  it('issue.commented respeita "somente de outras pessoas"', () => {
+    const meu = { type: 'commented', authorId: 337 };
+    const alheio = { type: 'commented', authorId: 50 };
+    // sem filtro: qualquer comentário casa
+    expect(triggerMatches({ type: 'issue.commented', config: {} }, meu, 337)).toBe(true);
+    // fromOthers: ignora o meu, aceita o dos outros
+    expect(triggerMatches({ type: 'issue.commented', config: { fromOthers: true } }, meu, 337)).toBe(false);
+    expect(triggerMatches({ type: 'issue.commented', config: { fromOthers: true } }, alheio, 337)).toBe(true);
+    // não casa com evento de outro tipo
+    expect(triggerMatches({ type: 'issue.commented', config: {} }, { type: 'status_changed' }, 337)).toBe(false);
   });
 });
 
