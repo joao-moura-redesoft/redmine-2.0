@@ -409,6 +409,25 @@ export function summarize(node: WorkflowNode): string {
   }
 }
 
+// Motivos pelos quais um workflow não pode ser ATIVADO (config incompleta ou
+// estrutura inválida). Vazio ⇒ pode ativar. Usado para barrar o toggle, não o
+// salvar — rascunho incompleto pode ser salvo, só não pode rodar.
+export function activationBlockers(nodes: WorkflowNode[]): string[] {
+  const blockers: string[] = [];
+  const trigger = nodes.find((n) => n.kind === 'trigger');
+  if (!trigger) blockers.push('Falta um gatilho');
+  if (nodes.every((n) => n.kind !== 'action')) blockers.push('Falta ao menos uma ação');
+
+  for (const n of nodes) {
+    const missing = validateNode(n);
+    if (missing.length) {
+      const label = descriptorFor(n.type)?.label ?? n.type;
+      blockers.push(`${label}: falta ${missing.join(', ')}`);
+    }
+  }
+  return blockers;
+}
+
 /** Config obrigatória faltando. Vazio ⇒ nó pronto. Alimenta o aviso no canvas. */
 export function validateNode(node: WorkflowNode): string[] {
   const c = (node.config || {}) as Record<string, unknown>;

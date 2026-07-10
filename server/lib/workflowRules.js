@@ -244,6 +244,33 @@ function filterNeedsMissingOutput(config, ctx, now = Date.now()) {
   );
 }
 
+// Classifica o resultado de uma execução para o auto-pause:
+//  - 'ok'        → alguma ação teve sucesso (zera o streak)
+//  - 'transient' → todas falharam, mas só por instabilidade (429/5xx/rede)
+//  - 'hard'      → todas falharam e ao menos uma é falha "dura" (4xx/config/auth)
+//  - 'empty'     → nada rodou
+function classifyRun(actions) {
+  if (!Array.isArray(actions) || actions.length === 0) return 'empty';
+  if (actions.some((a) => a.ok)) return 'ok';
+  if (actions.some((a) => !a.ok && !a.transient)) return 'hard';
+  return 'transient';
+}
+
+// Próximo estado do fail-streak (puro). Devolve { streak, pause, changed }.
+// Só falhas "duras" incrementam; sucesso zera; transiente é neutro. Ao atingir
+// `max` falhas duras seguidas, sinaliza pausar (e zera o streak).
+function nextFailStreak(current, actions, max = 5) {
+  const kind = classifyRun(actions);
+  if (kind === 'ok') return { streak: 0, pause: false, changed: current !== 0 };
+  if (kind === 'hard') {
+    const streak = current + 1;
+    if (streak >= max) return { streak: 0, pause: true, changed: true };
+    return { streak, pause: false, changed: true };
+  }
+  // 'transient' ou 'empty' → não mexe no streak.
+  return { streak: current, pause: false, changed: false };
+}
+
 function scanRepeatAllows(fired, issueId, config = {}, now = Date.now()) {
   const mode = config.repeat || 'always';
   if (mode === 'always') return true;
@@ -272,4 +299,6 @@ module.exports = {
   scanCap,
   SCAN_CAP_DEFAULT,
   filterNeedsMissingOutput,
+  classifyRun,
+  nextFailStreak,
 };

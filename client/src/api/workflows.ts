@@ -81,6 +81,10 @@ export interface WorkflowRun {
   actions: WorkflowRunAction[];
   /** Tarefas que ficaram para a próxima execução por causa do teto. */
   truncated?: number;
+  /** Rastro da execução: nodeId → desfecho ('ok'|'error'|'passed'|'stopped'|'true'|'false'). */
+  nodes?: Record<string, string>;
+  /** Rótulo do que disparou (ex.: "#42 Corrigir login"). */
+  context?: string;
 }
 
 // ---------------------------------------------------------------------------

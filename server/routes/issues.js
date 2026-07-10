@@ -382,13 +382,21 @@ router.put(
       const { data } = await redmine.get(`/issues/${req.params.id}.json`);
       const actual = data.issue.status;
       if (String(actual.id) !== String(requestedStatusId)) {
-        return res.status(422).json({
-          error: `Transição não permitida pelo workflow do Redmine. Status atual: "${actual.name}". Configure as transições em Administração → Workflow.`,
-        });
+        const msg = `Transição de status não permitida pelo workflow do Redmine. Status atual: "${actual.name}". Configure as transições em Administração → Workflow.`;
+        // O Redmine IGNORA a mudança de status proibida, mas SALVA o resto do
+        // body (notas, campos). Se havia uma nota, ela já foi persistida — devolver
+        // 422 faria o cliente reenviar e DUPLICAR o comentário. Nesse caso
+        // respondemos 200 com aviso (a escrita ocorreu, só o status não mudou).
+        // Sem nota, 422 é seguro (nada relevante foi salvo) e melhor de UX.
+        const hadNote = typeof req.body?.issue?.notes === 'string' && req.body.issue.notes.trim();
+        if (hadNote) {
+          return res.json({ success: true, statusChanged: false, warning: msg });
+        }
+        return res.status(422).json({ error: msg });
       }
     }
 
-    res.json({ success: true });
+    res.json({ success: true, statusChanged: !!requestedStatusId });
   }),
 );
 

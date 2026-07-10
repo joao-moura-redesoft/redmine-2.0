@@ -39,8 +39,11 @@ import {
   RotateCw,
   Copy,
   CornerUpRight,
+  ListChecks,
+  ListPlus,
 } from 'lucide-react';
 import { useJitsi } from './jitsi/JitsiContext';
+import { CreateIssueModal } from './CreateIssueModal';
 import { FilePreviewModal, isPreviewable } from './FilePreview';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { pcmToMp3, pcmToWav } from '../utils/encodeMp3';
@@ -91,7 +94,7 @@ import type { UserStatusType } from '../api/talk';
 import { getStoredAuth, authHeaders, redmineApi } from '../api/redmine';
 import { talkBridge } from '../utils/talkBridge';
 import { talkMute } from '../utils/talkMute';
-import type { TalkRoom, TalkMessage, TalkParticipant } from '../api/talk';
+import type { TalkRoom, TalkMessage, TalkParticipant, TalkMessageParam } from '../api/talk';
 import {
   formatDistanceToNow,
   format,
@@ -559,6 +562,12 @@ function TalkImage({
 // Baixa um arquivo compartilhado no Talk via proxy autenticado. Recorre a abrir
 // no Nextcloud caso o download direto falhe.
 // Busca o conteúdo de um anexo do Talk como Blob (para pré-visualização).
+// Extrai o parâmetro de arquivo de uma mensagem (anexo/imagem/voz), se houver.
+function getMessageFileParam(msg: TalkMessage): TalkMessageParam | null {
+  if (msg.message === '{file}' && msg.messageParameters?.file) return msg.messageParameters.file;
+  return Object.values(msg.messageParameters ?? {}).find((p) => p.type === 'file') ?? null;
+}
+
 async function fetchTalkFileBlob(
   file: { id?: string; name?: string; path?: string },
   actorId?: string,
@@ -1151,12 +1160,17 @@ function messageMentionsMe(msg: TalkMessage, myId: string): boolean {
 
 // ─── Diálogo: encaminhar mensagem para outra conversa ─────────────────────────
 
-function ForwardDialog({ msg, onClose }: { msg: TalkMessage; onClose: () => void }) {
+function ForwardDialog({ msgs, onClose }: { msgs: TalkMessage[]; onClose: () => void }) {
   const { data: rooms = [] } = useTalkRooms();
   const [sending, setSending] = useState<string | null>(null);
   const [doneTo, setDoneTo] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const text = resolveMessageText(msg);
+  // Encaminha na ordem cronológica; cada mensagem vira uma bolha separada no destino.
+  const ordered = [...msgs].sort((a, b) => a.timestamp - b.timestamp);
+  const preview =
+    ordered.length === 1
+      ? resolveMessageText(ordered[0]) || '📎 Anexo'
+      : `${ordered.length} mensagens`;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1174,7 +1188,7 @@ function ForwardDialog({ msg, onClose }: { msg: TalkMessage; onClose: () => void
   const forward = async (token: string) => {
     setSending(token);
     try {
-      await sendMessage(token, text);
+      for (const m of ordered) await sendMessage(token, resolveMessageText(m));
       setDoneTo(token);
       setTimeout(onClose, 700);
     } catch {
@@ -1205,7 +1219,7 @@ function ForwardDialog({ msg, onClose }: { msg: TalkMessage; onClose: () => void
         </div>
         <div className="px-3 py-2 border-b border-slate-100">
           <p className="text-[11px] text-slate-500 bg-slate-50 rounded-lg px-2.5 py-1.5 line-clamp-2 mb-2">
-            {text || '📎 Anexo'}
+            {preview}
           </p>
           <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-1.5">
             <Search size={13} className="text-slate-400 flex-shrink-0" />
@@ -1259,6 +1273,9 @@ function Bubble({
   onRetry,
   onCopy,
   onForward,
+  onCreateTask,
+  onStartSelect,
+  onToggleSelect,
   onAvatarClick,
   onShowInfo,
   myId,
@@ -1270,6 +1287,8 @@ function Bubble({
   grouped,
   groupedWithNext,
   isDM,
+  selectionMode,
+  selected,
 }: {
   msg: TalkMessage;
   isMe: boolean;
@@ -1283,6 +1302,9 @@ function Bubble({
   onRetry?: (msg: TalkMessage) => void;
   onCopy?: (msg: TalkMessage) => void;
   onForward?: (msg: TalkMessage) => void;
+  onCreateTask?: (msg: TalkMessage) => void;
+  onStartSelect?: (msg: TalkMessage) => void;
+  onToggleSelect?: (msg: TalkMessage) => void;
   onAvatarClick?: (actorId: string, displayName: string) => void;
   onShowInfo?: (msg: TalkMessage) => void;
   mentionsMe?: boolean;
@@ -1293,6 +1315,8 @@ function Bubble({
   grouped: boolean;
   groupedWithNext: boolean;
   isDM: boolean;
+  selectionMode?: boolean;
+  selected?: boolean;
 }) {
   const file =
     msg.message === '{file}'
@@ -1333,7 +1357,8 @@ function Bubble({
     <div
       className={`relative flex ${groupedWithNext ? 'mb-0.5' : 'mb-2'} gap-1.5 group ${isMe ? 'flex-row-reverse' : 'flex-row'} items-end ${
         showMenu || showEmoji ? 'z-30' : ''
-      }`}
+      } ${selectionMode ? 'cursor-pointer rounded-lg' : ''} ${selectionMode && selected ? 'bg-blue-50' : ''}`}
+      onClick={selectionMode ? () => onToggleSelect?.(msg) : undefined}
       onMouseLeave={() => {
         if (!showEmoji && !showMenu) {
           setConfirmDelete(false);
@@ -1341,6 +1366,15 @@ function Bubble({
         }
       }}
     >
+      {selectionMode && (
+        <span
+          className={`self-center flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${
+            selected ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 bg-white'
+          }`}
+        >
+          {selected && <Check size={11} />}
+        </span>
+      )}
       {!isMe &&
         !isDM &&
         (showSender ? (
@@ -1371,7 +1405,7 @@ function Bubble({
           {/* Barra de ações — sobreposta à borda superior da bolha, ancorada para
             dentro p/ nunca ser cortada. Em bolhas otimistas (enviando/falhou) não
             há ações; aparece no hover (mouse) ou ao tocar a bolha (toque). */}
-          {!msg._status && (
+          {!msg._status && !selectionMode && (
             <div
               className={`absolute top-0 z-20 -translate-y-1/2 ${isMe ? 'right-1' : 'left-1'} flex items-center gap-0.5 transition-opacity ${
                 showEmoji || showMenu || actionsOpen
@@ -1458,6 +1492,24 @@ function Bubble({
                           className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-xs text-slate-700"
                         >
                           <CornerUpRight size={12} /> Encaminhar
+                        </button>
+                        <button
+                          onClick={() => {
+                            onCreateTask?.(msg);
+                            setShowMenu(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-xs text-slate-700"
+                        >
+                          <ListPlus size={12} /> Criar tarefa
+                        </button>
+                        <button
+                          onClick={() => {
+                            onStartSelect?.(msg);
+                            setShowMenu(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 text-xs text-slate-700"
+                        >
+                          <ListChecks size={12} /> Selecionar
                         </button>
                         {isMe && (
                           <>
@@ -2628,8 +2680,121 @@ function ChatWindow({
       .catch(() => {});
   }, []);
 
-  // Encaminhar: escolhe uma sala de destino num diálogo
-  const [forwardMsg, setForwardMsg] = useState<TalkMessage | null>(null);
+  // Encaminhar: escolhe uma sala de destino num diálogo (1 ou N mensagens)
+  const [forwardMsgs, setForwardMsgs] = useState<TalkMessage[] | null>(null);
+
+  // ─── Seleção múltipla + criar tarefa ─────────────────────────────────────
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  // Modal "Nova Tarefa" pré-preenchida a partir das mensagens escolhidas.
+  const [taskInitial, setTaskInitial] = useState<{
+    subject: string;
+    description: string;
+    files: File[];
+  } | null>(null);
+  // Enquanto baixa os anexos das mensagens antes de abrir o modal.
+  const [preparingTask, setPreparingTask] = useState(false);
+
+  const startSelection = useCallback((msg: TalkMessage) => {
+    setSelectionMode(true);
+    setSelectedIds(new Set([msg.id]));
+  }, []);
+  const toggleSelect = useCallback((msg: TalkMessage) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(msg.id)) next.delete(msg.id);
+      else next.add(msg.id);
+      return next;
+    });
+  }, []);
+  const exitSelection = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  // Mensagens escolhidas, em ordem cronológica.
+  const orderedSelected = useCallback(
+    (ids: number[]) =>
+      allMessages.filter((m) => ids.includes(m.id)).sort((a, b) => a.timestamp - b.timestamp),
+    [allMessages],
+  );
+
+  // Formata as mensagens como citação (autor · horário · texto), para descrição/cópia.
+  const formatSelected = useCallback(
+    (ids: number[], markdown: boolean) =>
+      orderedSelected(ids)
+        .map((m) => {
+          const who = m.actorDisplayName?.split(' ')[0] || m.actorId;
+          const when = format(new Date(m.timestamp * 1000), 'dd/MM HH:mm');
+          const body = resolveMessageText(m);
+          return markdown ? `**${who}** (${when}): ${body}` : `${who} (${when}): ${body}`;
+        })
+        .join('\n'),
+    [orderedSelected],
+  );
+
+  // Abre o modal de nova tarefa a partir de uma lista de mensagens. Baixa os
+  // anexos das mensagens escolhidas para virarem anexos reais da tarefa (não só
+  // o nome do arquivo no texto).
+  const openTaskFrom = useCallback(
+    async (ids: number[]) => {
+      if (ids.length === 0 || preparingTask) return;
+      const chosen = orderedSelected(ids);
+      const subject = resolveMessageText(chosen[0])
+        .replace(/^📎\s*/, '') // tira o prefixo de anexo p/ um título limpo
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 100);
+      const description = `${formatSelected(ids, true)}\n\n— via Talk · ${room.displayName}`;
+      setPreparingTask(true);
+      const files: File[] = [];
+      try {
+        for (const m of chosen) {
+          const fp = getMessageFileParam(m);
+          if (!fp?.id) continue;
+          try {
+            const blob = await fetchTalkFileBlob(
+              { id: fp.id, name: fp.name, path: fp.path },
+              m.actorId,
+            );
+            files.push(
+              new File([blob], fp.name || `arquivo_${fp.id}`, {
+                type: fp.mimetype || blob.type || 'application/octet-stream',
+              }),
+            );
+          } catch {
+            /* anexo que falhar ao baixar é ignorado — a tarefa ainda é criada */
+          }
+        }
+      } finally {
+        setPreparingTask(false);
+      }
+      setTaskInitial({ subject, description, files });
+    },
+    [orderedSelected, formatSelected, room.displayName, preparingTask],
+  );
+
+  const createTaskFromSelection = useCallback(async () => {
+    await openTaskFrom([...selectedIds]);
+    exitSelection();
+  }, [openTaskFrom, selectedIds, exitSelection]);
+
+  const forwardSelection = useCallback(() => {
+    const chosen = orderedSelected([...selectedIds]);
+    if (chosen.length) setForwardMsgs(chosen);
+    exitSelection();
+  }, [orderedSelected, selectedIds, exitSelection]);
+
+  const copySelection = useCallback(() => {
+    navigator.clipboard
+      ?.writeText(formatSelected([...selectedIds], false))
+      .then(() => {
+        setCopiedId(-1);
+        setTimeout(() => setCopiedId(null), 1500);
+      })
+      .catch(() => {});
+    exitSelection();
+  }, [formatSelected, selectedIds, exitSelection]);
 
   return (
     <div
@@ -2784,6 +2949,46 @@ function ChatWindow({
           <X size={12} />
         </button>
       </div>
+
+      {/* Barra de seleção múltipla */}
+      {selectionMode && (
+        <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white flex-shrink-0">
+          <button
+            onClick={exitSelection}
+            className="p-1 hover:bg-white/20 rounded transition-colors"
+            title="Cancelar seleção"
+          >
+            <X size={14} />
+          </button>
+          <span className="text-xs font-semibold flex-1">
+            {selectedIds.size} selecionada{selectedIds.size === 1 ? '' : 's'}
+          </span>
+          <button
+            onClick={createTaskFromSelection}
+            disabled={selectedIds.size === 0}
+            className="p-1.5 hover:bg-white/20 rounded transition-colors disabled:opacity-40"
+            title="Criar tarefa"
+          >
+            <ListPlus size={15} />
+          </button>
+          <button
+            onClick={forwardSelection}
+            disabled={selectedIds.size === 0}
+            className="p-1.5 hover:bg-white/20 rounded transition-colors disabled:opacity-40"
+            title="Encaminhar"
+          >
+            <CornerUpRight size={15} />
+          </button>
+          <button
+            onClick={copySelection}
+            disabled={selectedIds.size === 0}
+            className="p-1.5 hover:bg-white/20 rounded transition-colors disabled:opacity-40"
+            title="Copiar"
+          >
+            <Copy size={15} />
+          </button>
+        </div>
+      )}
 
       {/* Busca */}
       {searchOpen && (
@@ -2955,13 +3160,18 @@ function ChatWindow({
                   }
                   onRetry={retrySend}
                   onCopy={copyMessage}
-                  onForward={setForwardMsg}
+                  onForward={(msg) => setForwardMsgs([msg])}
+                  onCreateTask={(msg) => openTaskFrom([msg.id])}
+                  onStartSelect={startSelection}
+                  onToggleSelect={toggleSelect}
                   onAvatarClick={(actorId, displayName) => setProfileUser({ actorId, displayName })}
                   onShowInfo={setInfoMsg}
                   mentionsMe={messageMentionsMe(m, myId)}
                   readers={getReadersForMessage(m.id)}
                   numActiveParticipants={numActiveParticipants}
                   readStatusAvailable={readStatusAvailable}
+                  selectionMode={selectionMode}
+                  selected={selectedIds.has(m.id)}
                 />
               </Fragment>
             );
@@ -3032,7 +3242,25 @@ function ChatWindow({
         />
       )}
 
-      {forwardMsg && <ForwardDialog msg={forwardMsg} onClose={() => setForwardMsg(null)} />}
+      {forwardMsgs && <ForwardDialog msgs={forwardMsgs} onClose={() => setForwardMsgs(null)} />}
+
+      {taskInitial && (
+        <CreateIssueModal
+          initialSubject={taskInitial.subject}
+          initialDescription={taskInitial.description}
+          initialFiles={taskInitial.files}
+          onClose={() => setTaskInitial(null)}
+        />
+      )}
+
+      {preparingTask && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-white/70 rounded-xl">
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs text-slate-500">Preparando anexos…</span>
+          </div>
+        </div>
+      )}
 
       {copiedId !== null && (
         <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-[60] bg-slate-800 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none">
@@ -4013,6 +4241,8 @@ function ConversationsPanel({
   const myStatus = statuses?.get(myId)?.status;
 
   const sorted = rooms.filter((r) => r.type !== 6).sort((a, b) => b.lastActivity - a.lastActivity);
+  // "Nota para si mesmo" (tipo 6) fica fora da lista e vira um botão no cabeçalho.
+  const noteRoom = rooms.find((r) => r.type === 6);
 
   return (
     <>
@@ -4056,6 +4286,18 @@ function ConversationsPanel({
               </button>
             )}
             {showStatusMenu && <MyStatusMenu onClose={() => setShowStatusMenu(false)} />}
+            {noteRoom && (
+              <button
+                onClick={() => onSelect(noteRoom)}
+                className="relative p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-blue-600 transition-colors"
+                title="Nota para si mesmo"
+              >
+                <FileText size={14} />
+                {noteRoom.unreadMessages > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-500 rounded-full border border-white" />
+                )}
+              </button>
+            )}
             <button
               onClick={() => setShowNewConv(true)}
               className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-blue-600 transition-colors"

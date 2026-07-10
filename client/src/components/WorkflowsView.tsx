@@ -2,7 +2,16 @@
 // Cada automação é um grafo gatilho→condição→ação executado pelo motor de
 // polling do servidor. Aqui cuidamos de criar/listar/ativar/excluir.
 import { useState } from 'react';
-import { Workflow as WorkflowIcon, Plus, Trash2, Loader2, Sparkles } from 'lucide-react';
+import {
+  Workflow as WorkflowIcon,
+  Plus,
+  Trash2,
+  Loader2,
+  Sparkles,
+  Copy,
+  Upload,
+  Check,
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -11,9 +20,11 @@ import {
   useUpdateWorkflow,
   useDeleteWorkflow,
 } from '../hooks/useWorkflows';
-import { descriptorFor, triggerSummary, hasWriteAction } from './workflow/nodeCatalog';
+import { descriptorFor, triggerSummary, hasWriteAction, activationBlockers } from './workflow/nodeCatalog';
 import { WorkflowEditor } from './workflow/WorkflowEditor';
 import { RecipesGallery } from './workflow/RecipesGallery';
+import { ConfirmDialog } from './workflow/ConfirmDialog';
+import { exportWorkflow, importWorkflow } from './workflow/share';
 import type { Recipe } from './workflow/recipes';
 import type { Workflow } from '../api/workflows';
 
@@ -24,8 +35,17 @@ export function WorkflowsView(_props: { onIssueClick?: (id: number) => void } = 
   const del = useDeleteWorkflow();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [gallery, setGallery] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [toDelete, setToDelete] = useState<Workflow | null>(null);
 
   const editing = workflows?.find((w) => w.id === editingId) ?? null;
+
+  const importFromText = async (text: string) => {
+    const { name, nodes } = importWorkflow(text); // lança em entrada inválida
+    const wf = await create.mutateAsync({ name, enabled: false, nodes });
+    setImporting(false);
+    setEditingId(wf.id);
+  };
 
   const createBlank = async () => {
     const wf = await create.mutateAsync({ name: 'Nova automação', enabled: false, nodes: [] });
@@ -54,13 +74,23 @@ export function WorkflowsView(_props: { onIssueClick?: (id: number) => void } = 
             Quando algo acontecer (gatilho), aplique condições e execute ações — no estilo n8n.
           </p>
         </div>
-        <button
-          onClick={() => setGallery(true)}
-          disabled={create.isPending}
-          className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          <Plus size={16} /> Nova automação
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setImporting(true)}
+            disabled={create.isPending}
+            title="Colar uma automação exportada"
+            className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-md border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
+          >
+            <Upload size={15} /> Importar
+          </button>
+          <button
+            onClick={() => setGallery(true)}
+            disabled={create.isPending}
+            className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            <Plus size={16} /> Nova automação
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -94,9 +124,7 @@ export function WorkflowsView(_props: { onIssueClick?: (id: number) => void } = 
               wf={wf}
               onOpen={() => setEditingId(wf.id)}
               onToggle={(enabled) => update.mutate({ id: wf.id, patch: { enabled } })}
-              onDelete={() => {
-                if (confirm(`Excluir a automação "${wf.name}"?`)) del.mutate(wf.id);
-              }}
+              onDelete={() => setToDelete(wf)}
             />
           ))}
         </ul>
@@ -110,6 +138,95 @@ export function WorkflowsView(_props: { onIssueClick?: (id: number) => void } = 
           busy={create.isPending}
         />
       )}
+
+      {importing && (
+        <ImportModal
+          onImport={importFromText}
+          onClose={() => setImporting(false)}
+          busy={create.isPending}
+        />
+      )}
+
+      {toDelete && (
+        <ConfirmDialog
+          title="Excluir automação"
+          message={
+            <>
+              Excluir <strong>{toDelete.name}</strong>? Esta ação não pode ser desfeita.
+            </>
+          }
+          confirmLabel="Excluir"
+          danger
+          onConfirm={() => del.mutate(toDelete.id)}
+          onClose={() => setToDelete(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ImportModal({
+  onImport,
+  onClose,
+  busy,
+}: {
+  onImport: (text: string) => Promise<void>;
+  onClose: () => void;
+  busy?: boolean;
+}) {
+  const [text, setText] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null);
+    try {
+      await onImport(text);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-700"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+          <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+            Importar automação
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Cole o texto exportado (botão de copiar em cada automação). Abre um rascunho inativo para
+            você conferir e completar.
+          </p>
+        </div>
+        <div className="p-5 space-y-3">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={8}
+            placeholder='{ "_t": "bluemine.workflow", ... }'
+            className="w-full text-xs font-mono rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 p-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+          />
+          {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={onClose}
+              className="text-sm px-3 py-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={submit}
+              disabled={busy || !text.trim()}
+              className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Upload size={14} /> Importar
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -135,15 +252,21 @@ function WorkflowRow({
     trigger?.type === 'issue.scan' && trigger.config?.scope === 'all' && hasWriteAction(wf.nodes);
 
   const requestToggle = (checked: boolean) => {
-    if (
-      checked &&
-      risky &&
-      !confirm(
-        `"${wf.name}" age sobre TODAS as suas tarefas e executa ações de escrita. Não há desfazer.\n\n` +
-          'Abra a automação e use "Prévia" antes. Ativar mesmo assim?',
-      )
-    ) {
-      return;
+    if (checked) {
+      const blockers = activationBlockers(wf.nodes);
+      if (blockers.length) {
+        alert(`Não dá para ativar "${wf.name}" ainda:\n\n• ${blockers.join('\n• ')}`);
+        return;
+      }
+      if (
+        risky &&
+        !confirm(
+          `"${wf.name}" age sobre TODAS as suas tarefas e executa ações de escrita. Não há desfazer.\n\n` +
+            'Abra a automação e use "Prévia" antes. Ativar mesmo assim?',
+        )
+      ) {
+        return;
+      }
     }
     onToggle(checked);
   };
@@ -189,9 +312,34 @@ function WorkflowRow({
         <div className="relative w-9 h-5 bg-slate-300 dark:bg-slate-600 rounded-full peer peer-checked:bg-blue-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-4" />
       </label>
 
+      <CopyButton wf={wf} />
+
       <button onClick={onDelete} className="p-1.5 text-slate-400 hover:text-red-500" title="Excluir">
         <Trash2 size={16} />
       </button>
     </li>
+  );
+}
+
+function CopyButton({ wf }: { wf: Workflow }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(exportWorkflow(wf));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard bloqueado (contexto inseguro): mostra o JSON para copiar à mão.
+      prompt('Copie o texto da automação:', exportWorkflow(wf));
+    }
+  };
+  return (
+    <button
+      onClick={copy}
+      className="p-1.5 text-slate-400 hover:text-blue-500"
+      title="Copiar automação (para compartilhar/importar)"
+    >
+      {copied ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
+    </button>
   );
 }

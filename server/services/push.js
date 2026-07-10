@@ -477,24 +477,31 @@ const WORKFLOWS_ENABLED = !(
 );
 const WORKFLOW_POLL_MS = Number(process.env.WORKFLOW_POLL_MS) || 60 * 1000;
 
+// Agenda uma tarefa async periódica que NUNCA vira unhandled rejection: se a
+// função rejeitar (ex.: saveSubs → writeJsonSecure falha por disco cheio/permissão),
+// o erro é logado e o processo segue vivo, em vez de derrubar o servidor.
+function safeInterval(fn, ms, label) {
+  setInterval(() => {
+    Promise.resolve()
+      .then(fn)
+      .catch((e) => console.error(`[push] ${label} falhou:`, e?.message || e));
+  }, ms);
+}
+
 function startPushPolling() {
-  if (DIGEST_ENABLED) setInterval(runDigests, 5 * 60 * 1000);
+  if (DIGEST_ENABLED) safeInterval(runDigests, 5 * 60 * 1000, 'digest');
 
   if (WORKFLOWS_ENABLED) {
     const workflowEngine = require('./workflowEngine');
-    setInterval(() => {
-      workflowEngine.tick(subscriptions, sendPush).catch((e) => {
-        console.error('[workflow] tick falhou:', e.message);
-      });
-    }, WORKFLOW_POLL_MS);
+    safeInterval(() => workflowEngine.tick(subscriptions, sendPush), WORKFLOW_POLL_MS, 'workflow tick');
   }
 
   if (!PUSH_ENABLED) {
     console.log('[push] polling desabilitado (PUSH_ENABLED!=1)');
     return;
   }
-  setInterval(pollPush, PUSH_POLL_MS);
-  setInterval(
+  safeInterval(pollPush, PUSH_POLL_MS, 'pollPush');
+  safeInterval(
     () =>
       runTalkPoll(
         (g) => !groupIsRealtime(g),
@@ -504,8 +511,9 @@ function startPushPolling() {
         },
       ),
     TALK_PUSH_POLL_MS,
+    'talk poll',
   );
-  setInterval(
+  safeInterval(
     () =>
       runTalkPoll(
         groupIsRealtime,
@@ -515,6 +523,7 @@ function startPushPolling() {
         },
       ),
     TALK_REALTIME_POLL_MS,
+    'talk poll (realtime)',
   );
 }
 

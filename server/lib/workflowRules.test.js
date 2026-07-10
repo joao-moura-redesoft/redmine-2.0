@@ -10,6 +10,8 @@ import {
   scanCap,
   SCAN_CAP_DEFAULT,
   filterNeedsMissingOutput,
+  classifyRun,
+  nextFailStreak,
   daysSince,
   daysUntil,
 } from './workflowRules.js';
@@ -285,6 +287,60 @@ describe('teto × repeat (simulação do laço da varredura)', () => {
 
     const t3 = t2 + 86400000;
     expect(runScan(issues, fired, cfg, t3)).toEqual([]); // 'once': nunca mais
+  });
+});
+
+describe('classifyRun / nextFailStreak (auto-pause)', () => {
+  const ok = [{ type: 'notify', ok: true }];
+  const hard = [{ type: 'webhook', ok: false, error: '404' }];
+  const transient = [{ type: 'webhook', ok: false, error: '503', transient: true }];
+  const mixedFail = [
+    { type: 'webhook', ok: false, transient: true },
+    { type: 'talk.send', ok: false }, // uma dura ⇒ conta como 'hard'
+  ];
+
+  it('classifica os quatro tipos', () => {
+    expect(classifyRun(ok)).toBe('ok');
+    expect(classifyRun(hard)).toBe('hard');
+    expect(classifyRun(transient)).toBe('transient');
+    expect(classifyRun(mixedFail)).toBe('hard');
+    expect(classifyRun([])).toBe('empty');
+  });
+
+  it('sucesso zera o streak', () => {
+    expect(nextFailStreak(3, ok)).toEqual({ streak: 0, pause: false, changed: true });
+    // já estava zerado ⇒ nada muda
+    expect(nextFailStreak(0, ok)).toEqual({ streak: 0, pause: false, changed: false });
+  });
+
+  it('falha transiente NÃO pune (nem incrementa, nem zera)', () => {
+    expect(nextFailStreak(2, transient)).toEqual({ streak: 2, pause: false, changed: false });
+    expect(nextFailStreak(0, transient)).toEqual({ streak: 0, pause: false, changed: false });
+  });
+
+  it('nada rodou (empty) é neutro', () => {
+    expect(nextFailStreak(2, [])).toEqual({ streak: 2, pause: false, changed: false });
+  });
+
+  it('falha dura incrementa e, ao atingir o máximo, pausa e zera', () => {
+    expect(nextFailStreak(0, hard, 5)).toEqual({ streak: 1, pause: false, changed: true });
+    expect(nextFailStreak(3, hard, 5)).toEqual({ streak: 4, pause: false, changed: true });
+    expect(nextFailStreak(4, hard, 5)).toEqual({ streak: 0, pause: true, changed: true });
+  });
+
+  it('5 falhas duras seguidas pausam; uma transiente no meio não zera nem conta', () => {
+    let streak = 0;
+    const step = (actions) => {
+      const r = nextFailStreak(streak, actions, 5);
+      streak = r.streak;
+      return r.pause;
+    };
+    expect(step(hard)).toBe(false); // 1
+    expect(step(hard)).toBe(false); // 2
+    expect(step(transient)).toBe(false); // neutro, segue 2
+    expect(step(hard)).toBe(false); // 3
+    expect(step(hard)).toBe(false); // 4
+    expect(step(hard)).toBe(true); // 5 → pausa
   });
 });
 

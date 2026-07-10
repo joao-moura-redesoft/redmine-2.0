@@ -37,6 +37,8 @@ interface Props {
   initialDescription?: string;
   initialPriorityId?: number;
   initialDueDate?: string;
+  // Anexos já resolvidos (ex.: imagem de uma mensagem do Talk).
+  initialFiles?: File[];
 }
 
 function fmtSize(bytes: number): string {
@@ -51,6 +53,7 @@ export function CreateIssueModal({
   initialDescription,
   initialPriorityId,
   initialDueDate,
+  initialFiles,
 }: Props) {
   const { data: projects } = useProjects();
   const { data: trackers } = useTrackers();
@@ -65,7 +68,7 @@ export function CreateIssueModal({
   const [priorityId, setPriorityId] = useState<number | ''>(initialPriorityId ?? '');
   const [dueDate, setDueDate] = useState(initialDueDate ?? '');
   const [assignedTo, setAssignedTo] = useState<number | ''>('');
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<File[]>(initialFiles ?? []);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aiSuggesting, setAiSuggesting] = useState(false);

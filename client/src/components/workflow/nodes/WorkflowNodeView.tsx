@@ -3,11 +3,22 @@
 // (`validateNode`) — é isso que faz as receitas indicarem o que completar.
 // Gatilhos não têm entrada; branch tem DUAS saídas (verdadeiro / falso).
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import { descriptorFor, summarize, validateNode } from '../nodeCatalog';
 import { describeRule, type Rule } from '../filterFields';
 import { useWorkflowMeta } from '../WorkflowMetaContext';
+import { useRunTrail } from '../RunTrailContext';
 import type { WorkflowNode } from '../../../api/workflows';
+
+// Desfecho de um nó na última execução → cor da borda + selo no canto.
+const TRAIL_STYLE: Record<string, { ring: string; Icon: typeof CheckCircle2; color: string }> = {
+  ok: { ring: 'ring-emerald-500', Icon: CheckCircle2, color: 'text-emerald-500' },
+  passed: { ring: 'ring-emerald-500', Icon: CheckCircle2, color: 'text-emerald-500' },
+  true: { ring: 'ring-emerald-500', Icon: CheckCircle2, color: 'text-emerald-500' },
+  error: { ring: 'ring-rose-500', Icon: XCircle, color: 'text-rose-500' },
+  stopped: { ring: 'ring-slate-400', Icon: MinusCircle, color: 'text-slate-400' },
+  false: { ring: 'ring-slate-400', Icon: MinusCircle, color: 'text-slate-400' },
+};
 
 export interface WfNodeData extends Record<string, unknown> {
   node: WorkflowNode;
@@ -90,14 +101,31 @@ export function WorkflowNodeView({ data, selected }: NodeProps) {
   // Condições mostram as regras em vez do resumo genérico ("2 regras (E)").
   const subtitle = isCondition ? '' : summarize(node);
 
+  // Destaque da última execução (quando ligado no editor): borda colorida + selo.
+  const trail = useRunTrail();
+  const outcome = trail?.[node.id];
+  const ts = outcome ? TRAIL_STYLE[outcome] : undefined;
+
   return (
     <div
       className={`group relative min-w-[196px] max-w-[240px] rounded-xl border-2 shadow-sm transition-shadow hover:shadow-md px-3 py-2.5 ${
         missing.length ? 'border-amber-400 dark:border-amber-500' : d?.accent ?? 'border-slate-300'
       } ${style.bg} ${
-        selected ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900' : ''
-      }`}
+        selected
+          ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'
+          : ts
+            ? `ring-2 ${ts.ring} ring-offset-2 dark:ring-offset-slate-900`
+            : ''
+      } ${trail && !outcome ? 'opacity-50' : ''}`}
     >
+      {ts && (
+        <span
+          className="absolute -top-2 -right-2 rounded-full bg-white dark:bg-slate-900"
+          title={`Última execução: ${outcome}`}
+        >
+          <ts.Icon size={16} className={ts.color} />
+        </span>
+      )}
       {!isTrigger && (
         <Handle type="target" position={Position.Top} className={`!bg-slate-400 ${HANDLE}`} />
       )}

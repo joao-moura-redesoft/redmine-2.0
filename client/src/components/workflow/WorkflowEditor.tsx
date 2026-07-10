@@ -35,14 +35,25 @@ import {
   XCircle,
   Eye,
   AlertTriangle,
+  Route,
 } from 'lucide-react';
 import { WorkflowNodeView, type WfNodeData } from './nodes/WorkflowNodeView';
 import { NodeConfigPanel } from './NodeConfigPanel';
 import { RunLogPanel } from './RunLogPanel';
 import { PreviewModal } from './PreviewModal';
 import { WorkflowMetaProvider } from './WorkflowMetaContext';
-import { TRIGGERS, FILTERS, ACTIONS, makeNode, hasWriteAction, type NodeDescriptor } from './nodeCatalog';
-import { useUpdateWorkflow } from '../../hooks/useWorkflows';
+import { WorkflowEdge, EdgeActionsContext } from './edges/WorkflowEdge';
+import { RunTrailProvider } from './RunTrailContext';
+import {
+  TRIGGERS,
+  FILTERS,
+  ACTIONS,
+  makeNode,
+  hasWriteAction,
+  activationBlockers,
+  type NodeDescriptor,
+} from './nodeCatalog';
+import { useUpdateWorkflow, useWorkflowRuns } from '../../hooks/useWorkflows';
 import { runWorkflow, previewWorkflow, type PreviewResult } from '../../api/workflows';
 import type { Workflow, WorkflowNode } from '../../api/workflows';
 
@@ -53,18 +64,13 @@ const DND_MIME = 'application/bluemine-node';
 const toRfNodes = (wf: Workflow): WfNode[] =>
   wf.nodes.map((n) => ({ id: n.id, type: 'wf', position: n.position, data: { node: n } }));
 
-// Estilo explícito por aresta (não confiamos no defaultEdgeOptions valer para
-// arestas controladas). Ramo do branch vira rótulo V (verde) / F (rosa).
-const EDGE_BASE = { type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } };
-
-const decorateEdge = (e: Edge): Edge => {
-  const base = { ...e, ...EDGE_BASE };
-  if (e.sourceHandle === 'true')
-    return { ...base, label: 'V', labelStyle: { fill: '#059669', fontWeight: 700 }, style: { stroke: '#10b981' } };
-  if (e.sourceHandle === 'false')
-    return { ...base, label: 'F', labelStyle: { fill: '#e11d48', fontWeight: 700 }, style: { stroke: '#f43f5e' } };
-  return base;
-};
+// Toda aresta usa o tipo customizado 'wf' (WorkflowEdge), que desenha a curva,
+// o botão de excluir e o rótulo V/F do branch (derivado do sourceHandle).
+const decorateEdge = (e: Edge): Edge => ({
+  ...e,
+  type: 'wf',
+  markerEnd: { type: MarkerType.ArrowClosed },
+});
 
 const toRfEdges = (wf: Workflow): Edge[] =>
   wf.nodes.flatMap((n) => {
@@ -109,6 +115,7 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
   const [dirty, setDirty] = useState(false);
   const [testing, setTesting] = useState(false);
   const [tab, setTab] = useState<'config' | 'runs'>('config');
+  const [showLastRun, setShowLastRun] = useState(false);
   const [query, setQuery] = useState('');
   const [flash, setFlash] = useState<{ ok: boolean; msg: string } | null>(null);
   const [preview, setPreview] = useState<{
@@ -122,7 +129,23 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState(toRfEdges(workflow));
 
   const nodeTypes = useMemo(() => ({ wf: WorkflowNodeView }), []);
+  const edgeTypes = useMemo(() => ({ wf: WorkflowEdge }), []);
+
+  // Rastro da última execução (item 2): pinta no canvas quais nós/ramo rodaram.
+  const runs = useWorkflowRuns(workflow.id, showLastRun);
+  const trail = showLastRun ? runs.data?.[0]?.nodes ?? null : null;
   const markDirty = useCallback(() => setDirty(true), []);
+
+  // Remove uma aresta (botão × na conexão). A ação chega ao WorkflowEdge por
+  // context; estável via useCallback para não recriar edgeTypes/contexto à toa.
+  const deleteEdge = useCallback(
+    (id: string) => {
+      setRfEdges((prev) => prev.filter((e) => e.id !== id));
+      markDirty();
+    },
+    [setRfEdges, markDirty],
+  );
+  const edgeActions = useMemo(() => ({ onDelete: deleteEdge }), [deleteEdge]);
 
   // Arestas animadas só quando a automação está ativa — dá a sensação de "viva".
   const shownEdges = useMemo(() => rfEdges.map((e) => ({ ...e, animated: enabled })), [rfEdges, enabled]);
@@ -279,8 +302,11 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
 
   const isScan = triggerType === 'issue.scan';
   const scanScope = rfNodes.find((n) => n.data.node.kind === 'trigger')?.data.node.config?.scope;
+  const nodeList = rfNodes.map((n) => n.data.node);
   // O estrago irreversível mora aqui: varredura de escopo amplo + ação de escrita.
-  const riskyScan = isScan && scanScope === 'all' && hasWriteAction(rfNodes.map((n) => n.data.node));
+  const riskyScan = isScan && scanScope === 'all' && hasWriteAction(nodeList);
+  // Pendências que impedem ATIVAR (config incompleta / sem gatilho / sem ação).
+  const blockers = activationBlockers(nodeList);
 
   // Auto-layout hierárquico simples (BFS a partir do gatilho). Sem dagre.
   const autoLayout = () => {
@@ -325,14 +351,21 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
     setTimeout(() => fitView({ duration: 300, padding: 0.2 }), 20);
   };
 
-  // Atalhos: Delete remove o nó; Ctrl+S salva. Nunca quando o foco está num campo.
+  // Atalhos: Delete/Backspace remove o nó OU as arestas selecionadas; Ctrl+S salva.
+  // Nunca quando o foco está num campo (senão apagaria ao editar a config).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
-      if (e.key === 'Delete' && selectedId) {
-        e.preventDefault();
-        deleteSelected();
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedId) {
+          e.preventDefault();
+          deleteSelected();
+        } else if (rfEdges.some((ed) => ed.selected)) {
+          e.preventDefault();
+          setRfEdges((prev) => prev.filter((ed) => !ed.selected));
+          markDirty();
+        }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         save().then(() => showFlash(true, 'Salvo')).catch(() => showFlash(false, 'Falha ao salvar'));
@@ -340,7 +373,7 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedId, deleteSelected, save]);
+  }, [selectedId, deleteSelected, save, rfEdges, setRfEdges, markDirty]);
 
   const paletteFiltered = PALETTE.map((g) => ({
     ...g,
@@ -387,6 +420,17 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
         )}
 
         <button
+          onClick={() => setShowLastRun((v) => !v)}
+          title="Destacar o caminho da última execução no canvas"
+          className={`p-1.5 rounded-md border ${
+            showLastRun
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+              : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300'
+          } hover:bg-slate-100 dark:hover:bg-slate-800`}
+        >
+          <Route size={15} />
+        </button>
+        <button
           onClick={autoLayout}
           title="Organizar os nós"
           className="p-1.5 rounded-md border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -398,17 +442,24 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
             type="checkbox"
             checked={enabled}
             onChange={(e) => {
-              // Ativar é o momento do estrago (varredura ampla + escrita), não salvar.
-              if (
-                e.target.checked &&
-                riskyScan &&
-                !confirm(
-                  'Esta varredura age sobre TODAS as suas tarefas e executa ações de escrita ' +
-                    '(comentar/atualizar/enviar). Não há desfazer.\n\n' +
-                    'Recomendado: use "Prévia" antes. Ativar mesmo assim?',
-                )
-              ) {
-                return;
+              if (e.target.checked) {
+                // Não deixa ativar com config incompleta — o erro estouraria só na
+                // hora de rodar, indo parar no log em vez de na sua frente.
+                if (blockers.length) {
+                  showFlash(false, `Complete antes de ativar: ${blockers[0]}`);
+                  return;
+                }
+                // Ativar é o momento do estrago (varredura ampla + escrita), não salvar.
+                if (
+                  riskyScan &&
+                  !confirm(
+                    'Esta varredura age sobre TODAS as suas tarefas e executa ações de escrita ' +
+                      '(comentar/atualizar/enviar). Não há desfazer.\n\n' +
+                      'Recomendado: use "Prévia" antes. Ativar mesmo assim?',
+                  )
+                ) {
+                  return;
+                }
               }
               setEnabled(e.target.checked);
               markDirty();
@@ -520,29 +571,34 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
             e.dataTransfer.dropEffect = 'move';
           }}
         >
-          <ReactFlow
-            nodes={rfNodes}
-            edges={shownEdges}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={(c) => {
-              onEdgesChange(c);
-              if (c.some((x) => x.type === 'remove')) markDirty();
-            }}
-            onConnect={onConnect}
-            onNodeClick={(_, n) => {
-              setSelectedId(n.id);
-              setTab('config');
-            }}
-            onPaneClick={() => setSelectedId(null)}
-            nodeTypes={nodeTypes}
-            deleteKeyCode={null} /* tratamos Delete manualmente (não apagar ao digitar) */
-            fitView
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background />
-            <Controls />
-            <MiniMap pannable zoomable className="!bg-slate-100 dark:!bg-slate-800" />
-          </ReactFlow>
+          <RunTrailProvider value={trail}>
+          <EdgeActionsContext.Provider value={edgeActions}>
+            <ReactFlow
+              nodes={rfNodes}
+              edges={shownEdges}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={(c) => {
+                onEdgesChange(c);
+                if (c.some((x) => x.type === 'remove')) markDirty();
+              }}
+              onConnect={onConnect}
+              onNodeClick={(_, n) => {
+                setSelectedId(n.id);
+                setTab('config');
+              }}
+              onPaneClick={() => setSelectedId(null)}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              deleteKeyCode={null} /* tratamos Delete manualmente (não apagar ao digitar) */
+              fitView
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background />
+              <Controls />
+              <MiniMap pannable zoomable className="!bg-slate-100 dark:!bg-slate-800" />
+            </ReactFlow>
+          </EdgeActionsContext.Provider>
+          </RunTrailProvider>
         </div>
 
         {/* Painel direito com abas */}

@@ -25,6 +25,7 @@ const {
   scanRepeatAllows,
   scanCap,
   filterNeedsMissingOutput,
+  nextFailStreak,
   localYmd,
 } = require('../lib/workflowRules');
 const { listWorkflows, saveWorkflows } = require('./workflowStore');
@@ -144,7 +145,14 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
         const run = { actions: [] };
         await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
         if (touchWorkflow(w, run)) workflowsDirty = true;
-        if (trackFailure(uid, state, w, run)) { workflowsDirty = true; dirty = true; }
+        {
+          const fr = trackFailure(uid, state, w, run);
+          if (fr.stateChanged) dirty = true;
+          if (fr.paused) {
+            workflowsDirty = true;
+            await notifyAutoPaused(w, rec, sendPush, subscriptions);
+          }
+        }
         recordRun(uid, w, trigger, 'auto', 'schedule', run);
       }
       continue;
@@ -194,7 +202,14 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
         for (const id of Object.keys(fired)) if (!inScope.has(id)) delete fired[id];
 
         if (touchWorkflow(w, run)) workflowsDirty = true;
-        if (trackFailure(uid, state, w, run)) { workflowsDirty = true; dirty = true; }
+        {
+          const fr = trackFailure(uid, state, w, run);
+          if (fr.stateChanged) dirty = true;
+          if (fr.paused) {
+            workflowsDirty = true;
+            await notifyAutoPaused(w, rec, sendPush, subscriptions);
+          }
+        }
         recordRun(uid, w, trigger, 'auto', 'issue.scan', run);
       }
       continue;
@@ -226,7 +241,14 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
       const run = { actions: [] };
       await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
       if (touchWorkflow(w, run)) workflowsDirty = true;
-        if (trackFailure(uid, state, w, run)) { workflowsDirty = true; dirty = true; }
+        {
+          const fr = trackFailure(uid, state, w, run);
+          if (fr.stateChanged) dirty = true;
+          if (fr.paused) {
+            workflowsDirty = true;
+            await notifyAutoPaused(w, rec, sendPush, subscriptions);
+          }
+        }
       recordRun(uid, w, trigger, 'auto', ev.type, run);
     }
   }
@@ -356,6 +378,19 @@ async function runGraph(
   const nodeById = new Map(w.nodes.map((n) => [n.id, n]));
   const visited = new Set();
 
+  // Rastro da execução: nodeId → desfecho, para pintar o caminho no canvas.
+  // 'ok'/'passed'/'true' = seguiu; 'error' = falhou; 'stopped'/'false' = parou/
+  // ramo não tomado. Na varredura, união entre tarefas (last-write). Também
+  // guardamos um rótulo do "sobre o quê" rodou (contexto).
+  const mark = (id, outcome) => {
+    if (run) {
+      if (!run.nodes) run.nodes = {};
+      run.nodes[id] = outcome;
+    }
+  };
+  if (run && !run.context) run.context = contextLabel(ctx);
+  mark(trigger.id, 'ok');
+
   // Numa prévia, condições que dependem da saída de uma ação (ex.: {{ai.label}})
   // são INDECIDÍVEIS — a ação não rodou. Marcamos e paramos o ramo, em vez de
   // fingir "falso" e sumir com o ramo verdadeiro da prévia.
@@ -372,29 +407,42 @@ async function runGraph(
     if (!node) return;
 
     if (node.kind === 'filter') {
-      if (undecidable(node)) return;
-      if (!bypassFilters && !evalFilter(node.config, ctx, rec.uid)) return; // para o ramo
+      if (undecidable(node)) return void mark(id, 'stopped');
+      const pass = bypassFilters || evalFilter(node.config, ctx, rec.uid);
+      mark(id, pass ? 'passed' : 'stopped');
+      if (!pass) return; // para o ramo
     } else if (node.kind === 'branch') {
       // Se/senão: segue nextIds (verdadeiro) ou elseIds (falso). Não cai no walk
       // genérico de nextIds embaixo (senão o ramo verdadeiro rodaria em dobro).
-      if (undecidable(node)) return;
+      if (undecidable(node)) return void mark(id, 'stopped');
       const pass = bypassFilters || evalFilter(node.config, ctx, rec.uid);
+      mark(id, pass ? 'true' : 'false');
       for (const t of pass ? node.nextIds || [] : node.elseIds || []) await walk(t);
       return;
     } else if (node.kind === 'action') {
       if (dryRun) {
         if (run) run.actions.push({ type: node.type, ok: true, preview: true });
+        mark(id, 'ok');
       } else {
         try {
           await execAction(node, ctx, rec, sendPush, subscriptions);
           if (run) run.actions.push({ type: node.type, ok: true });
+          mark(id, 'ok');
         } catch (e) {
           const msg = e.response?.data?.errors?.join?.('; ') || e.response?.status || e.message;
           console.warn('[workflow] ação', node.type, 'falhou:', msg);
+          mark(id, 'error');
           // `onError: 'stop'` interrompe ESTE ramo (os demais seguem). O padrão
           // continua sendo 'continue', preservando o comportamento anterior.
           const stopped = node.config?.onError === 'stop';
-          if (run) run.actions.push({ type: node.type, ok: false, error: String(msg), stopped });
+          if (run)
+            run.actions.push({
+              type: node.type,
+              ok: false,
+              error: String(msg),
+              stopped,
+              ...(e.transient ? { transient: true } : {}),
+            });
           if (stopped) return;
         }
       }
@@ -476,19 +524,32 @@ async function execAction(node, ctx, rec, sendPush, subscriptions) {
           /* mantém como texto */
         }
       }
-      const res = await axios({
-        method,
-        url: target.toString(),
-        headers,
-        data,
-        timeout: 10000,
-        maxRedirects: 3,
-        validateStatus: () => true, // deixa o status virar contexto, não exceção
-        ...safeAgents(),
-      });
+      // Retry com backoff curto em falhas TRANSIENTES (rede/timeout, 5xx, 429):
+      // absorve blips do destino. 4xx não é retentado — não vai se resolver sozinho.
+      let res;
+      try {
+        res = await httpWithRetry({
+          method,
+          url: target.toString(),
+          headers,
+          data,
+          timeout: 10000,
+          maxRedirects: 3,
+          validateStatus: () => true, // deixa o status virar contexto, não exceção
+          ...safeAgents(),
+        });
+      } catch (e) {
+        // Sem resposta (rede/timeout) após os retries → transiente: não pune o
+        // workflow (não conta no fail-streak), o destino pode voltar.
+        throw Object.assign(new Error(`webhook sem resposta: ${e.message}`), { transient: true });
+      }
       // Disponibiliza para os nós seguintes: {{webhook.status}}, {{webhook.body}}.
       ctx.webhook = { status: res.status, body: res.data };
-      if (res.status >= 400) throw new Error(`webhook respondeu ${res.status}`);
+      if (res.status >= 400) {
+        // 429/5xx = instabilidade do destino (transiente); 4xx = erro real da regra.
+        const transient = res.status === 429 || res.status >= 500;
+        throw Object.assign(new Error(`webhook respondeu ${res.status}`), { transient });
+      }
       return;
     }
     case 'email.send': {
@@ -596,7 +657,64 @@ function recordRun(uid, w, trigger, mode, eventType, run) {
     ok: run.actions.every((a) => a.ok),
     actions: run.actions.slice(0, 50),
     ...(run.truncated ? { truncated: run.truncated } : {}),
+    ...(run.nodes ? { nodes: run.nodes } : {}), // rastro p/ pintar o canvas
+    ...(run.context ? { context: run.context } : {}), // "sobre o quê" rodou
   });
+}
+
+// Rótulo curto do que disparou o workflow (mostrado no histórico).
+function contextLabel(ctx) {
+  if (ctx?.issue?.id) return `#${ctx.issue.id} ${ctx.issue.subject || ''}`.trim();
+  if (ctx?.message?.text) {
+    const who = ctx.message.actor ? `${ctx.message.actor}: ` : '';
+    return `${who}${ctx.message.text}`.slice(0, 80);
+  }
+  return '';
+}
+
+// Item 1 — avisa (push) quando um workflow é auto-desativado, para não morrer
+// em silêncio. Sem inscrição push (só sessão), fica só no run log.
+async function notifyAutoPaused(w, rec, sendPush, subscriptions) {
+  try {
+    const recs = pushRecsFor(rec, subscriptions);
+    const payload = {
+      title: '⚠️ Automação desativada',
+      body: `"${w.name}" foi desativada após ${MAX_FAIL_STREAK} falhas seguidas. Abra Automações para revisar.`,
+      tag: `wf-paused-${w.id}`,
+      url: '/workflows',
+    };
+    for (const r of recs) await sendPush(r, payload);
+  } catch (e) {
+    console.warn('[workflow] falha ao avisar auto-pausa:', e.message);
+  }
+}
+
+// Requisição HTTP com retry em falhas transientes (rede/timeout, 429, 5xx).
+// Backoff curto e limitado — o tick não pode ficar preso: no pior caso soma
+// ~1.6s por webhook. 4xx (exceto 429) não é retentado.
+const WEBHOOK_RETRIES = 2;
+const WEBHOOK_BACKOFF_MS = [400, 1200];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function httpWithRetry(config) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await axios(config);
+      const transient = res.status === 429 || res.status >= 500;
+      if (transient && attempt < WEBHOOK_RETRIES) {
+        await sleep(WEBHOOK_BACKOFF_MS[attempt]);
+        continue;
+      }
+      return res; // 2xx/3xx, 4xx, ou transiente já sem tentativas
+    } catch (e) {
+      // Erro de rede/timeout (sem resposta): transiente.
+      if (attempt < WEBHOOK_RETRIES) {
+        await sleep(WEBHOOK_BACKOFF_MS[attempt]);
+        continue;
+      }
+      throw e;
+    }
+  }
 }
 
 // Cliente Redmine autenticado a partir das credenciais do usuário (headless).
@@ -650,37 +768,41 @@ function touchWorkflow(w, run) {
 }
 
 // Auto-pausa: um workflow quebrado (ex.: webhook morto, sala do Talk apagada)
-// tentaria e falharia a cada tick, para sempre. Após N execuções em que TODAS as
-// ações falharam, desativa e registra o motivo. Qualquer sucesso zera a contagem.
+// tentaria e falharia a cada tick, para sempre. Após N falhas DURAS seguidas
+// desativa (falha transiente não conta). A DECISÃO é pura (nextFailStreak, em
+// lib/workflowRules, testada); aqui só aplicamos os efeitos.
+// Devolve { stateChanged, paused } para o chamador saber o que persistir.
 const MAX_FAIL_STREAK = 5;
 
 function trackFailure(uid, state, w, run) {
-  if (!run || run.actions.length === 0) return false;
-  const allFailed = run.actions.every((a) => !a.ok);
-  if (!allFailed) {
-    if (state.failStreak[w.id]) delete state.failStreak[w.id];
-    return false;
-  }
-  const streak = (state.failStreak[w.id] || 0) + 1;
-  state.failStreak[w.id] = streak;
-  if (streak < MAX_FAIL_STREAK) return false;
+  const current = state.failStreak[w.id] || 0;
+  const { streak, pause, changed } = nextFailStreak(current, run?.actions, MAX_FAIL_STREAK);
+  if (!changed) return { stateChanged: false, paused: false };
 
-  w.enabled = false;
-  delete state.failStreak[w.id];
-  console.warn(`[workflow] "${w.name}" desativada após ${streak} execuções falhando`);
-  workflowRuns.record(uid, {
-    id: `${Date.now()}-auto`,
-    workflowId: w.id,
-    at: Date.now(),
-    mode: 'auto',
-    trigger: 'system',
-    event: 'auto_paused',
-    ok: false,
-    actions: [
-      { type: 'system.paused', ok: false, error: `Desativada após ${streak} execuções falhando` },
-    ],
-  });
-  return true; // workflow mudou (enabled) — precisa persistir
+  if (streak === 0) delete state.failStreak[w.id];
+  else state.failStreak[w.id] = streak;
+
+  if (pause) {
+    w.enabled = false;
+    console.warn(`[workflow] "${w.name}" desativada após ${MAX_FAIL_STREAK} execuções falhando`);
+    workflowRuns.record(uid, {
+      id: `${Date.now()}-auto`,
+      workflowId: w.id,
+      at: Date.now(),
+      mode: 'auto',
+      trigger: 'system',
+      event: 'auto_paused',
+      ok: false,
+      actions: [
+        {
+          type: 'system.paused',
+          ok: false,
+          error: `Desativada após ${MAX_FAIL_STREAK} execuções falhando`,
+        },
+      ],
+    });
+  }
+  return { stateChanged: true, paused: pause };
 }
 
 // ── teste manual (POST /workflows/:id/run) ──────────────────────────────────

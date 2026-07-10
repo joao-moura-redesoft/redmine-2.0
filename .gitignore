@@ -159,7 +159,8 @@ server/push-subscriptions.json
 # Config local de equipes
 server/teams.json
 
-# Sessões e credenciais cifradas em repouso (DPAPI) — NUNCA versionar
+# Sessões e credenciais cifradas em repouso — NUNCA versionar
+server/vault-key.json
 server/sessions.json
 server/talk.json
 server/secrets.json

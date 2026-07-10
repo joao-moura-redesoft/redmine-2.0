@@ -48,6 +48,11 @@ export function RunLogPanel({ workflowId }: { workflowId: string }) {
                   {formatDistanceToNow(run.at, { addSuffix: true, locale: ptBR })}
                 </span>
               </div>
+              {run.context ? (
+                <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 truncate" title={run.context}>
+                  em {run.context}
+                </div>
+              ) : null}
               {run.truncated ? (
                 <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
                   Teto atingido — {run.truncated} tarefa(s) ficaram para a próxima execução.
