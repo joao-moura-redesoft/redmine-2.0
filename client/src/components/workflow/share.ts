@@ -33,6 +33,13 @@ export function exportWorkflow(wf: Workflow): string {
   return JSON.stringify(payload, null, 2);
 }
 
+// Clona um workflow (ids de nó regenerados). Reaproveita export→import, que já
+// faz o remapeamento — dois workflows nunca compartilham ids.
+export function cloneWorkflow(wf: Workflow): { name: string; nodes: WorkflowNode[] } {
+  const { nodes } = importWorkflow(exportWorkflow(wf));
+  return { name: `${wf.name} (cópia)`, nodes };
+}
+
 // Aceita o formato exportado OU um objeto cru { name?, nodes[] }. Lança em
 // entrada inválida (o chamador mostra o erro).
 export function importWorkflow(text: string): { name: string; nodes: WorkflowNode[] } {

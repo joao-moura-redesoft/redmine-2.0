@@ -9,6 +9,7 @@ import {
   Loader2,
   Sparkles,
   Copy,
+  CopyPlus,
   Upload,
   Check,
 } from 'lucide-react';
@@ -24,7 +25,7 @@ import { descriptorFor, triggerSummary, hasWriteAction, activationBlockers } fro
 import { WorkflowEditor } from './workflow/WorkflowEditor';
 import { RecipesGallery } from './workflow/RecipesGallery';
 import { ConfirmDialog } from './workflow/ConfirmDialog';
-import { exportWorkflow, importWorkflow } from './workflow/share';
+import { exportWorkflow, importWorkflow, cloneWorkflow } from './workflow/share';
 import type { Recipe } from './workflow/recipes';
 import type { Workflow } from '../api/workflows';
 
@@ -45,6 +46,12 @@ export function WorkflowsView(_props: { onIssueClick?: (id: number) => void } = 
     const wf = await create.mutateAsync({ name, enabled: false, nodes });
     setImporting(false);
     setEditingId(wf.id);
+  };
+
+  const duplicate = async (wf: Workflow) => {
+    const { name, nodes } = cloneWorkflow(wf);
+    const copy = await create.mutateAsync({ name, enabled: false, nodes });
+    setEditingId(copy.id);
   };
 
   const createBlank = async () => {
@@ -124,6 +131,7 @@ export function WorkflowsView(_props: { onIssueClick?: (id: number) => void } = 
               wf={wf}
               onOpen={() => setEditingId(wf.id)}
               onToggle={(enabled) => update.mutate({ id: wf.id, patch: { enabled } })}
+              onDuplicate={() => duplicate(wf)}
               onDelete={() => setToDelete(wf)}
             />
           ))}
@@ -235,11 +243,13 @@ function WorkflowRow({
   wf,
   onOpen,
   onToggle,
+  onDuplicate,
   onDelete,
 }: {
   wf: Workflow;
   onOpen: () => void;
   onToggle: (enabled: boolean) => void;
+  onDuplicate: () => void;
   onDelete: () => void;
 }) {
   const actionCount = wf.nodes.filter((n) => n.kind === 'action').length;
@@ -300,6 +310,14 @@ function WorkflowRow({
         />
         <div className="relative w-9 h-5 bg-slate-300 dark:bg-slate-600 rounded-full peer peer-checked:bg-blue-600 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-4" />
       </label>
+
+      <button
+        onClick={onDuplicate}
+        className="p-1.5 text-slate-400 hover:text-blue-500"
+        title="Duplicar automação"
+      >
+        <CopyPlus size={16} />
+      </button>
 
       <CopyButton wf={wf} />
 
