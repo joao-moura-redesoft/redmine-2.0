@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import type { Issue } from '../types/redmine';
 import { ThroughputChart } from './ThroughputChart';
+import { DashboardSkeleton } from './Skeletons';
 
 function startOfWeek(): Date {
   const d = new Date();
@@ -375,7 +376,7 @@ function TimeSummaryWidget() {
 }
 
 export function Dashboard({ onIssueClick }: Props) {
-  const { data: openRaw } = useIssues();
+  const { data: openRaw, isLoading } = useIssues();
   const { data: completed } = useCompletedIssues();
   const { data: toReview } = useToReviewIssues();
   const [hideArchived, setHideArchived] = useState(true);
@@ -485,6 +486,18 @@ export function Dashboard({ onIssueClick }: Props) {
         !stats.reviewToday.includes(i),
     ),
   ].slice(0, 10);
+
+  if (isLoading && !openRaw) {
+    return (
+      <div className="max-w-6xl mx-auto space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-800">Dashboard</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Visão geral das suas tarefas</p>
+        </div>
+        <DashboardSkeleton />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">

@@ -58,6 +58,7 @@ import { IssueCard } from './IssueCard';
 import { CreateIssueModal } from './CreateIssueModal';
 import type { Issue, IssueStatus } from '../types/redmine';
 import { getMissingFields, getReviewAlert } from '../utils/alerts';
+import { KanbanBoardSkeleton, SkeletonBox } from './Skeletons';
 
 import { loadArchived, saveArchived } from '../utils/archive';
 
@@ -846,7 +847,6 @@ export function KanbanBoard({
     return new Set();
   });
   const [archivedIds, setArchivedIds] = useState<Set<number>>(loadArchived);
-  const [localIssueStatuses, setLocalIssueStatuses] = useState<Map<number, number>>(new Map());
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>('priority');
@@ -1014,18 +1014,8 @@ export function KanbanBoard({
     selectedIds.forEach((id) => {
       const issue = issues?.find((i) => i.id === id);
       if (!issue || issue.status.id === statusId) return;
-      setLocalIssueStatuses((prev) => new Map(prev).set(id, statusId));
-      updateStatus.mutate(
-        { id, statusId },
-        {
-          onError: () =>
-            setLocalIssueStatuses((prev) => {
-              const m = new Map(prev);
-              m.delete(id);
-              return m;
-            }),
-        },
-      );
+      // Otimismo + rollback ficam no hook useUpdateIssueStatus (fonte no cache).
+      updateStatus.mutate({ id, statusId });
     });
     setBulkStatusOpen(false);
     clearSelection();
@@ -1133,12 +1123,12 @@ export function KanbanBoard({
     filteredIssues
       .filter((i) => !archivedIds.has(i.id))
       .forEach((issue) => {
-        const statusId = localIssueStatuses.get(issue.id) ?? issue.status.id;
+        const statusId = issue.status.id;
         if (map.has(statusId)) map.get(statusId)!.push(issue);
       });
     map.forEach((list, key) => map.set(key, sortIssues(list, sortBy)));
     return map;
-  }, [filteredIssues, visibleStatuses, localIssueStatuses, sortBy, archivedIds]);
+  }, [filteredIssues, visibleStatuses, sortBy, archivedIds]);
 
   // Swimlanes: agrupa as tarefas ativas por responsável ou prioridade, mantendo
   // as mesmas colunas de status dentro de cada raia. null = visão normal.
@@ -1169,21 +1159,13 @@ export function KanbanBoard({
       active.forEach((i) => {
         if (laneKeyOf(i) !== key) return;
         count++;
-        const sid = localIssueStatuses.get(i.id) ?? i.status.id;
+        const sid = i.status.id;
         if (byStatus.has(sid)) byStatus.get(sid)!.push(i);
       });
       byStatus.forEach((list, k) => byStatus.set(k, sortIssues(list, sortBy)));
       return { key, label: key, byStatus, count };
     });
-  }, [
-    groupBy,
-    filteredIssues,
-    archivedIds,
-    visibleStatuses,
-    localIssueStatuses,
-    sortBy,
-    laneKeyOf,
-  ]);
+  }, [groupBy, filteredIssues, archivedIds, visibleStatuses, sortBy, laneKeyOf]);
 
   // Issues arquivadas agrupadas por status (para mostrar no rodapé de cada coluna)
   const archivedByStatus = useMemo(() => {
@@ -1192,11 +1174,11 @@ export function KanbanBoard({
     (issues ?? [])
       .filter((i) => archivedIds.has(i.id))
       .forEach((issue) => {
-        const statusId = localIssueStatuses.get(issue.id) ?? issue.status.id;
+        const statusId = issue.status.id;
         if (map.has(statusId)) map.get(statusId)!.push(issue);
       });
     return map;
-  }, [issues, visibleStatuses, localIssueStatuses, archivedIds]);
+  }, [issues, visibleStatuses, archivedIds]);
 
   const archiveIssue = useCallback((id: number) => {
     setArchivedIds((prev) => {
@@ -1219,20 +1201,8 @@ export function KanbanBoard({
   const handleQuickStatusChange = (issueId: number, statusId: number) => {
     const issue = issues?.find((i) => i.id === issueId);
     if (!issue) return;
-    const current = localIssueStatuses.get(issueId) ?? issue.status.id;
-    if (current === statusId) return;
-    setLocalIssueStatuses((prev) => new Map(prev).set(issueId, statusId));
-    updateStatus.mutate(
-      { id: issueId, statusId },
-      {
-        onError: () =>
-          setLocalIssueStatuses((prev) => {
-            const m = new Map(prev);
-            m.delete(issueId);
-            return m;
-          }),
-      },
-    );
+    if (issue.status.id === statusId) return;
+    updateStatus.mutate({ id: issueId, statusId });
   };
 
   const handleDragStart = ({ active }: DragStartEvent) => {
@@ -1277,19 +1247,14 @@ export function KanbanBoard({
     const issue = issues?.find((i) => i.id === issueId);
     if (!issue) return;
 
-    const current = localIssueStatuses.get(issueId) ?? issue.status.id;
-    if (current === targetStatusId) return;
+    if (issue.status.id === targetStatusId) return;
 
-    setLocalIssueStatuses((prev) => new Map(prev).set(issueId, targetStatusId));
+    // O card se move na hora via update otimista do hook (cache). Aqui só tratamos
+    // a mensagem de erro pro usuário — o rollback do card é do próprio hook.
     updateStatus.mutate(
       { id: issueId, statusId: targetStatusId },
       {
         onError: (err: any) => {
-          setLocalIssueStatuses((prev) => {
-            const m = new Map(prev);
-            m.delete(issueId);
-            return m;
-          });
           const detail = err?.response?.data?.errors?.join(', ');
           setDragError(
             detail ||
@@ -1303,11 +1268,12 @@ export function KanbanBoard({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-3 text-slate-500">
-          <RefreshCw size={20} className="animate-spin" />
-          <span>Carregando tarefas...</span>
+      <div className="flex-1 flex flex-col h-full bg-slate-50 dark:bg-slate-950 min-w-0 p-1">
+        <div className="flex items-center gap-2 mb-4 flex-shrink-0">
+          <SkeletonBox className="h-6 w-40" />
+          <SkeletonBox className="h-4 w-12" />
         </div>
+        <KanbanBoardSkeleton />
       </div>
     );
   }

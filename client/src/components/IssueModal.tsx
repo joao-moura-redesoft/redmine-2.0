@@ -38,7 +38,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
-import type { Attachment, EditField } from '../types/redmine';
+import type { Attachment, EditField, Issue } from '../types/redmine';
 import { RequiredFieldsModal } from './RequiredFieldsModal';
 import { matchMissingFields } from '../utils/requiredFields';
 import { recordRecentIssue } from '../utils/recentIssues';
@@ -1783,13 +1783,37 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
 
   const dismissNote = (id: string) => setPendingNotes((prev) => prev.filter((n) => n.id !== id));
 
+  // Traduz o payload da API (status_id, assigned_to_id, …) para um patch no formato
+  // Issue, usado no update otimista das listas/board. Só mapeia os campos visíveis no
+  // card; descrição e campos personalizados caem no invalidate normal (sem patch).
+  const fieldsToOptimistic = (fields: Record<string, unknown>): Partial<Issue> | undefined => {
+    const patch: Partial<Issue> = {};
+    if ('status_id' in fields) {
+      const s = statuses?.find((x) => x.id === Number(fields.status_id));
+      if (s) patch.status = s;
+    }
+    if ('assigned_to_id' in fields) {
+      const v = fields.assigned_to_id;
+      if (v === '' || v == null) patch.assigned_to = undefined;
+      else {
+        const m = members?.find((x) => x.id === Number(v));
+        if (m) patch.assigned_to = { id: m.id, name: m.name };
+      }
+    }
+    if ('done_ratio' in fields) patch.done_ratio = Number(fields.done_ratio);
+    if ('estimated_hours' in fields)
+      patch.estimated_hours = fields.estimated_hours as number | null;
+    if ('due_date' in fields) patch.due_date = (fields.due_date as string) || undefined;
+    return Object.keys(patch).length ? patch : undefined;
+  };
+
   const trackField = (key: string, label: string, fields: Record<string, unknown>) => {
     setSavingFields((prev) => [
       ...prev.filter((f) => f.key !== key),
       { key, label, status: 'saving' },
     ]);
     updateIssue.mutate(
-      { id: issueId, fields },
+      { id: issueId, fields, optimistic: fieldsToOptimistic(fields) },
       {
         onSuccess: () => {
           setSavingFields((prev) => prev.filter((f) => f.key !== key));

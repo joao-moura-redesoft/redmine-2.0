@@ -24,7 +24,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import type { Issue, IssueStatus, IssueChild } from '../types/redmine';
 import { getMissingFields, getReviewAlert, getBranch, getPrevisaoRevisao } from '../utils/alerts';
-import { useAllowedStatuses, useCurrentUser } from '../hooks/useRedmine';
+import { useAllowedStatuses, useCurrentUser, usePrefetchIssue } from '../hooks/useRedmine';
 import { useJitsiPresence } from '../hooks/useJitsiPresence';
 import { useJitsi } from './jitsi/JitsiContext';
 import { makeTaskRoom } from '../utils/jitsiConfig';
@@ -420,6 +420,10 @@ export function IssueCard({
     data: { issue },
   });
 
+  const prefetchIssue = usePrefetchIssue();
+  // Pré-carrega os detalhes ao passar o mouse, pra o modal abrir instantâneo.
+  const handlePrefetch = navigable && !isDragOverlay ? () => prefetchIssue(issue.id) : undefined;
+
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
 
   const missingFields = getMissingFields(issue);
@@ -462,6 +466,7 @@ export function IssueCard({
         {...listeners}
         {...attributes}
         {...(navigable ? { 'data-issue-id': issue.id } : {})}
+        onMouseEnter={handlePrefetch}
         onClick={(e) => {
           e.stopPropagation();
           if (selectionMode && onToggleSelect) onToggleSelect(issue.id);
@@ -498,6 +503,7 @@ export function IssueCard({
       {...listeners}
       {...attributes}
       {...(navigable && !isDragOverlay ? { 'data-issue-id': issue.id } : {})}
+      onMouseEnter={handlePrefetch}
       onClick={(e) => {
         e.stopPropagation();
         if (selectionMode && onToggleSelect) onToggleSelect(issue.id);
