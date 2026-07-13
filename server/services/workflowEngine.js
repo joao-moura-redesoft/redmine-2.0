@@ -1065,4 +1065,6 @@ function resolveMessageText(msg) {
   });
 }
 
-module.exports = { tick, runWorkflowManual, previewScan };
+// runGraph é exportado para teste de integração da caminhada no grafo (filter/
+// branch/wait/rastro) — usa ações no-op (k86) para não tocar a rede.
+module.exports = { tick, runWorkflowManual, previewScan, runGraph };
