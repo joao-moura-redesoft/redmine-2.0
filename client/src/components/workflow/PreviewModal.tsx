@@ -19,7 +19,10 @@ export function PreviewModal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-lg max-h-[80vh] flex flex-col rounded-xl bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-700"
         onClick={(e) => e.stopPropagation()}
@@ -33,7 +36,10 @@ export function PreviewModal({
               Avalia as condições nas suas tarefas. Nada é executado.
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
             <X size={17} />
           </button>
         </div>
@@ -59,8 +65,8 @@ export function PreviewModal({
 
               {result.matchedCount > result.cap && (
                 <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-                  <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />
-                  O teto é {result.cap} por execução — as demais entram nas execuções seguintes.
+                  <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />O teto é {result.cap}{' '}
+                  por execução — as demais entram nas execuções seguintes.
                 </p>
               )}
 

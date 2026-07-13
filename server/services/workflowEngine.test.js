@@ -25,7 +25,13 @@ const ctx = (over = {}) => ({
 });
 
 const trigger = { id: 't', kind: 'trigger', type: 'issue.status_changed', nextIds: [] };
-const k86 = (id, nextIds = []) => ({ id, kind: 'action', type: 'k86.screen', config: { title: id }, nextIds });
+const k86 = (id, nextIds = []) => ({
+  id,
+  kind: 'action',
+  type: 'k86.screen',
+  config: { title: id },
+  nextIds,
+});
 const filter = (id, value, nextIds) => ({
   id,
   kind: 'filter',
@@ -36,7 +42,10 @@ const filter = (id, value, nextIds) => ({
 
 describe('runGraph — filtro', () => {
   it('segue quando a condição passa', async () => {
-    const wf = { id: 'w', nodes: [{ ...trigger, nextIds: ['f'] }, filter('f', '3', ['a']), k86('a')] };
+    const wf = {
+      id: 'w',
+      nodes: [{ ...trigger, nextIds: ['f'] }, filter('f', '3', ['a']), k86('a')],
+    };
     const r = run();
     await runGraph(wf, wf.nodes[0], ctx(), rec, noop, [], { run: r });
     expect(r.actions.map((a) => a.type)).toEqual(['k86.screen']);
@@ -45,7 +54,10 @@ describe('runGraph — filtro', () => {
   });
 
   it('para o ramo quando a condição falha (ação não roda)', async () => {
-    const wf = { id: 'w', nodes: [{ ...trigger, nextIds: ['f'] }, filter('f', '9', ['a']), k86('a')] };
+    const wf = {
+      id: 'w',
+      nodes: [{ ...trigger, nextIds: ['f'] }, filter('f', '9', ['a']), k86('a')],
+    };
     const r = run();
     await runGraph(wf, wf.nodes[0], ctx(), rec, noop, [], { run: r });
     expect(r.actions).toEqual([]);
@@ -88,7 +100,13 @@ describe('runGraph — branch (Se/senão)', () => {
 });
 
 describe('runGraph — nó de Espera (Delay)', () => {
-  const wait = { id: 'wt', kind: 'action', type: 'wait', config: { amount: 5, unit: 'minutes' }, nextIds: ['a'] };
+  const wait = {
+    id: 'wt',
+    kind: 'action',
+    type: 'wait',
+    config: { amount: 5, unit: 'minutes' },
+    nextIds: ['a'],
+  };
   const wf = { id: 'w', nodes: [{ ...trigger, nextIds: ['wt'] }, wait, k86('a')] };
 
   it('agenda a retomada e PARA o ramo (ação seguinte não roda)', async () => {

@@ -79,7 +79,9 @@ export function WorkflowEdge({
           {branch && (
             <span
               className={`text-[10px] font-bold px-1 rounded bg-white/80 dark:bg-slate-900/80 ${
-                branch === 'V' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                branch === 'V'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-rose-600 dark:text-rose-400'
               }`}
             >
               {branch}

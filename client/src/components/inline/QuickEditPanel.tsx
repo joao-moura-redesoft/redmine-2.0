@@ -35,9 +35,7 @@ export function QuickEditPanel({
   const dateRef = useRef<HTMLInputElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [openField, setOpenField] = useState<QuickField>(initialField);
-  const [focusRow, setFocusRow] = useState<number>(
-    initialField ? ROWS.indexOf(initialField) : 0,
-  );
+  const [focusRow, setFocusRow] = useState<number>(initialField ? ROWS.indexOf(initialField) : 0);
   const [activeOption, setActiveOption] = useState(0);
 
   const { data: me } = useCurrentUser();
@@ -57,7 +55,7 @@ export function QuickEditPanel({
 
   const optsFor = (f: Row): Opt[] =>
     f === 'status'
-      ? statuses.data ?? []
+      ? (statuses.data ?? [])
       : f === 'assignee'
         ? (members.data?.map((m) => ({ id: m.id, name: m.name })) ?? [])
         : f === 'priority'
@@ -119,8 +117,14 @@ export function QuickEditPanel({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const { openField: of, focusRow: fr, activeOption: ao, optsFor: getOpts, applyPick: doPick, onClose: close } =
-        kb.current;
+      const {
+        openField: of,
+        focusRow: fr,
+        activeOption: ao,
+        optsFor: getOpts,
+        applyPick: doPick,
+        onClose: close,
+      } = kb.current;
       const stop = () => {
         e.stopImmediatePropagation();
         e.preventDefault();
@@ -172,7 +176,6 @@ export function QuickEditPanel({
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const rowFocused = (f: Row) => !openField && ROWS[focusRow] === f;
@@ -180,7 +183,12 @@ export function QuickEditPanel({
   return createPortal(
     <div
       ref={panelRef}
-      style={{ position: 'fixed', top: pos?.top ?? -9999, left: pos?.left ?? -9999, width: PANEL_W }}
+      style={{
+        position: 'fixed',
+        top: pos?.top ?? -9999,
+        left: pos?.left ?? -9999,
+        width: PANEL_W,
+      }}
       className="z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl p-3 space-y-2.5"
       onClick={(e) => e.stopPropagation()}
     >
@@ -199,7 +207,9 @@ export function QuickEditPanel({
       />
       <InlineSelect
         label="Responsável"
-        current={issue.assigned_to ? { id: issue.assigned_to.id, name: issue.assigned_to.name } : null}
+        current={
+          issue.assigned_to ? { id: issue.assigned_to.id, name: issue.assigned_to.name } : null
+        }
         options={members.data?.map((m) => ({ id: m.id, name: m.name }))}
         loading={members.isLoading}
         isOpen={openField === 'assignee'}

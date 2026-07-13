@@ -115,7 +115,9 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  log(`ouvindo em http://127.0.0.1:${PORT} — teclado ${device.isPresent() ? 'presente' : 'ausente'}`);
+  log(
+    `ouvindo em http://127.0.0.1:${PORT} — teclado ${device.isPresent() ? 'presente' : 'ausente'}`,
+  );
 });
 
 server.on('error', (e) => {

@@ -21,7 +21,12 @@ import {
   useUpdateWorkflow,
   useDeleteWorkflow,
 } from '../hooks/useWorkflows';
-import { descriptorFor, triggerSummary, hasWriteAction, activationBlockers } from './workflow/nodeCatalog';
+import {
+  descriptorFor,
+  triggerSummary,
+  hasWriteAction,
+  activationBlockers,
+} from './workflow/nodeCatalog';
 import { WorkflowEditor } from './workflow/WorkflowEditor';
 import { RecipesGallery } from './workflow/RecipesGallery';
 import { ConfirmDialog } from './workflow/ConfirmDialog';
@@ -61,7 +66,11 @@ export function WorkflowsView(_props: { onIssueClick?: (id: number) => void } = 
   };
 
   const createFromRecipe = async (recipe: Recipe) => {
-    const wf = await create.mutateAsync({ name: recipe.name, enabled: false, nodes: recipe.build() });
+    const wf = await create.mutateAsync({
+      name: recipe.name,
+      enabled: false,
+      nodes: recipe.build(),
+    });
     setGallery(false);
     setEditingId(wf.id);
   };
@@ -113,8 +122,8 @@ export function WorkflowsView(_props: { onIssueClick?: (id: number) => void } = 
             Nenhuma automação ainda
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
-            Comece por uma receita pronta — “cutucar tarefas paradas”, “alerta de prazo”, “triagem de
-            menções com IA” — e ajuste do seu jeito.
+            Comece por uma receita pronta — “cutucar tarefas paradas”, “alerta de prazo”, “triagem
+            de menções com IA” — e ajuste do seu jeito.
           </p>
           <button
             onClick={() => setGallery(true)}
@@ -195,7 +204,10 @@ function ImportModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-lg rounded-xl bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-700"
         onClick={(e) => e.stopPropagation()}
@@ -205,8 +217,8 @@ function ImportModal({
             Importar automação
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Cole o texto exportado (botão de copiar em cada automação). Abre um rascunho inativo para
-            você conferir e completar.
+            Cole o texto exportado (botão de copiar em cada automação). Abre um rascunho inativo
+            para você conferir e completar.
           </p>
         </div>
         <div className="p-5 space-y-3">
@@ -321,7 +333,11 @@ function WorkflowRow({
 
       <CopyButton wf={wf} />
 
-      <button onClick={onDelete} className="p-1.5 text-slate-400 hover:text-red-500" title="Excluir">
+      <button
+        onClick={onDelete}
+        className="p-1.5 text-slate-400 hover:text-red-500"
+        title="Excluir"
+      >
         <Trash2 size={16} />
       </button>
 

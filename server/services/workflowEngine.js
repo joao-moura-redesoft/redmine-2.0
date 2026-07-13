@@ -71,7 +71,12 @@ async function collectRunners(subscriptions) {
     const { listSessions } = require('../lib/session');
     for (const s of listSessions()) {
       if (!s.url) continue;
-      const rec = { url: s.url, key: s.apiKey || '', username: s.username || '', password: s.password || '' };
+      const rec = {
+        url: s.url,
+        key: s.apiKey || '',
+        username: s.username || '',
+        password: s.password || '',
+      };
       let uid;
       try {
         uid = await getMyUserId(reqShim(rec));
@@ -150,7 +155,14 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
     if (trigger.type === 'schedule') {
       if (scheduleDue(state, trigger)) {
         dirty = true; // scheduleDue mutou lastScheduleRuns
-        const ctx = { issue: null, room: null, message: null, event: { type: 'schedule' }, user, now: nowIso() };
+        const ctx = {
+          issue: null,
+          room: null,
+          message: null,
+          event: { type: 'schedule' },
+          user,
+          now: nowIso(),
+        };
         const run = { actions: [] };
         await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
         if (absorbPending(state, run)) dirty = true;
@@ -194,7 +206,14 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
             run.truncated = scoped.length - i; // sobrou para a próxima execução
             break;
           }
-          const ctx = { issue, room: null, message: null, event: { type: 'issue.scan' }, user, now: nowIso() };
+          const ctx = {
+            issue,
+            room: null,
+            message: null,
+            event: { type: 'issue.scan' },
+            user,
+            now: nowIso(),
+          };
           const before = run.actions.length;
           await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
           // Só marca se alguma ação REALMENTE rodou — caso contrário uma tarefa
@@ -254,14 +273,14 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
       await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
       if (absorbPending(state, run)) dirty = true;
       if (touchWorkflow(w, run)) workflowsDirty = true;
-        {
-          const fr = trackFailure(uid, state, w, run);
-          if (fr.stateChanged) dirty = true;
-          if (fr.paused) {
-            workflowsDirty = true;
-            await notifyAutoPaused(w, rec, sendPush, subscriptions);
-          }
+      {
+        const fr = trackFailure(uid, state, w, run);
+        if (fr.stateChanged) dirty = true;
+        if (fr.paused) {
+          workflowsDirty = true;
+          await notifyAutoPaused(w, rec, sendPush, subscriptions);
         }
+      }
       recordRun(uid, w, trigger, 'auto', ev.type, run);
     }
   }
@@ -391,7 +410,12 @@ function detectIssueEvents(state, issues, seen) {
           });
         }
         if (snap.assigned_to_id !== cur.assigned_to_id) {
-          events.push({ type: 'assigned_changed', newAssignee: cur.assigned_to_id, issueId: id, ctx });
+          events.push({
+            type: 'assigned_changed',
+            newAssignee: cur.assigned_to_id,
+            issueId: id,
+            ctx,
+          });
         }
         // updated_on mudou → algo aconteceu; pode ter sido um comentário novo.
         if (snap.updated_on !== cur.updated_on) commentCandidates.push({ id, issue });
@@ -423,7 +447,11 @@ async function detectCommentEvents(state, candidates, rec) {
       const { data } = await client.get(`/issues/${id}.json`, { params: { include: 'journals' } });
       journals = (data.issue.journals || []).filter((j) => j.notes && String(j.notes).trim());
     } catch (e) {
-      console.warn('[workflow] issue.commented: falha ao ler journals de', id, e.response?.status || e.message);
+      console.warn(
+        '[workflow] issue.commented: falha ao ler journals de',
+        id,
+        e.response?.status || e.message,
+      );
       return;
     }
     if (journals.length === 0) return;
@@ -440,7 +468,11 @@ async function detectCommentEvents(state, candidates, rec) {
         authorId: j.user?.id ?? null,
         ctx: {
           issue,
-          comment: { text: String(j.notes), author: j.user?.name || '', authorId: j.user?.id ?? null },
+          comment: {
+            text: String(j.notes),
+            author: j.user?.name || '',
+            authorId: j.user?.id ?? null,
+          },
         },
       });
     }
@@ -716,7 +748,8 @@ async function execAction(node, ctx, rec, sendPush, subscriptions) {
         return;
       }
       const text = await ai.aiComplete(prov.provider, prov.key, {
-        system: 'Você é um assistente que gera textos curtos e objetivos para automações de tarefas.',
+        system:
+          'Você é um assistente que gera textos curtos e objetivos para automações de tarefas.',
         user: String(cfg.prompt),
         maxTokens: 800,
         uid: rec.uid,
@@ -742,7 +775,9 @@ async function execAction(node, ctx, rec, sendPush, subscriptions) {
         maxTokens: 20,
         uid: rec.uid,
       });
-      const norm = String(raw || '').trim().toLowerCase();
+      const norm = String(raw || '')
+        .trim()
+        .toLowerCase();
       const label = labels.find((l) => l.toLowerCase() === norm);
       ctx.ai = { text: String(raw || '').trim(), label: label || '' };
       // Sem match: é um erro real (respeita o onError do nó) — melhor falhar alto
@@ -984,7 +1019,12 @@ async function previewScan(uid, w, rec) {
   }
 
   const { collectPushState } = require('./push');
-  const issuesData = await collectPushState(rec.url, rec.key || '', rec.username || '', rec.password || '');
+  const issuesData = await collectPushState(
+    rec.url,
+    rec.key || '',
+    rec.username || '',
+    rec.password || '',
+  );
   const cfg = trigger.config || {};
   const scoped = scanIssues(issuesData, cfg.scope);
 
@@ -1039,7 +1079,13 @@ function sampleContext(trigger, uid) {
     room: { token: '', name: 'Sala Exemplo' },
     message: { text: 'mensagem de exemplo', actor: 'Fulano', id: 0, mention: false },
     comment: { text: 'comentário de exemplo', author: 'Fulano', authorId: 0 },
-    event: { type: trigger.type, fromStatus: 0, toStatus: 0, category: 'assigned', newAssignee: uid },
+    event: {
+      type: trigger.type,
+      fromStatus: 0,
+      toStatus: 0,
+      category: 'assigned',
+      newAssignee: uid,
+    },
     ai: { text: '', label: '' },
     webhook: { status: 0, body: null },
     created: { id: 0, subject: '' },

@@ -83,7 +83,12 @@ describe('fieldValue', () => {
   });
 
   it('resolve saídas de ações anteriores', () => {
-    const c = { ...ctx, ai: { text: 'oi', label: 'urgente' }, webhook: { status: 201 }, created: { id: 99 } };
+    const c = {
+      ...ctx,
+      ai: { text: 'oi', label: 'urgente' },
+      webhook: { status: 201 },
+      created: { id: 99 },
+    };
     expect(fieldValue('ai.label', c, NOW)).toBe('urgente');
     expect(fieldValue('webhook.status', c, NOW)).toBe(201);
     expect(fieldValue('created.id', c, NOW)).toBe(99);
@@ -129,27 +134,43 @@ describe('evalRule', () => {
     expect(evalRule({ field: 'assignee', operand: 'eq', value: 'me' }, ctx, 337, NOW)).toBe(true);
     expect(evalRule({ field: 'assignee', operand: 'eq', value: 'me' }, ctx, 999, NOW)).toBe(false);
     const evCtx = { ...ctx, event: { ...ctx.event, newAssignee: 337 } };
-    expect(evalRule({ field: 'event.new_assignee', operand: 'eq', value: 'me' }, evCtx, 337, NOW)).toBe(true);
+    expect(
+      evalRule({ field: 'event.new_assignee', operand: 'eq', value: 'me' }, evCtx, 337, NOW),
+    ).toBe(true);
   });
 
   // Regressão: "me" só é especial em campo de pessoa. Num campo de texto, é texto.
   it('NÃO trata "me" como o uid em campos de texto', () => {
     const c = { ...ctx, issue: { ...issue, subject: 'reunião com me e você' } };
-    expect(evalRule({ field: 'subject', operand: 'contains', value: 'me' }, c, 337, NOW)).toBe(true);
+    expect(evalRule({ field: 'subject', operand: 'contains', value: 'me' }, c, 337, NOW)).toBe(
+      true,
+    );
     // Se "me" virasse o uid, isto procuraria "337" e falharia.
   });
 
   it('suporta contains, in e comparadores numéricos', () => {
-    expect(evalRule({ field: 'subject', operand: 'contains', value: 'LOGIN' }, ctx, 337, NOW)).toBe(true);
-    expect(evalRule({ field: 'status', operand: 'in', value: '1, 3, 5' }, ctx, 337, NOW)).toBe(true);
-    expect(evalRule({ field: 'issue.updated_days', operand: 'gt', value: '3' }, ctx, 337, NOW)).toBe(true);
-    expect(evalRule({ field: 'issue.due_days', operand: 'lt', value: '0' }, ctx, 337, NOW)).toBe(true);
+    expect(evalRule({ field: 'subject', operand: 'contains', value: 'LOGIN' }, ctx, 337, NOW)).toBe(
+      true,
+    );
+    expect(evalRule({ field: 'status', operand: 'in', value: '1, 3, 5' }, ctx, 337, NOW)).toBe(
+      true,
+    );
+    expect(
+      evalRule({ field: 'issue.updated_days', operand: 'gt', value: '3' }, ctx, 337, NOW),
+    ).toBe(true);
+    expect(evalRule({ field: 'issue.due_days', operand: 'lt', value: '0' }, ctx, 337, NOW)).toBe(
+      true,
+    );
   });
 
   it('regra sobre campo indisponível é FALSA (não lança)', () => {
-    expect(evalRule({ field: 'message.text', operand: 'contains', value: 'x' }, ctx, 337, NOW)).toBe(false);
+    expect(
+      evalRule({ field: 'message.text', operand: 'contains', value: 'x' }, ctx, 337, NOW),
+    ).toBe(false);
     // ...inclusive com neq, que "intuitivamente" poderia parecer verdadeiro.
-    expect(evalRule({ field: 'message.text', operand: 'neq', value: 'x' }, ctx, 337, NOW)).toBe(false);
+    expect(evalRule({ field: 'message.text', operand: 'neq', value: 'x' }, ctx, 337, NOW)).toBe(
+      false,
+    );
   });
 });
 
@@ -174,8 +195,12 @@ describe('triggerMatches', () => {
   it('casa status_changed com e sem filtro de from/to', () => {
     expect(triggerMatches({ type: 'issue.status_changed', config: {} }, ev, 337)).toBe(true);
     expect(triggerMatches({ type: 'issue.status_changed', config: { to: 3 } }, ev, 337)).toBe(true);
-    expect(triggerMatches({ type: 'issue.status_changed', config: { to: 9 } }, ev, 337)).toBe(false);
-    expect(triggerMatches({ type: 'issue.status_changed', config: { from: 1, to: 3 } }, ev, 337)).toBe(true);
+    expect(triggerMatches({ type: 'issue.status_changed', config: { to: 9 } }, ev, 337)).toBe(
+      false,
+    );
+    expect(
+      triggerMatches({ type: 'issue.status_changed', config: { from: 1, to: 3 } }, ev, 337),
+    ).toBe(true);
   });
 
   it('não casa gatilho de tipo diferente', () => {
@@ -186,17 +211,29 @@ describe('triggerMatches', () => {
   it('talk.message respeita sala e mentionsOnly', () => {
     const t = { type: 'talk.message', roomToken: 'abc', mention: false };
     expect(triggerMatches({ type: 'talk.message', config: {} }, t, 337)).toBe(true);
-    expect(triggerMatches({ type: 'talk.message', config: { roomToken: 'xyz' } }, t, 337)).toBe(false);
-    expect(triggerMatches({ type: 'talk.message', config: { mentionsOnly: true } }, t, 337)).toBe(false);
+    expect(triggerMatches({ type: 'talk.message', config: { roomToken: 'xyz' } }, t, 337)).toBe(
+      false,
+    );
+    expect(triggerMatches({ type: 'talk.message', config: { mentionsOnly: true } }, t, 337)).toBe(
+      false,
+    );
     expect(
-      triggerMatches({ type: 'talk.message', config: { mentionsOnly: true } }, { ...t, mention: true }, 337),
+      triggerMatches(
+        { type: 'talk.message', config: { mentionsOnly: true } },
+        { ...t, mention: true },
+        337,
+      ),
     ).toBe(true);
   });
 
   it('assigned_changed com toMe só casa quando o novo responsável sou eu', () => {
     const a = { type: 'assigned_changed', newAssignee: 337 };
-    expect(triggerMatches({ type: 'issue.assigned_changed', config: { toMe: true } }, a, 337)).toBe(true);
-    expect(triggerMatches({ type: 'issue.assigned_changed', config: { toMe: true } }, a, 999)).toBe(false);
+    expect(triggerMatches({ type: 'issue.assigned_changed', config: { toMe: true } }, a, 337)).toBe(
+      true,
+    );
+    expect(triggerMatches({ type: 'issue.assigned_changed', config: { toMe: true } }, a, 999)).toBe(
+      false,
+    );
   });
 
   it('issue.commented respeita "somente de outras pessoas"', () => {
@@ -205,10 +242,16 @@ describe('triggerMatches', () => {
     // sem filtro: qualquer comentário casa
     expect(triggerMatches({ type: 'issue.commented', config: {} }, meu, 337)).toBe(true);
     // fromOthers: ignora o meu, aceita o dos outros
-    expect(triggerMatches({ type: 'issue.commented', config: { fromOthers: true } }, meu, 337)).toBe(false);
-    expect(triggerMatches({ type: 'issue.commented', config: { fromOthers: true } }, alheio, 337)).toBe(true);
+    expect(
+      triggerMatches({ type: 'issue.commented', config: { fromOthers: true } }, meu, 337),
+    ).toBe(false);
+    expect(
+      triggerMatches({ type: 'issue.commented', config: { fromOthers: true } }, alheio, 337),
+    ).toBe(true);
     // não casa com evento de outro tipo
-    expect(triggerMatches({ type: 'issue.commented', config: {} }, { type: 'status_changed' }, 337)).toBe(false);
+    expect(
+      triggerMatches({ type: 'issue.commented', config: {} }, { type: 'status_changed' }, 337),
+    ).toBe(false);
   });
 });
 

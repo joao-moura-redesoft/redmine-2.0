@@ -433,7 +433,8 @@ async function runDigests() {
   if (!DIGEST_ENABLED || digestRunning) return;
   const now = new Date();
   const passed =
-    now.getHours() > DIGEST_HOUR || (now.getHours() === DIGEST_HOUR && now.getMinutes() >= DIGEST_MIN);
+    now.getHours() > DIGEST_HOUR ||
+    (now.getHours() === DIGEST_HOUR && now.getMinutes() >= DIGEST_MIN);
   if (!passed) return;
   const today = ymd(now);
   const pending = subscriptions.filter((s) => s.uid && s.digestDate !== today);
@@ -493,7 +494,11 @@ function startPushPolling() {
 
   if (WORKFLOWS_ENABLED) {
     const workflowEngine = require('./workflowEngine');
-    safeInterval(() => workflowEngine.tick(subscriptions, sendPush), WORKFLOW_POLL_MS, 'workflow tick');
+    safeInterval(
+      () => workflowEngine.tick(subscriptions, sendPush),
+      WORKFLOW_POLL_MS,
+      'workflow tick',
+    );
   }
 
   if (!PUSH_ENABLED) {

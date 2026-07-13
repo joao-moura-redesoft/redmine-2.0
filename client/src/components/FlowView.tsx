@@ -55,7 +55,9 @@ function DaysBadge({ days, watch, stuck }: { days: number; watch: number; stuck:
         ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
         : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
   return (
-    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full tabular-nums flex-shrink-0 ${cls}`}>
+    <span
+      className={`text-xs font-semibold px-2 py-0.5 rounded-full tabular-nums flex-shrink-0 ${cls}`}
+    >
       {days}d
     </span>
   );
@@ -85,7 +87,10 @@ function AgingBar({ data }: { data: FlowAnalytics }) {
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-1 mt-2.5">
         {seg.map((s) => (
-          <span key={s.key} className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+          <span
+            key={s.key}
+            className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400"
+          >
             <span className={`w-2.5 h-2.5 rounded-sm ${s.color}`} />
             {s.label}
             <b className="text-slate-800 dark:text-slate-200 tabular-nums">{s.value}</b>
@@ -102,7 +107,10 @@ function Bottlenecks({ data }: { data: FlowAnalytics }) {
     <div className="space-y-2.5">
       {data.statusDistribution.map((s) => (
         <div key={s.status} className="flex items-center gap-3">
-          <div className="w-32 flex-shrink-0 text-sm text-slate-600 dark:text-slate-300 truncate" title={s.status}>
+          <div
+            className="w-32 flex-shrink-0 text-sm text-slate-600 dark:text-slate-300 truncate"
+            title={s.status}
+          >
             {s.status}
           </div>
           <div className="flex-1 relative h-6 rounded-md bg-slate-100 dark:bg-slate-800 overflow-hidden">
@@ -118,8 +126,14 @@ function Bottlenecks({ data }: { data: FlowAnalytics }) {
               />
             )}
             <div className="absolute inset-0 flex items-center px-2 gap-2 text-xs">
-              <span className="font-semibold text-slate-700 dark:text-slate-200 tabular-nums">{s.count}</span>
-              {s.stuck > 0 && <span className="text-red-600 dark:text-red-400 tabular-nums">{s.stuck} parada(s)</span>}
+              <span className="font-semibold text-slate-700 dark:text-slate-200 tabular-nums">
+                {s.count}
+              </span>
+              {s.stuck > 0 && (
+                <span className="text-red-600 dark:text-red-400 tabular-nums">
+                  {s.stuck} parada(s)
+                </span>
+              )}
               <span className="ml-auto text-slate-400 tabular-nums">~{s.avgAge}d médio</span>
             </div>
           </div>
@@ -172,7 +186,13 @@ export function FlowView({ projectId, onIssueClick }: Props) {
   );
 }
 
-function FlowContent({ data, onIssueClick }: { data: FlowAnalytics; onIssueClick: (id: number) => void }) {
+function FlowContent({
+  data,
+  onIssueClick,
+}: {
+  data: FlowAnalytics;
+  onIssueClick: (id: number) => void;
+}) {
   const { watch, stuck } = data.thresholds;
   return (
     <div className="space-y-6">
@@ -183,7 +203,12 @@ function FlowContent({ data, onIssueClick }: { data: FlowAnalytics; onIssueClick
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Tile icon={<Layers size={22} />} label="tarefas abertas" value={data.totalOpen} tone="text-blue-500" />
+        <Tile
+          icon={<Layers size={22} />}
+          label="tarefas abertas"
+          value={data.totalOpen}
+          tone="text-blue-500"
+        />
         <Tile
           icon={<AlertTriangle size={22} />}
           label={`paradas (${stuck}d+ sem update)`}
@@ -197,7 +222,13 @@ function FlowContent({ data, onIssueClick }: { data: FlowAnalytics; onIssueClick
           suffix="d"
           tone="text-violet-500"
         />
-        <Tile icon={<Hourglass size={22} />} label="mais antiga" value={data.oldest} suffix="d" tone="text-amber-500" />
+        <Tile
+          icon={<Hourglass size={22} />}
+          label="mais antiga"
+          value={data.oldest}
+          suffix="d"
+          tone="text-amber-500"
+        />
       </div>
 
       <section className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-5">
@@ -221,7 +252,9 @@ function FlowContent({ data, onIssueClick }: { data: FlowAnalytics; onIssueClick
             <Hourglass size={15} className="text-slate-400" /> Mais paradas
           </h3>
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {data.agingList.length === 0 && <p className="text-sm text-slate-400 py-3">Nada parado. 🎉</p>}
+            {data.agingList.length === 0 && (
+              <p className="text-sm text-slate-400 py-3">Nada parado. 🎉</p>
+            )}
             {data.agingList.map((i) => (
               <button
                 key={i.id}
@@ -231,7 +264,8 @@ function FlowContent({ data, onIssueClick }: { data: FlowAnalytics; onIssueClick
                 <DaysBadge days={i.days} watch={watch} stuck={stuck} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-slate-700 dark:text-slate-200 truncate">
-                    <span className="text-blue-600 dark:text-blue-400 font-medium">#{i.id}</span> {i.subject}
+                    <span className="text-blue-600 dark:text-blue-400 font-medium">#{i.id}</span>{' '}
+                    {i.subject}
                   </div>
                   <div className="text-xs text-slate-400 truncate">
                     {i.status}
@@ -252,13 +286,18 @@ function FlowContent({ data, onIssueClick }: { data: FlowAnalytics; onIssueClick
             {data.stuckByAssignee.map((a) => (
               <div key={a.name} className="flex items-center justify-between text-sm">
                 <span className="text-slate-600 dark:text-slate-300 truncate">{a.name}</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-100 tabular-nums ml-2">{a.count}</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-100 tabular-nums ml-2">
+                  {a.count}
+                </span>
               </div>
             ))}
           </div>
           {data.cycle.count > 0 && (
             <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500">
-              Ciclo (mediana): <b className="text-slate-700 dark:text-slate-300 tabular-nums">{data.cycle.median}d</b>{' '}
+              Ciclo (mediana):{' '}
+              <b className="text-slate-700 dark:text-slate-300 tabular-nums">
+                {data.cycle.median}d
+              </b>{' '}
               · {data.cycle.count} fechada(s) em 30d
             </div>
           )}

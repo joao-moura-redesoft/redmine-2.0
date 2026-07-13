@@ -48,65 +48,69 @@ function IssueRow({
   const isSelected = !!triage?.selected.has(issue.id);
   return (
     <div className="relative group border-b border-slate-100 last:border-0">
-    <button
-      data-issue-id={issue.id}
-      onClick={() => onClick(issue.id)}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left ${
-        isSelected ? 'bg-blue-50/70' : isFocused ? 'bg-blue-50 ring-1 ring-inset ring-blue-400' : ''
-      }`}
-    >
-      {isSelected && (
-        <span
-          onClick={(e) => {
-            e.stopPropagation();
-            triage?.toggleSelected(issue.id);
-          }}
-          title="Desselecionar"
-          className="flex-shrink-0 w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center"
-        >
-          <Check size={11} />
-        </span>
-      )}
-      {/* Priority dot */}
-      <span
-        className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOT[issue.priority.name] ?? 'bg-slate-400'}`}
-      />
-
-      {/* Tracker */}
-      <span className="text-xs font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">
-        {issue.tracker.name}
-      </span>
-
-      {/* ID + Subject */}
-      <span className="text-xs text-slate-400 flex-shrink-0">#{issue.id}</span>
-      <span className="text-sm text-slate-800 group-hover:text-blue-700 font-medium truncate flex-1 transition-colors">
-        {issue.subject}
-      </span>
-
-      {/* Status */}
-      <span
-        className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${statusColor(issue.status.name)}`}
+      <button
+        data-issue-id={issue.id}
+        onClick={() => onClick(issue.id)}
+        className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left ${
+          isSelected
+            ? 'bg-blue-50/70'
+            : isFocused
+              ? 'bg-blue-50 ring-1 ring-inset ring-blue-400'
+              : ''
+        }`}
       >
-        {issue.status.name}
-      </span>
+        {isSelected && (
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              triage?.toggleSelected(issue.id);
+            }}
+            title="Desselecionar"
+            className="flex-shrink-0 w-4 h-4 rounded bg-blue-600 text-white flex items-center justify-center"
+          >
+            <Check size={11} />
+          </span>
+        )}
+        {/* Priority dot */}
+        <span
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${PRIORITY_DOT[issue.priority.name] ?? 'bg-slate-400'}`}
+        />
 
-      {/* Responsável atual (quem tem a tarefa agora) */}
-      {showAssignee && (
-        <span className="text-xs text-slate-400 flex-shrink-0 w-28 truncate text-right">
-          {issue.assigned_to?.name ?? '—'}
+        {/* Tracker */}
+        <span className="text-xs font-medium text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">
+          {issue.tracker.name}
         </span>
-      )}
 
-      {/* Projeto (some no hover pra dar espaço ao ✎) */}
-      <span className="text-xs text-slate-400 flex-shrink-0 w-32 truncate text-right hidden md:block transition-opacity group-hover:opacity-0">
-        {issue.project.name}
-      </span>
+        {/* ID + Subject */}
+        <span className="text-xs text-slate-400 flex-shrink-0">#{issue.id}</span>
+        <span className="text-sm text-slate-800 group-hover:text-blue-700 font-medium truncate flex-1 transition-colors">
+          {issue.subject}
+        </span>
 
-      {/* Atualizado (some no hover pra dar espaço ao ✎) */}
-      <span className="text-xs text-slate-300 flex-shrink-0 w-24 text-right hidden lg:block transition-opacity group-hover:opacity-0">
-        {formatDistanceToNow(new Date(issue.updated_on), { addSuffix: true, locale: ptBR })}
-      </span>
-    </button>
+        {/* Status */}
+        <span
+          className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${statusColor(issue.status.name)}`}
+        >
+          {issue.status.name}
+        </span>
+
+        {/* Responsável atual (quem tem a tarefa agora) */}
+        {showAssignee && (
+          <span className="text-xs text-slate-400 flex-shrink-0 w-28 truncate text-right">
+            {issue.assigned_to?.name ?? '—'}
+          </span>
+        )}
+
+        {/* Projeto (some no hover pra dar espaço ao ✎) */}
+        <span className="text-xs text-slate-400 flex-shrink-0 w-32 truncate text-right hidden md:block transition-opacity group-hover:opacity-0">
+          {issue.project.name}
+        </span>
+
+        {/* Atualizado (some no hover pra dar espaço ao ✎) */}
+        <span className="text-xs text-slate-300 flex-shrink-0 w-24 text-right hidden lg:block transition-opacity group-hover:opacity-0">
+          {formatDistanceToNow(new Date(issue.updated_on), { addSuffix: true, locale: ptBR })}
+        </span>
+      </button>
 
       {/* Edição rápida (aparece no hover) */}
       <div className="absolute right-2 top-1/2 -translate-y-1/2">

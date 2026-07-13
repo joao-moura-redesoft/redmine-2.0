@@ -122,7 +122,11 @@ async function aiDigest(data, ai) {
 // Chips pra telinha do K86 (só os que têm contagem > 0).
 function digestChips(counts) {
   const chips = [];
-  if (counts.overdue) chips.push({ text: `${counts.overdue} atrasada${counts.overdue > 1 ? 's' : ''}`, color: '#ef4444' });
+  if (counts.overdue)
+    chips.push({
+      text: `${counts.overdue} atrasada${counts.overdue > 1 ? 's' : ''}`,
+      color: '#ef4444',
+    });
   if (counts.dueToday) chips.push({ text: `${counts.dueToday} hoje`, color: '#f59e0b' });
   if (counts.toReview) chips.push({ text: `${counts.toReview} revisar`, color: '#a855f7' });
   if (!chips.length) chips.push({ text: `${counts.assigned} abertas`, color: '#3b82f6' });

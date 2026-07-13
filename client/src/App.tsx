@@ -872,7 +872,10 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/inbox" element={<InboxView onIssueClick={openIssue} />} />
             <Route path="/dashboard" element={<Dashboard onIssueClick={openIssue} />} />
-            <Route path="/flow" element={<FlowView projectId={selectedProject} onIssueClick={openIssue} />} />
+            <Route
+              path="/flow"
+              element={<FlowView projectId={selectedProject} onIssueClick={openIssue} />}
+            />
             <Route path="/myday" element={<MyDayView onIssueClick={openIssue} />} />
             <Route path="/people" element={<PeopleView onIssueClick={openIssue} />} />
             <Route path="/team" element={<TeamView onIssueClick={openIssue} />} />

@@ -5,13 +5,7 @@
 // instalação — não dá para adivinhar. As receitas deixam esses campos VAZIOS de
 // propósito; o `validateNode` marca o nó em âmbar no canvas indicando o que
 // completar. É guia, não gambiarra.
-import {
-  Bell,
-  MessageSquare,
-  CalendarClock,
-  Sparkles,
-  type LucideIcon,
-} from 'lucide-react';
+import { Bell, MessageSquare, CalendarClock, Sparkles, type LucideIcon } from 'lucide-react';
 import type { WorkflowNode } from '../../api/workflows';
 
 export interface Recipe {
@@ -220,7 +214,11 @@ export const RECIPES: Recipe[] = [
       const k86 = mk({
         kind: 'action',
         type: 'k86.screen',
-        config: { title: 'Atrasada', subtitle: '#{{issue.id}} {{issue.subject}}', onError: 'continue' },
+        config: {
+          title: 'Atrasada',
+          subtitle: '#{{issue.id}} {{issue.subject}}',
+          onError: 'continue',
+        },
         position: { x: COL + 140, y: ROW * 2 },
       });
       trigger.nextIds = [branch.id];

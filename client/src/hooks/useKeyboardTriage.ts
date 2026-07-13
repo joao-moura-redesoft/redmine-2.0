@@ -87,7 +87,8 @@ export function useKeyboardTriage({
         if (!list.length) return;
         const cur = fid != null ? list.indexOf(fid) : -1;
         // sem foco: a primeira tecla de navegação entra na lista (j → topo, k → fim)
-        const next = cur < 0 ? (dir === 1 ? 0 : list.length - 1) : (cur + dir + list.length) % list.length;
+        const next =
+          cur < 0 ? (dir === 1 ? 0 : list.length - 1) : (cur + dir + list.length) % list.length;
         setFocusedId(list[next]);
       };
 

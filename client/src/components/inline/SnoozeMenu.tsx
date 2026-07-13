@@ -85,7 +85,9 @@ export function SnoozeMenu({
           onClick={() => onPick(p.at())}
           onMouseEnter={() => setActive(i)}
           className={`w-full text-left text-sm text-slate-700 dark:text-slate-200 px-2.5 py-1.5 rounded-md transition-colors ${
-            i === active ? 'bg-blue-50 dark:bg-slate-800' : 'hover:bg-blue-50 dark:hover:bg-slate-800'
+            i === active
+              ? 'bg-blue-50 dark:bg-slate-800'
+              : 'hover:bg-blue-50 dark:hover:bg-slate-800'
           }`}
         >
           {p.label}

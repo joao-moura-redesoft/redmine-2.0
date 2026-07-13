@@ -236,7 +236,8 @@ function renderSummary(spec) {
   const total = () => {
     ctx.font = `${fs}px ${F.bold}`;
     return (
-      chips.reduce((s, c) => s + ctx.measureText(c.text).width + pad * 2, 0) + gap * (chips.length - 1)
+      chips.reduce((s, c) => s + ctx.measureText(c.text).width + pad * 2, 0) +
+      gap * (chips.length - 1)
     );
   };
   while (fs > 10 && margin + total() > W - margin) {
@@ -302,7 +303,9 @@ function renderIdle(now = new Date(), accent = '#6366f1') {
 }
 
 function render(spec) {
-  return spec.type === 'summary' || spec.kind === 'summary' ? renderSummary(spec) : renderCard(spec);
+  return spec.type === 'summary' || spec.kind === 'summary'
+    ? renderSummary(spec)
+    : renderCard(spec);
 }
 
 module.exports = { render, renderIdle, W, H };

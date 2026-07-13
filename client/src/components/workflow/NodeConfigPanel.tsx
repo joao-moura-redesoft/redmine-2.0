@@ -259,7 +259,11 @@ function FilterEditor({
     patch({
       rules: [
         ...rules,
-        { field: defaultField, operand: operandsForType(type)[0].id as string, value: type === 'bool' ? 'true' : '' },
+        {
+          field: defaultField,
+          operand: operandsForType(type)[0].id as string,
+          value: type === 'bool' ? 'true' : '',
+        },
       ],
     });
   };
@@ -280,10 +284,19 @@ function FilterEditor({
       );
     }
     if (type === 'weekday') {
-      return <Select value={rule.value ?? ''} onChange={set} options={WEEKDAYS} emptyLabel="— dia —" />;
+      return (
+        <Select value={rule.value ?? ''} onChange={set} options={WEEKDAYS} emptyLabel="— dia —" />
+      );
     }
     if (type === 'category') {
-      return <Select value={rule.value ?? ''} onChange={set} options={CATEGORY_OPTS} emptyLabel="— categoria —" />;
+      return (
+        <Select
+          value={rule.value ?? ''}
+          onChange={set}
+          options={CATEGORY_OPTS}
+          emptyLabel="— categoria —"
+        />
+      );
     }
     if (type === 'aiLabel') {
       // Rótulos vêm do nó "Classificar com IA" ancestral — sem digitar à mão.
@@ -804,9 +817,9 @@ export function NodeConfigPanel({
           </Field>
           <VarHint ctx={tctx} outputs={outputs} />
           <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
-            O texto gerado fica disponível como <code className="font-mono">{'{{ai.text}}'}</code> nos
-            nós seguintes (ex.: usar num comentário ou notificação). Usa a IA configurada nas suas
-            Configurações.
+            O texto gerado fica disponível como <code className="font-mono">{'{{ai.text}}'}</code>{' '}
+            nos nós seguintes (ex.: usar num comentário ou notificação). Usa a IA configurada nas
+            suas Configurações.
           </p>
         </>
       )}
@@ -921,7 +934,8 @@ export function NodeConfigPanel({
           {(str('issue') || 'event') === 'event' && !tctx.issue && (
             <p className="flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
               <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
-              Este gatilho não produz uma tarefa — escolha “tarefa fixa” ou use um gatilho de tarefa.
+              Este gatilho não produz uma tarefa — escolha “tarefa fixa” ou use um gatilho de
+              tarefa.
             </p>
           )}
           <Field label="Horas">
@@ -1000,13 +1014,7 @@ export function NodeConfigPanel({
 }
 
 // Lista editável de rótulos do `ai.classify` (chips + adicionar/remover).
-function LabelsEditor({
-  labels,
-  onChange,
-}: {
-  labels: string[];
-  onChange: (l: string[]) => void;
-}) {
+function LabelsEditor({ labels, onChange }: { labels: string[]; onChange: (l: string[]) => void }) {
   const [draft, setDraft] = useState('');
   const add = () => {
     const v = draft.trim();
@@ -1016,7 +1024,9 @@ function LabelsEditor({
   };
   return (
     <div className="space-y-1">
-      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Rótulos possíveis</span>
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+        Rótulos possíveis
+      </span>
       <div className="flex flex-wrap gap-1">
         {labels.map((l) => (
           <span

@@ -39,7 +39,9 @@ export function ConfirmDialog({
           )}
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">{title}</h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 leading-snug">{message}</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 leading-snug">
+              {message}
+            </p>
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">

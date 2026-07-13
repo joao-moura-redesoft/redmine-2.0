@@ -135,7 +135,7 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
 
   // Rastro da última execução (item 2): pinta no canvas quais nós/ramo rodaram.
   const runs = useWorkflowRuns(workflow.id, showLastRun);
-  const trail = showLastRun ? runs.data?.[0]?.nodes ?? null : null;
+  const trail = showLastRun ? (runs.data?.[0]?.nodes ?? null) : null;
   const markDirty = useCallback(() => setDirty(true), []);
 
   // Remove uma aresta (botão × na conexão). A ação chega ao WorkflowEdge por
@@ -150,7 +150,10 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
   const edgeActions = useMemo(() => ({ onDelete: deleteEdge }), [deleteEdge]);
 
   // Arestas animadas só quando a automação está ativa — dá a sensação de "viva".
-  const shownEdges = useMemo(() => rfEdges.map((e) => ({ ...e, animated: enabled })), [rfEdges, enabled]);
+  const shownEdges = useMemo(
+    () => rfEdges.map((e) => ({ ...e, animated: enabled })),
+    [rfEdges, enabled],
+  );
 
   // Feedback inline (some sozinho) — evita alert() no meio do canvas.
   const showFlash = (ok: boolean, msg: string) => {
@@ -162,7 +165,9 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
   const handleNodesChange = useCallback(
     (changes: NodeChange<WfNode>[]) => {
       onNodesChange(changes);
-      if (changes.some((c) => (c.type === 'position' && c.dragging === false) || c.type === 'remove'))
+      if (
+        changes.some((c) => (c.type === 'position' && c.dragging === false) || c.type === 'remove')
+      )
         markDirty();
     },
     [onNodesChange, markDirty],
@@ -170,10 +175,7 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
 
   // Um nó não pode ligar em si mesmo (auto-loop). isValidConnection bloqueia já
   // durante o arraste (mostra inválido); o guard no onConnect é rede de segurança.
-  const isValidConnection = useCallback(
-    (c: Connection | Edge) => c.source !== c.target,
-    [],
-  );
+  const isValidConnection = useCallback((c: Connection | Edge) => c.source !== c.target, []);
 
   const onConnect = useCallback(
     (conn: Connection) => {
@@ -189,7 +191,10 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
   const addNodeAt = (d: NodeDescriptor, pos: { x: number; y: number }) => {
     if (d.kind === 'trigger' && hasTrigger) return;
     const wfNode = makeNode(d, pos);
-    setRfNodes((prev) => [...prev, { id: wfNode.id, type: 'wf', position: pos, data: { node: wfNode } }]);
+    setRfNodes((prev) => [
+      ...prev,
+      { id: wfNode.id, type: 'wf', position: pos, data: { node: wfNode } },
+    ]);
     setSelectedId(wfNode.id);
     setTab('config');
     markDirty();
@@ -246,7 +251,9 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
 
   const updateSelectedConfig = (config: Record<string, unknown>) => {
     setRfNodes((prev) =>
-      prev.map((n) => (n.id === selectedId ? { ...n, data: { node: { ...n.data.node, config } } } : n)),
+      prev.map((n) =>
+        n.id === selectedId ? { ...n, data: { node: { ...n.data.node, config } } } : n,
+      ),
     );
     markDirty();
   };
@@ -271,7 +278,11 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
           elseIds: out.filter((e) => e.sourceHandle === 'false').map((e) => e.target),
         };
       }
-      const node: WorkflowNode = { ...base, position: rn.position, nextIds: out.map((e) => e.target) };
+      const node: WorkflowNode = {
+        ...base,
+        position: rn.position,
+        nextIds: out.map((e) => e.target),
+      };
       delete node.elseIds; // ramo "falso" só existe em nós branch
       return node;
     });
@@ -378,7 +389,9 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        save().then(() => showFlash(true, 'Salvo')).catch(() => showFlash(false, 'Falha ao salvar'));
+        save()
+          .then(() => showFlash(true, 'Salvo'))
+          .catch(() => showFlash(false, 'Falha ao salvar'));
       }
     };
     window.addEventListener('keydown', onKey);
@@ -523,7 +536,10 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
         <div className="w-56 flex-shrink-0 border-r border-slate-200 dark:border-slate-700 flex flex-col">
           <div className="p-2 border-b border-slate-200 dark:border-slate-700">
             <div className="relative">
-              <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search
+                size={13}
+                className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+              />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -577,33 +593,33 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
           }}
         >
           <RunTrailProvider value={trail}>
-          <EdgeActionsContext.Provider value={edgeActions}>
-            <ReactFlow
-              nodes={rfNodes}
-              edges={shownEdges}
-              onNodesChange={handleNodesChange}
-              onEdgesChange={(c) => {
-                onEdgesChange(c);
-                if (c.some((x) => x.type === 'remove')) markDirty();
-              }}
-              onConnect={onConnect}
-              isValidConnection={isValidConnection}
-              onNodeClick={(_, n) => {
-                setSelectedId(n.id);
-                setTab('config');
-              }}
-              onPaneClick={() => setSelectedId(null)}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
-              deleteKeyCode={null} /* tratamos Delete manualmente (não apagar ao digitar) */
-              fitView
-              proOptions={{ hideAttribution: true }}
-            >
-              <Background />
-              <Controls />
-              <MiniMap pannable zoomable className="!bg-slate-100 dark:!bg-slate-800" />
-            </ReactFlow>
-          </EdgeActionsContext.Provider>
+            <EdgeActionsContext.Provider value={edgeActions}>
+              <ReactFlow
+                nodes={rfNodes}
+                edges={shownEdges}
+                onNodesChange={handleNodesChange}
+                onEdgesChange={(c) => {
+                  onEdgesChange(c);
+                  if (c.some((x) => x.type === 'remove')) markDirty();
+                }}
+                onConnect={onConnect}
+                isValidConnection={isValidConnection}
+                onNodeClick={(_, n) => {
+                  setSelectedId(n.id);
+                  setTab('config');
+                }}
+                onPaneClick={() => setSelectedId(null)}
+                nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
+                deleteKeyCode={null} /* tratamos Delete manualmente (não apagar ao digitar) */
+                fitView
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background />
+                <Controls />
+                <MiniMap pannable zoomable className="!bg-slate-100 dark:!bg-slate-800" />
+              </ReactFlow>
+            </EdgeActionsContext.Provider>
           </RunTrailProvider>
         </div>
 

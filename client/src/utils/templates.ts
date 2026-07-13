@@ -69,5 +69,9 @@ export const templatesStore = {
 };
 
 export function useTemplates(): Template[] {
-  return useSyncExternalStore(templatesStore.subscribe, templatesStore.getAll, templatesStore.getAll);
+  return useSyncExternalStore(
+    templatesStore.subscribe,
+    templatesStore.getAll,
+    templatesStore.getAll,
+  );
 }

@@ -72,7 +72,9 @@ export function InlineSelect({
                   onClick={() => onPick(o)}
                   title={o.name}
                   className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left transition-colors ${
-                    isActive ? 'bg-blue-50 dark:bg-slate-800' : 'hover:bg-slate-50 dark:hover:bg-slate-800'
+                    isActive
+                      ? 'bg-blue-50 dark:bg-slate-800'
+                      : 'hover:bg-slate-50 dark:hover:bg-slate-800'
                   } ${
                     isCurrent
                       ? 'text-blue-600 dark:text-blue-400 font-medium'

@@ -15,9 +15,7 @@ export function getRecentIssues(): RecentIssue[] {
   try {
     const raw = localStorage.getItem(KEY);
     const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr)
-      ? arr.filter((r) => r && typeof r.id === 'number').slice(0, MAX)
-      : [];
+    return Array.isArray(arr) ? arr.filter((r) => r && typeof r.id === 'number').slice(0, MAX) : [];
   } catch {
     return [];
   }

@@ -103,7 +103,12 @@ export function BulkBar({ issues, onClear }: { issues: Issue[]; onClear: () => v
         {n} selecionada{n > 1 ? 's' : ''}
       </span>
       <span className="w-px h-5 bg-white/15" />
-      <UpMenu label="Status" options={statuses.data} loading={statuses.isLoading} onPick={applyStatus} />
+      <UpMenu
+        label="Status"
+        options={statuses.data}
+        loading={statuses.isLoading}
+        onPick={applyStatus}
+      />
       <UpMenu
         label="Responsável"
         options={members.data?.map((m) => ({ id: m.id, name: m.name }))}

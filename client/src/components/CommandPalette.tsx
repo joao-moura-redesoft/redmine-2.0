@@ -83,7 +83,10 @@ export function CommandPalette({
 
   // Recentes: só quando o campo está vazio (aparecem no topo).
   const showRecents = q.trim() === '';
-  const recents = useMemo(() => (open && showRecents ? getRecentIssues() : []), [open, showRecents]);
+  const recents = useMemo(
+    () => (open && showRecents ? getRecentIssues() : []),
+    [open, showRecents],
+  );
 
   const items = useMemo<Item[]>(
     () => [

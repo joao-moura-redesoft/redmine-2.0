@@ -8,7 +8,8 @@ const { makeRedmine } = require('../lib/redmine');
 const { fetchAllIssues } = require('../lib/pagination');
 
 const DAY = 24 * 60 * 60 * 1000;
-const daysAgo = (iso) => (iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / DAY)) : 0);
+const daysAgo = (iso) =>
+  iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / DAY)) : 0;
 
 // Limiares de envelhecimento (dias sem atualização). Configuráveis por query.
 const bucketOf = (d, watch, stuck) => (d >= stuck ? 'stuck' : d >= watch ? 'watch' : 'fresh');
@@ -46,7 +47,12 @@ router.get(
       }
     }
     const statusDistribution = [...byStatus.values()]
-      .map((r) => ({ status: r.status, count: r.count, stuck: r.stuck, avgAge: Math.round(r.ageSum / r.count) }))
+      .map((r) => ({
+        status: r.status,
+        count: r.count,
+        stuck: r.stuck,
+        avgAge: Math.round(r.ageSum / r.count),
+      }))
       .sort((a, b) => b.count - a.count);
 
     // ── Lista das mais paradas ──

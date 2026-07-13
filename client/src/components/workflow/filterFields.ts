@@ -28,9 +28,24 @@ export const FILTER_FIELD_DEFS: FieldDef[] = [
   { id: 'priority', name: 'Prioridade', type: 'issueSelect', group: 'Tarefa' },
   { id: 'assignee', name: 'Responsável', type: 'issueSelect', group: 'Tarefa' },
   { id: 'subject', name: 'Título', type: 'text', group: 'Tarefa' },
-  { id: 'issue.updated_days', name: 'Dias sem atualização', type: 'number', group: 'Prazo & idade' },
-  { id: 'issue.created_days', name: 'Dias desde a criação', type: 'number', group: 'Prazo & idade' },
-  { id: 'issue.due_days', name: 'Dias até o prazo (− = atrasada)', type: 'number', group: 'Prazo & idade' },
+  {
+    id: 'issue.updated_days',
+    name: 'Dias sem atualização',
+    type: 'number',
+    group: 'Prazo & idade',
+  },
+  {
+    id: 'issue.created_days',
+    name: 'Dias desde a criação',
+    type: 'number',
+    group: 'Prazo & idade',
+  },
+  {
+    id: 'issue.due_days',
+    name: 'Dias até o prazo (− = atrasada)',
+    type: 'number',
+    group: 'Prazo & idade',
+  },
   // Dados da MUDANÇA que disparou o workflow (só no gatilho que a produz).
   { id: 'event.from_status', name: 'Status de origem', type: 'issueSelect', group: G_EVENT },
   { id: 'event.to_status', name: 'Status de destino', type: 'issueSelect', group: G_EVENT },
@@ -86,7 +101,7 @@ export const BOOL_OPTS: Opt[] = [
 // tratados como texto (contém/igual). defFor cobre só os campos fixos.
 export const defFor = (id: string) => FILTER_FIELD_DEFS.find((f) => f.id === id);
 export const typeForField = (id: string): FType =>
-  id.startsWith('cf:') ? 'text' : defFor(id)?.type ?? 'text';
+  id.startsWith('cf:') ? 'text' : (defFor(id)?.type ?? 'text');
 
 // Um campo só está disponível se o contexto que o produz existe:
 //  - campos de tarefa   ⇒ gatilho de tarefa
@@ -94,7 +109,11 @@ export const typeForField = (id: string): FType =>
 //  - campos de evento   ⇒ só o gatilho que produz AQUELA mudança
 //  - saídas de ação     ⇒ um nó daquele tipo é ANCESTRAL deste (ver upstream)
 //  - "Horário"          ⇒ ambiente, sempre disponível
-export function fieldAvailable(fieldId: string, ctx: TriggerContext, outputs: Set<string>): boolean {
+export function fieldAvailable(
+  fieldId: string,
+  ctx: TriggerContext,
+  outputs: Set<string>,
+): boolean {
   if (fieldId.startsWith('cf:')) return ctx.issue;
   const d = defFor(fieldId);
   if (!d) return false;

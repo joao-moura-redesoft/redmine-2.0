@@ -26,7 +26,9 @@ export function TemplatesModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100 dark:border-slate-800">
           <FileText size={16} className="text-blue-500" />
-          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Templates</span>
+          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+            Templates
+          </span>
           <span className="text-[11px] text-slate-400 ml-1">respostas prontas e modelos</span>
           <button
             onClick={onClose}

@@ -59,7 +59,9 @@ function RuleList({ node }: { node: WorkflowNode }) {
   const cfg = (node.config || {}) as { op?: string; rules?: Rule[] };
   const rules = Array.isArray(cfg.rules) ? cfg.rules : [];
   if (rules.length === 0) {
-    return <div className="mt-1.5 text-[11px] italic text-slate-400">sem regras — sempre passa</div>;
+    return (
+      <div className="mt-1.5 text-[11px] italic text-slate-400">sem regras — sempre passa</div>
+    );
   }
   const connector = cfg.op === 'or' ? 'OU' : 'E';
   const shown = rules.slice(0, MAX_RULES_SHOWN);
@@ -109,7 +111,9 @@ export function WorkflowNodeView({ data, selected }: NodeProps) {
   return (
     <div
       className={`group relative min-w-[196px] max-w-[240px] rounded-xl border-2 shadow-sm transition-shadow hover:shadow-md px-3 py-2.5 ${
-        missing.length ? 'border-amber-400 dark:border-amber-500' : d?.accent ?? 'border-slate-300'
+        missing.length
+          ? 'border-amber-400 dark:border-amber-500'
+          : (d?.accent ?? 'border-slate-300')
       } ${style.bg} ${
         selected
           ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'

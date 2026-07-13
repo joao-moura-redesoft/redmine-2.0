@@ -1655,7 +1655,8 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
   const { data: issue, isLoading } = useIssueDetail(issueId);
   // Registra como "recente" pro command palette quando a tarefa carrega.
   useEffect(() => {
-    if (issue) recordRecentIssue({ id: issue.id, subject: issue.subject, status: issue.status.name });
+    if (issue)
+      recordRecentIssue({ id: issue.id, subject: issue.subject, status: issue.status.name });
   }, [issue?.id, issue?.subject, issue?.status.name]);
   const { data: statuses } = useStatuses();
   const { data: currentUser } = useCurrentUser();

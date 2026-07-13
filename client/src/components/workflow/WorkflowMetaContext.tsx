@@ -64,7 +64,10 @@ export function WorkflowMetaProvider({ children }: { children: React.ReactNode }
       projects: (projects.data ?? []).map((p) => ({ id: p.id, name: p.name })),
       members: [{ id: 'me', name: 'Eu (mim)' }, ...(members.data ?? [])],
       rooms: (rooms.data ?? []).map((r) => ({ id: r.token, name: r.displayName || r.name })),
-      customFields: (customFieldDefs.data ?? []).map((cf) => ({ id: `cf:${cf.id}`, name: cf.name })),
+      customFields: (customFieldDefs.data ?? []).map((cf) => ({
+        id: `cf:${cf.id}`,
+        name: cf.name,
+      })),
       activities: activities.data ?? [],
     }),
     [

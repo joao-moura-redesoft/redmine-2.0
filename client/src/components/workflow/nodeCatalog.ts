@@ -216,7 +216,8 @@ export const ACTIONS: NodeDescriptor[] = [
     kind: 'action',
     type: 'ai.generate',
     label: 'Gerar com IA',
-    description: 'Gera texto com IA; o resultado fica disponível como {{ai.text}} nos nós seguintes.',
+    description:
+      'Gera texto com IA; o resultado fica disponível como {{ai.text}} nos nós seguintes.',
     icon: Sparkles,
     accent: ACTION_ACCENT,
     defaultConfig: () => ({ prompt: '' }),
@@ -256,7 +257,14 @@ export const ACTIONS: NodeDescriptor[] = [
     description: 'Lança horas numa tarefa (a do evento ou uma fixa).',
     icon: Timer,
     accent: ACTION_ACCENT,
-    defaultConfig: () => ({ issue: 'event', issue_id: '', hours: '', activity_id: '', comments: '', spent_on: '' }),
+    defaultConfig: () => ({
+      issue: 'event',
+      issue_id: '',
+      hours: '',
+      activity_id: '',
+      comments: '',
+      spent_on: '',
+    }),
   },
 ];
 
@@ -269,10 +277,7 @@ export function descriptorFor(type: string): NodeDescriptor | undefined {
 }
 
 // Cria um nó novo (id, posição, config padrão) a partir de um descritor.
-export function makeNode(
-  d: NodeDescriptor,
-  position: { x: number; y: number },
-): WorkflowNode {
+export function makeNode(d: NodeDescriptor, position: { x: number; y: number }): WorkflowNode {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     kind: d.kind,
@@ -392,7 +397,11 @@ export function summarize(node: WorkflowNode): string {
     case 'issue.commented':
       return c.fromOthers ? 'de outras pessoas' : 'qualquer comentário';
     case 'talk.message':
-      return c.mentionsOnly ? 'somente menções' : s('roomToken') ? 'sala escolhida' : 'qualquer sala';
+      return c.mentionsOnly
+        ? 'somente menções'
+        : s('roomToken')
+          ? 'sala escolhida'
+          : 'qualquer sala';
 
     case 'filter':
     case 'if': {

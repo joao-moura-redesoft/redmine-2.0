@@ -25,7 +25,8 @@ router.post(
       password: req.headers['x-redmine-pass'] || '',
       uid,
     };
-    if (!rec.url) throw Object.assign(new Error('credenciais do Redmine ausentes'), { statusCode: 400 });
+    if (!rec.url)
+      throw Object.assign(new Error('credenciais do Redmine ausentes'), { statusCode: 400 });
     const { result } = await digest.build(rec);
     res.json(result);
   }),

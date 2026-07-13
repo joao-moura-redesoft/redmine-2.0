@@ -1,6 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import axios from 'axios';
-import { X, Sunrise, Loader2, RefreshCw, Sparkles, AlertTriangle, CalendarClock, ClipboardCheck, CheckCircle2 } from 'lucide-react';
+import {
+  X,
+  Sunrise,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+  AlertTriangle,
+  CalendarClock,
+  ClipboardCheck,
+  CheckCircle2,
+} from 'lucide-react';
 import { getLatestDigest, runDigest, type Digest } from '../api/digest';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -25,7 +35,9 @@ function Stat({
     <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3 py-2">
       <span className={tone}>{icon}</span>
       <div className="leading-tight">
-        <div className="text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums">{value}</div>
+        <div className="text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums">
+          {value}
+        </div>
         <div className="text-[11px] text-slate-500 dark:text-slate-400">{label}</div>
       </div>
     </div>
@@ -120,11 +132,36 @@ export function DigestModal({ onClose }: Props) {
 
               {c && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-5">
-                  <Stat icon={<AlertTriangle size={16} />} label="atrasadas" value={c.overdue} tone="text-red-500" />
-                  <Stat icon={<CalendarClock size={16} />} label="vencem hoje" value={c.dueToday} tone="text-amber-500" />
-                  <Stat icon={<ClipboardCheck size={16} />} label="para revisar" value={c.toReview} tone="text-violet-500" />
-                  <Stat icon={<Sunrise size={16} />} label="abertas" value={c.assigned} tone="text-blue-500" />
-                  <Stat icon={<CheckCircle2 size={16} />} label="concluídas" value={c.doneRecently} tone="text-emerald-500" />
+                  <Stat
+                    icon={<AlertTriangle size={16} />}
+                    label="atrasadas"
+                    value={c.overdue}
+                    tone="text-red-500"
+                  />
+                  <Stat
+                    icon={<CalendarClock size={16} />}
+                    label="vencem hoje"
+                    value={c.dueToday}
+                    tone="text-amber-500"
+                  />
+                  <Stat
+                    icon={<ClipboardCheck size={16} />}
+                    label="para revisar"
+                    value={c.toReview}
+                    tone="text-violet-500"
+                  />
+                  <Stat
+                    icon={<Sunrise size={16} />}
+                    label="abertas"
+                    value={c.assigned}
+                    tone="text-blue-500"
+                  />
+                  <Stat
+                    icon={<CheckCircle2 size={16} />}
+                    label="concluídas"
+                    value={c.doneRecently}
+                    tone="text-emerald-500"
+                  />
                 </div>
               )}
 

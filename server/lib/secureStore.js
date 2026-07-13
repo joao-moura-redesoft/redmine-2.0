@@ -98,7 +98,9 @@ function loadVaultKey() {
   if (envKey) {
     const k = Buffer.from(envKey, 'base64');
     if (k.length === 32) return k;
-    console.warn('[secureStore] BLUEMINE_VAULT_KEY inválida (esperado 32 bytes base64) — ignorando');
+    console.warn(
+      '[secureStore] BLUEMINE_VAULT_KEY inválida (esperado 32 bytes base64) — ignorando',
+    );
   }
   if (!IS_WINDOWS) return null; // sem DPAPI e sem env key → sem cofre
 
@@ -121,7 +123,10 @@ function loadVaultKey() {
   // Primeira vez: gera e persiste (uma chamada de PowerShell, no boot).
   try {
     const k = crypto.randomBytes(32);
-    writeFileAtomic(KEY_FILE, JSON.stringify({ __dpapi: dpapiProtect(k.toString('base64')) }, null, 2));
+    writeFileAtomic(
+      KEY_FILE,
+      JSON.stringify({ __dpapi: dpapiProtect(k.toString('base64')) }, null, 2),
+    );
     return k;
   } catch (e) {
     console.warn('[secureStore] DPAPI indisponível para gerar a chave do cofre:', e.message);
@@ -141,7 +146,9 @@ function readJsonSecure(file, fallback) {
 
     if (parsed && parsed.__gcm) {
       if (!vaultKey) {
-        console.warn(`[secureStore] sem chave do cofre — não foi possível ler ${path.basename(file)}`);
+        console.warn(
+          `[secureStore] sem chave do cofre — não foi possível ler ${path.basename(file)}`,
+        );
         return fallback;
       }
       return JSON.parse(gcmDecrypt(vaultKey, parsed.__gcm));

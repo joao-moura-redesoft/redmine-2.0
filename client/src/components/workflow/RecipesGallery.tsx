@@ -52,7 +52,9 @@ export function RecipesGallery({
                 <r.icon size={18} />
               </span>
               <div className="min-w-0 flex-1">
-                <div className="font-medium text-sm text-slate-800 dark:text-slate-100">{r.name}</div>
+                <div className="font-medium text-sm text-slate-800 dark:text-slate-100">
+                  {r.name}
+                </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
                   {r.description}
                 </p>
@@ -78,7 +80,9 @@ export function RecipesGallery({
               <FilePlus size={18} />
             </span>
             <div>
-              <div className="font-medium text-sm text-slate-800 dark:text-slate-100">Em branco</div>
+              <div className="font-medium text-sm text-slate-800 dark:text-slate-100">
+                Em branco
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Canvas vazio — você escolhe o gatilho.
               </p>

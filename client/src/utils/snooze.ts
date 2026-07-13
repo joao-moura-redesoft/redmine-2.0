@@ -93,7 +93,7 @@ export const SNOOZE_PRESETS: SnoozePreset[] = [
     at: () => {
       const d = new Date();
       const day = d.getDay(); // 0=dom
-      const add = ((8 - day) % 7) || 7; // próxima segunda
+      const add = (8 - day) % 7 || 7; // próxima segunda
       return atTime(new Date(d.getTime() + add * 864e5), 9);
     },
   },

@@ -1,5 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Zap, X, NotebookPen, ClipboardList, CalendarClock, Flag, Hash, Loader2 } from 'lucide-react';
+import {
+  Zap,
+  X,
+  NotebookPen,
+  ClipboardList,
+  CalendarClock,
+  Flag,
+  Hash,
+  Loader2,
+} from 'lucide-react';
 import { useCreateNote } from '../hooks/useNotes';
 import { usePriorities } from '../hooks/useRedmine';
 import { quickParse } from '../utils/quickParse';
