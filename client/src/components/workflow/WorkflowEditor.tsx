@@ -168,8 +168,16 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
     [onNodesChange, markDirty],
   );
 
+  // Um nó não pode ligar em si mesmo (auto-loop). isValidConnection bloqueia já
+  // durante o arraste (mostra inválido); o guard no onConnect é rede de segurança.
+  const isValidConnection = useCallback(
+    (c: Connection | Edge) => c.source !== c.target,
+    [],
+  );
+
   const onConnect = useCallback(
     (conn: Connection) => {
+      if (conn.source === conn.target) return;
       setRfEdges((eds) => addEdge(decorateEdge(conn as Edge), eds));
       markDirty();
     },
@@ -579,6 +587,7 @@ function EditorInner({ workflow, onBack }: { workflow: Workflow; onBack: () => v
                 if (c.some((x) => x.type === 'remove')) markDirty();
               }}
               onConnect={onConnect}
+              isValidConnection={isValidConnection}
               onNodeClick={(_, n) => {
                 setSelectedId(n.id);
                 setTab('config');
