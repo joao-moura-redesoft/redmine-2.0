@@ -23,6 +23,7 @@ import {
   FilePlus2,
   Timer,
   MessageSquareText,
+  Hourglass,
   type LucideIcon,
 } from 'lucide-react';
 import type { NodeKind, WorkflowNode } from '../../api/workflows';
@@ -139,6 +140,15 @@ export const FILTERS: NodeDescriptor[] = [
 ];
 
 export const ACTIONS: NodeDescriptor[] = [
+  {
+    kind: 'action',
+    type: 'wait',
+    label: 'Esperar',
+    description: 'Pausa o ramo por um tempo e retoma depois (reavaliando a tarefa).',
+    icon: Hourglass,
+    accent: ACTION_ACCENT,
+    defaultConfig: () => ({ amount: 1, unit: 'hours' }),
+  },
   {
     kind: 'action',
     type: 'notify',
@@ -420,6 +430,10 @@ export function summarize(node: WorkflowNode): string {
       return s('subject').slice(0, 40);
     case 'time.log':
       return s('hours') ? `${s('hours')}h` : '';
+    case 'wait': {
+      const unit = { minutes: 'min', hours: 'h', days: 'dias' }[s('unit') || 'hours'] ?? '';
+      return `esperar ${s('amount') || '1'} ${unit}`;
+    }
     default:
       return '';
   }

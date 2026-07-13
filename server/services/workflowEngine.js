@@ -27,6 +27,7 @@ const {
   scanCap,
   filterNeedsMissingOutput,
   nextFailStreak,
+  waitMs,
   localYmd,
 } = require('../lib/workflowRules');
 const { listWorkflows, saveWorkflows } = require('./workflowStore');
@@ -89,13 +90,16 @@ async function collectRunners(subscriptions) {
 }
 
 async function tickUser(uid, rec, sendPush, subscriptions) {
-  const workflows = listWorkflows(uid).filter(
+  const allWorkflows = listWorkflows(uid);
+  const workflows = allWorkflows.filter(
     (w) => w.enabled && Array.isArray(w.nodes) && w.nodes.some((n) => n.kind === 'trigger'),
   );
-  if (workflows.length === 0) return;
-
   const state = getState(uid);
+  // Também roda se houver esperas (nó Delay) a retomar, mesmo sem gatilho ativo.
+  if (workflows.length === 0 && state.pending.length === 0) return;
+
   let dirty = false;
+  let workflowsDirty = false;
 
   const triggerTypes = new Set(
     workflows.map((w) => w.nodes.find((n) => n.kind === 'trigger')?.type).filter(Boolean),
@@ -136,9 +140,7 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
   }
 
   const user = { id: uid };
-  // Só reescrevemos workflows.json (cifrado, arquivo inteiro) UMA vez por tick,
-  // no fim — em vez de uma vez por evento disparado.
-  let workflowsDirty = false;
+  // (workflowsDirty declarado no topo — workflows.json é reescrito 1x por tick.)
 
   for (const w of workflows) {
     const trigger = w.nodes.find((n) => n.kind === 'trigger');
@@ -151,6 +153,7 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
         const ctx = { issue: null, room: null, message: null, event: { type: 'schedule' }, user, now: nowIso() };
         const run = { actions: [] };
         await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
+        if (absorbPending(state, run)) dirty = true;
         if (touchWorkflow(w, run)) workflowsDirty = true;
         {
           const fr = trackFailure(uid, state, w, run);
@@ -208,6 +211,7 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
         const inScope = new Set(scoped.map((i) => String(i.id)));
         for (const id of Object.keys(fired)) if (!inScope.has(id)) delete fired[id];
 
+        if (absorbPending(state, run)) dirty = true;
         if (touchWorkflow(w, run)) workflowsDirty = true;
         {
           const fr = trackFailure(uid, state, w, run);
@@ -248,6 +252,7 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
       };
       const run = { actions: [] };
       await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
+      if (absorbPending(state, run)) dirty = true;
       if (touchWorkflow(w, run)) workflowsDirty = true;
         {
           const fr = trackFailure(uid, state, w, run);
@@ -261,8 +266,78 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
     }
   }
 
+  // Retoma esperas (nó Delay) vencidas.
+  if (state.pending.length) {
+    const r = await processResumes(uid, state, allWorkflows, rec, sendPush, subscriptions);
+    if (r.changed) dirty = true;
+    if (r.workflowsDirty) workflowsDirty = true;
+  }
+
   if (workflowsDirty) saveWorkflows();
   if (dirty) saveState();
+}
+
+// Move as esperas produzidas por um run (nós Delay) para o estado durável.
+const MAX_PENDING = 1000;
+function absorbPending(state, run) {
+  if (!run.pending || run.pending.length === 0) return false;
+  state.pending.push(...run.pending);
+  if (state.pending.length > MAX_PENDING) {
+    state.pending.splice(0, state.pending.length - MAX_PENDING);
+  }
+  return true;
+}
+
+// Retoma as esperas vencidas (resumeAt <= agora). Para cada uma:
+//  - workflow sumiu/desativado → descarta;
+//  - re-busca a tarefa (reavalia condições pós-espera com dados ATUAIS); 404 →
+//    descarta; erro de rede → mantém p/ o próximo tick;
+//  - caminha o grafo a partir dos nós após o Delay.
+async function processResumes(uid, state, allWorkflows, rec, sendPush, subscriptions) {
+  const now = Date.now();
+  const byId = new Map(allWorkflows.map((w) => [w.id, w]));
+  const keep = [];
+  const newPending = [];
+  let changed = false;
+  let workflowsDirty = false;
+
+  for (const p of state.pending) {
+    if (p.resumeAt > now) {
+      keep.push(p);
+      continue;
+    }
+    changed = true; // vencida: sai da fila de um jeito ou de outro
+    const w = byId.get(p.wfId);
+    if (!w || !w.enabled) continue; // workflow apagado/desativado → descarta a espera
+    const trigger = w.nodes.find((n) => n.kind === 'trigger');
+    if (!trigger) continue;
+
+    let ctx = p.ctx;
+    if (ctx.issue?.id) {
+      try {
+        const { data } = await redmineClient(rec).get(`/issues/${ctx.issue.id}.json`);
+        ctx = { ...ctx, issue: data.issue, now: nowIso() }; // dados atuais pós-espera
+      } catch (e) {
+        if (e.response?.status === 404) continue; // tarefa sumiu → descarta
+        keep.push(p); // erro de rede → tenta de novo no próximo tick
+        continue;
+      }
+    }
+
+    const run = { actions: [] };
+    await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run, startIds: p.nodeIds });
+    if (run.pending?.length) newPending.push(...run.pending); // Delay em sequência
+    if (touchWorkflow(w, run)) workflowsDirty = true;
+    const fr = trackFailure(uid, state, w, run);
+    if (fr.paused) {
+      workflowsDirty = true;
+      await notifyAutoPaused(w, rec, sendPush, subscriptions);
+    }
+    recordRun(uid, w, trigger, 'auto', 'resume', run);
+  }
+
+  state.pending = keep.concat(newPending);
+  return { changed, workflowsDirty };
 }
 
 // ── detecção de eventos ─────────────────────────────────────────────────────
@@ -428,7 +503,7 @@ async function runGraph(
   rec,
   sendPush,
   subscriptions,
-  { bypassFilters, dryRun, run } = {},
+  { bypassFilters, dryRun, run, startIds } = {},
 ) {
   const nodeById = new Map(w.nodes.map((n) => [n.id, n]));
   const visited = new Set();
@@ -475,7 +550,23 @@ async function runGraph(
       for (const t of pass ? node.nextIds || [] : node.elseIds || []) await walk(t);
       return;
     } else if (node.kind === 'action') {
-      if (dryRun) {
+      // Nó de Espera: agenda a retomada e PARA este ramo. Em prévia/teste passa
+      // direto (não cria espera de verdade que dispararia dias depois).
+      if (node.type === 'wait') {
+        mark(id, 'ok');
+        if (!dryRun && !bypassFilters && run) {
+          (run.pending ||= []).push({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            wfId: w.id,
+            resumeAt: Date.now() + waitMs(node.config),
+            nodeIds: node.nextIds || [],
+            ctx,
+          });
+          run.actions.push({ type: 'wait', ok: true });
+          return; // pausa aqui; retoma num tick futuro
+        }
+        // prévia/teste: cai fora do if e segue para os nextIds abaixo
+      } else if (dryRun) {
         if (run) run.actions.push({ type: node.type, ok: true, preview: true });
         mark(id, 'ok');
       } else {
@@ -505,7 +596,7 @@ async function runGraph(
     for (const nextId of node.nextIds || []) await walk(nextId);
   }
 
-  for (const nextId of trigger.nextIds || []) await walk(nextId);
+  for (const nextId of startIds || trigger.nextIds || []) await walk(nextId);
 }
 
 // ── dispatch de ações ───────────────────────────────────────────────────────

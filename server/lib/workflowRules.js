@@ -282,6 +282,16 @@ function nextFailStreak(current, actions, max = 5) {
   return { streak: current, pause: false, changed: false };
 }
 
+// Duração de um nó de Espera em ms. { amount, unit: 'minutes'|'hours'|'days' }.
+// Mínimo de 1 minuto (a resolução do tick); default 1 hora se inválido.
+const WAIT_UNIT_MS = { minutes: 60 * 1000, hours: 60 * 60 * 1000, days: 24 * 60 * 60 * 1000 };
+function waitMs(config = {}) {
+  const amount = Number(config.amount);
+  const unit = WAIT_UNIT_MS[config.unit] || WAIT_UNIT_MS.hours;
+  const ms = (Number.isFinite(amount) && amount > 0 ? amount : 1) * unit;
+  return Math.max(60 * 1000, ms);
+}
+
 function scanRepeatAllows(fired, issueId, config = {}, now = Date.now()) {
   const mode = config.repeat || 'always';
   if (mode === 'always') return true;
@@ -312,4 +322,5 @@ module.exports = {
   filterNeedsMissingOutput,
   classifyRun,
   nextFailStreak,
+  waitMs,
 };

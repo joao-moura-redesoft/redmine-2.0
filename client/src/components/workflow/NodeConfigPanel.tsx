@@ -949,8 +949,39 @@ export function NodeConfigPanel({
         </>
       )}
 
-      {/* Política de erro — vale para toda ação. */}
-      {node.kind === 'action' && (
+      {node.type === 'wait' && (
+        <>
+          <div className="flex gap-2">
+            <Field label="Esperar">
+              <input
+                type="number"
+                min={1}
+                className={inputCls}
+                value={str('amount') || '1'}
+                onChange={(e) => patch({ amount: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="Unidade">
+              <Select
+                value={str('unit') || 'hours'}
+                onChange={(v) => patch({ unit: v })}
+                options={[
+                  { id: 'minutes', name: 'minutos' },
+                  { id: 'hours', name: 'horas' },
+                  { id: 'days', name: 'dias' },
+                ]}
+              />
+            </Field>
+          </div>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+            Ao retomar, a tarefa é relida do Redmine — então uma condição depois da espera vê o
+            estado atual (ex.: “espere 2 dias, se ainda aberta, escale”). Mínimo de 1 minuto.
+          </p>
+        </>
+      )}
+
+      {/* Política de erro (não se aplica ao Espera, que não "falha"). */}
+      {node.kind === 'action' && node.type !== 'wait' && (
         <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
           <Field label="Se esta ação falhar">
             <Select

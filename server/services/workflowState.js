@@ -4,6 +4,7 @@
 // - lastScheduleRuns: último disparo de cada gatilho `schedule` (dedup temporal);
 // - scanFired: { [wfId]: { [issueId]: ts } } — quando cada varredura já agiu
 //   sobre cada tarefa (políticas 'once' e 'cooldown');
+// - pending: esperas (nó Delay) a retomar — { id, wfId, resumeAt, nodeIds, ctx };
 // - flags de "inicializado" para não disparar retroativamente no primeiro tick.
 //
 // O dedup de eventos vem naturalmente do snapshot-diff / talkSeen (um evento só é
@@ -25,11 +26,13 @@ function getState(uid) {
       lastScheduleRuns: {},
       scanFired: {},
       failStreak: {},
+      pending: [],
     };
   }
   // Backfill para estados gravados antes destes campos existirem.
   if (!store[uid].scanFired) store[uid].scanFired = {};
   if (!store[uid].failStreak) store[uid].failStreak = {};
+  if (!store[uid].pending) store[uid].pending = [];
   return store[uid];
 }
 

@@ -12,6 +12,7 @@ import {
   filterNeedsMissingOutput,
   classifyRun,
   nextFailStreak,
+  waitMs,
   daysSince,
   daysUntil,
 } from './workflowRules.js';
@@ -361,6 +362,21 @@ describe('classifyRun / nextFailStreak (auto-pause)', () => {
     expect(step(hard)).toBe(false); // 3
     expect(step(hard)).toBe(false); // 4
     expect(step(hard)).toBe(true); // 5 → pausa
+  });
+});
+
+describe('waitMs (nó de Espera)', () => {
+  const MIN = 60 * 1000;
+  it('converte as unidades', () => {
+    expect(waitMs({ amount: 5, unit: 'minutes' })).toBe(5 * MIN);
+    expect(waitMs({ amount: 2, unit: 'hours' })).toBe(2 * 60 * MIN);
+    expect(waitMs({ amount: 1, unit: 'days' })).toBe(24 * 60 * MIN);
+  });
+  it('mínimo de 1 minuto e default de 1 hora quando inválido', () => {
+    expect(waitMs({ amount: 0, unit: 'minutes' })).toBe(MIN); // amount inválido → 1 unidade, mas min 1min
+    expect(waitMs({ amount: 0.1, unit: 'minutes' })).toBe(MIN); // 6s < 1min → clamp
+    expect(waitMs({})).toBe(60 * MIN); // default 1 hora
+    expect(waitMs({ amount: 3, unit: 'xyz' })).toBe(3 * 60 * MIN); // unidade inválida → horas
   });
 });
 
