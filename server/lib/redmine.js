@@ -25,17 +25,27 @@ function makeRedmine(req) {
   });
 }
 
-// Cache de userId por "url:key" ou "url:user:pass"
-const userIdCache = new Map();
+// Cache de userId por "url:key" ou "url:user:pass". Com TTL para não crescer
+// indefinidamente (espelha o padrão de allowedCache em routes/issues.js).
+const userIdCache = new Map(); // cacheKey -> { id, expiresAt }
+const USER_ID_TTL_MS = 5 * 60 * 1000;
+
+// Limpeza periódica de entradas expiradas.
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of userIdCache) if (now > v.expiresAt) userIdCache.delete(k);
+}, USER_ID_TTL_MS).unref();
+
 async function getMyUserId(req) {
   const url = req.headers['x-redmine-url'] || DEFAULT_URL;
   const key = req.headers['x-redmine-key'] || DEFAULT_KEY;
   const username = req.headers['x-redmine-user'] || '';
   const password = req.headers['x-redmine-pass'] || '';
   const cacheKey = `${url}:${key || `${username}:${password}`}`;
-  if (userIdCache.has(cacheKey)) return userIdCache.get(cacheKey);
+  const cached = userIdCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.id;
   const { data } = await makeRedmine(req).get('/users/current.json');
-  userIdCache.set(cacheKey, data.user.id);
+  userIdCache.set(cacheKey, { id: data.user.id, expiresAt: Date.now() + USER_ID_TTL_MS });
   return data.user.id;
 }
 
