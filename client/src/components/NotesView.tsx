@@ -919,11 +919,14 @@ export function NotesView({
   focus?: { nonce: number; issueId: number } | null;
 }) {
   const { data: notes = [], isLoading } = useNotes();
-  const { data: ncNotes = [] } = useNcNotes();
+  const ncQuery = useNcNotes();
+  const ncNotes = useMemo(() => ncQuery.data ?? [], [ncQuery.data]);
+  const ncLinked = ncQuery.isSuccess; // Nextcloud vinculado (a busca respondeu 200)
   const { data: projects = [] } = useProjects();
   const createNote = useCreateNote();
   const deleteNote = useDeleteNote();
   const deleteNcNote = useDeleteNcNote();
+  const pushToNc = usePushNoteToNc();
 
   // Notas locais + notas do Nextcloud mescladas numa lista só (cada uma com seu
   // badge de origem). Derivações de tags/projeto ficam só nas locais (o NC não tem).
@@ -935,6 +938,7 @@ export function NotesView({
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [activeProject, setActiveProject] = useState<number | null>(null);
   const [activeIssue, setActiveIssue] = useState<number | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'local' | 'nextcloud'>('all');
   const [pendingDelete, setPendingDelete] = useState<Note | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const newBtnRef = useRef<HTMLDivElement>(null);
@@ -996,6 +1000,13 @@ export function NotesView({
   const filtered = useMemo(() => {
     const q = search.trim();
     const base = allNotes
+      .filter((n) =>
+        sourceFilter === 'all'
+          ? true
+          : sourceFilter === 'nextcloud'
+            ? n.source === 'nextcloud'
+            : n.source !== 'nextcloud',
+      )
       .filter((n) => !pinnedOnly || n.pinned)
       .filter((n) => !activeTag || n.tags.includes(activeTag))
       .filter((n) => !activeProject || n.linkedProjectId === activeProject)
@@ -1018,7 +1029,7 @@ export function NotesView({
       .filter((x) => x.score >= 0)
       .sort((a, b) => b.score - a.score)
       .map((x) => x.n);
-  }, [allNotes, search, pinnedOnly, activeTag, activeProject, activeIssue]);
+  }, [allNotes, search, pinnedOnly, activeTag, activeProject, activeIssue, sourceFilter]);
 
   // Mantém uma seleção válida
   useEffect(() => {
@@ -1034,6 +1045,18 @@ export function NotesView({
     setSelectedId(id);
     setSearch('');
     createNote.mutate({ ...patch, id });
+  };
+
+  // Cria uma nota nova direto no Nextcloud (QuickNotes) e a seleciona.
+  const handleNewNc = async () => {
+    setShowTemplates(false);
+    setSearch('');
+    try {
+      const note = await pushToNc.mutateAsync({ title: 'Nova nota', body: '' });
+      setSelectedId(note.id);
+    } catch {
+      /* sem Nextcloud vinculado ou falha de rede — silencioso */
+    }
   };
 
   // Nota diária: abre a de hoje se já existir, senão cria
@@ -1133,6 +1156,14 @@ export function NotesView({
                   >
                     <CalendarDays size={12} className="text-slate-400 flex-shrink-0" /> Nota diária
                   </button>
+                  {ncLinked && (
+                    <button
+                      onClick={handleNewNc}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 text-left transition-colors"
+                    >
+                      <Cloud size={12} className="text-sky-400 flex-shrink-0" /> Nova no Nextcloud
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1157,6 +1188,31 @@ export function NotesView({
             >
               <Pin size={10} /> Fixadas
             </button>
+            {/* Filtro por origem — só faz sentido quando há Nextcloud vinculado */}
+            {ncLinked && (
+              <>
+                <button
+                  onClick={() => setSourceFilter((v) => (v === 'local' ? 'all' : 'local'))}
+                  className={`inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 border transition-colors ${
+                    sourceFilter === 'local'
+                      ? 'bg-slate-100 border-slate-300 text-slate-700 dark:bg-slate-700/40'
+                      : 'border-slate-200 dark:border-slate-700 text-slate-500'
+                  }`}
+                >
+                  <StickyNote size={10} /> Local
+                </button>
+                <button
+                  onClick={() => setSourceFilter((v) => (v === 'nextcloud' ? 'all' : 'nextcloud'))}
+                  className={`inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 border transition-colors ${
+                    sourceFilter === 'nextcloud'
+                      ? 'bg-sky-50 border-sky-300 text-sky-700 dark:bg-sky-900/20'
+                      : 'border-slate-200 dark:border-slate-700 text-slate-500'
+                  }`}
+                >
+                  <Cloud size={10} /> Nextcloud
+                </button>
+              </>
+            )}
             {allTags.map((t) => (
               <button
                 key={t}

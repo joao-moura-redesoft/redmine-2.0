@@ -19,7 +19,9 @@ export function useNcNotes() {
     queryKey: KEY,
     queryFn: fetchNcNotes,
     enabled: !!getStoredAuth(),
-    staleTime: 30_000,
+    staleTime: 15_000,
+    // Reflete edições feitas direto no QuickNotes web ao voltar para esta aba.
+    refetchOnWindowFocus: true,
     retry: false, // sem Nextcloud vinculado, não adianta insistir
   });
 }
@@ -65,12 +67,15 @@ export function useDeleteNcNote() {
   });
 }
 
-// Bridge: envia uma nota local para o Nextcloud. Invalida a lista para a nova nota
-// aparecer entre as do Nextcloud.
+// Bridge: envia uma nota local para o Nextcloud (ou cria uma nota nova no NC). Insere
+// a nota devolvida no cache na hora — para poder selecioná-la — e reconcilia depois.
 export function usePushNoteToNc() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ title, body }: { title: string; body: string }) => pushNoteToNc(title, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+    onSuccess: (note) => {
+      qc.setQueryData<NcNote[]>(KEY, (old = []) => [note, ...old]);
+      qc.invalidateQueries({ queryKey: KEY });
+    },
   });
 }

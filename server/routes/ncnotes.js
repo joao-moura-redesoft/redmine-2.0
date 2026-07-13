@@ -55,6 +55,26 @@ async function fetchAll(talk) {
   return Array.isArray(data) ? data : [];
 }
 
+const isHexColor = (s) => typeof s === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(s);
+
+// Aplica os campos enviados pelo client sobre o objeto completo da nota (mutação
+// in-place, retornando a nota). Só mexe no que veio no corpo — o resto do objeto
+// original (anexos/compartilhamentos/etc.) é preservado para o PUT do QuickNotes.
+function applyNcPatch(note, body) {
+  const b = body || {};
+  if (typeof b.content === 'string') note.content = b.content; // HTML vindo do client
+  if (typeof b.title === 'string') note.title = b.title;
+  if (typeof b.pinned === 'boolean') note.isPinned = b.pinned;
+  if (isHexColor(b.color)) note.color = b.color;
+  // Tags: o client envia nomes (string[]); o QuickNotes cria/associa por nome ao
+  // receber [{name}] no objeto completo (ids são resolvidos pelo servidor).
+  if (Array.isArray(b.tags))
+    note.tags = b.tags
+      .filter((t) => typeof t === 'string' && t.trim())
+      .map((name) => ({ name: name.trim() }));
+  return note;
+}
+
 // ─── Listar ────────────────────────────────────────────────────────────────────
 router.get(
   '/ncnotes',
@@ -88,16 +108,7 @@ router.put(
     const note = (await fetchAll(talk)).find((n) => String(n.id) === ncId);
     if (!note) return res.status(404).json({ error: 'nota não encontrada' });
 
-    if (typeof b.content === 'string') note.content = b.content; // HTML vindo do client
-    if (typeof b.title === 'string') note.title = b.title;
-    if (typeof b.pinned === 'boolean') note.isPinned = b.pinned;
-    if (typeof b.color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(b.color)) note.color = b.color;
-    // Tags: o client envia nomes (string[]); o QuickNotes cria/associa por nome ao
-    // receber [{name}] no objeto completo (ids são resolvidos pelo servidor).
-    if (Array.isArray(b.tags))
-      note.tags = b.tags
-        .filter((t) => typeof t === 'string' && t.trim())
-        .map((name) => ({ name: name.trim() }));
+    applyNcPatch(note, b);
 
     const { data } = await talk.put(`${QN}/${encodeURIComponent(ncId)}`, note);
     res.json(fromQuickNote(data));
@@ -133,3 +144,5 @@ router.post(
 );
 
 module.exports = router;
+// Helpers puros expostos só para teste unitário.
+module.exports.__testables = { fromQuickNote, applyNcPatch, isHexColor };
