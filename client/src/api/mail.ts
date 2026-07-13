@@ -36,6 +36,34 @@ export interface MailAttachment {
   size: number;
 }
 
+// Anexo já enviado ao Zimbra (retorno de /mail/upload), pronto para referência
+// no envio via `aid`.
+export interface UploadedAttachment {
+  aid: string;
+  filename: string;
+  size: number;
+  contentType?: string;
+}
+
+// Parte de outra mensagem reanexada por (mid, part) — usado no Encaminhar,
+// evita baixar+re-subir os anexos da original.
+export interface ForwardPart {
+  mid: string;
+  part: string;
+}
+
+export interface MailSendPayload {
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  text?: string;
+  html?: string;
+  inReplyTo?: string;
+  attachments?: { aid: string }[];
+  forwardParts?: ForwardPart[];
+}
+
 export interface CalendarEvent {
   id: string;
   invId: string | null;
@@ -147,15 +175,25 @@ export const mailApi = {
     await api.post(`/mail/messages/${id}/action`, { op, l: target });
   },
 
-  send: async (payload: {
-    to: string[];
-    cc?: string[];
-    subject: string;
-    text?: string;
-    html?: string;
-    inReplyTo?: string;
-  }): Promise<void> => {
+  send: async (payload: MailSendPayload): Promise<void> => {
     await api.post('/mail/send', payload);
+  },
+
+  saveDraft: async (payload: MailSendPayload): Promise<{ id: string | null }> => {
+    const { data } = await api.post('/mail/draft', payload);
+    return data;
+  },
+
+  // Envia os bytes do arquivo e recebe um `aid` para usar em send/saveDraft.
+  uploadAttachment: async (file: File): Promise<UploadedAttachment> => {
+    const { data } = await api.post('/mail/upload', file, {
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Filename': encodeURIComponent(file.name),
+        'X-Content-Type': file.type || 'application/octet-stream',
+      },
+    });
+    return data;
   },
 
   attachmentUrl: (id: string, part: string, sessionToken?: string | null): string => {

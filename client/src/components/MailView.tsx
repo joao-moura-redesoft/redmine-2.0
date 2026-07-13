@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Mail,
@@ -21,11 +21,27 @@ import {
   Star,
   Undo2,
   SquarePlus,
+  Forward,
+  Save,
+  FileText,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { mailApi, type MailMessageSummary, type MailMessageFull } from '../api/mail';
-import { needsMailConfig } from '../utils/mailConfig';
+import DOMPurify from 'dompurify';
+import {
+  mailApi,
+  type MailMessageSummary,
+  type MailMessageFull,
+  type UploadedAttachment,
+  type ForwardPart,
+} from '../api/mail';
+import {
+  needsMailConfig,
+  getSignature,
+  getTemplates,
+  type MailTemplate,
+} from '../utils/mailConfig';
+import { MailComposeEditor } from './MailComposeEditor';
 
 // Ícone e ordem amigável por pasta do Zimbra.
 const FOLDER_META: Record<string, { label: string; icon: React.ReactNode; order: number }> = {
@@ -47,9 +63,25 @@ function fmtDate(ms: number): string {
 interface ComposeSeed {
   to: string;
   cc?: string;
+  bcc?: string;
   subject: string;
-  body: string;
+  bodyHtml: string; // HTML (o corpo agora é rico)
   inReplyTo?: string;
+  // Partes de anexo da mensagem original, reanexadas no encaminhamento.
+  forwardParts?: ForwardPart[];
+}
+
+// Assinatura (HTML) precedida de espaço, para posicionar o cursor acima dela.
+function signatureSeed(): string {
+  const sig = getSignature();
+  return sig ? `<p></p>${sig}` : '<p></p>';
+}
+
+// Bloco citado (cabeçalho + corpo original) em HTML, para reply/forward.
+function quotedBlock(header: string, msg: MailMessageFull): string {
+  const original = (msg.text || htmlToText(msg.html || '')).slice(0, 5000);
+  const quoted = escapeHtml(original).replace(/\n/g, '<br>');
+  return `<p>${escapeHtml(header)}</p><blockquote>${quoted}</blockquote>`;
 }
 
 // Remove tags e decodifica entidades básicas, para citar um corpo HTML em texto.
@@ -69,23 +101,37 @@ function htmlToText(html: string): string {
 
 // Monta o "seed" do compositor a partir de uma mensagem, para responder.
 function buildReply(msg: MailMessageFull, all: boolean, me?: string): ComposeSeed {
-  const original = (msg.text || htmlToText(msg.html || '')).slice(0, 5000);
   const when = format(new Date(msg.date), "d/MM/yyyy 'às' HH:mm", { locale: ptBR });
-  const quoted = original
-    .split('\n')
-    .map((l) => `> ${l}`)
-    .join('\n');
   const ccList = all
     ? [...msg.to, ...msg.cc]
         .map((a) => a.address)
         .filter((a) => a && a !== me && a !== msg.from.address)
     : [];
+  const header = `----- Em ${when}, ${msg.from.name || msg.from.address} escreveu: -----`;
   return {
     to: msg.from.address,
     cc: [...new Set(ccList)].join(', '),
     subject: /^re:/i.test(msg.subject) ? msg.subject : `Re: ${msg.subject}`,
-    body: `\n\n----- Em ${when}, ${msg.from.name || msg.from.address} escreveu: -----\n${quoted}`,
+    bodyHtml: `${signatureSeed()}${quotedBlock(header, msg)}`,
     inReplyTo: msg.id,
+  };
+}
+
+// "Seed" para encaminhar: sem destinatário, com cabeçalho da original e os
+// anexos da original reanexados por (mid, part) — sem re-upload.
+function buildForward(msg: MailMessageFull): ComposeSeed {
+  const when = format(new Date(msg.date), "d/MM/yyyy 'às' HH:mm", { locale: ptBR });
+  const header =
+    `----- Mensagem encaminhada -----\n` +
+    `De: ${msg.from.name || msg.from.address} <${msg.from.address}>\n` +
+    `Data: ${when}\n` +
+    `Assunto: ${msg.subject}\n` +
+    `Para: ${msg.to.map((t) => t.address).join(', ')}`;
+  return {
+    to: '',
+    subject: /^fwd?:/i.test(msg.subject) ? msg.subject : `Fwd: ${msg.subject}`,
+    bodyHtml: `${signatureSeed()}${quotedBlock(header, msg)}`,
+    forwardParts: msg.attachments.map((a) => ({ mid: msg.id, part: a.part })),
   };
 }
 
@@ -178,7 +224,7 @@ function MailViewInner() {
           )}
         </div>
         <button
-          onClick={() => setCompose({ to: '', subject: '', body: '' })}
+          onClick={() => setCompose({ to: '', subject: '', bodyHtml: signatureSeed() })}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
         >
           <PenSquare size={14} /> Escrever
@@ -282,6 +328,7 @@ function MailViewInner() {
               inTrash={!activeSearch && folder.toLowerCase() === 'trash'}
               onClose={() => setSelectedId(null)}
               onReply={(full, all) => setCompose(buildReply(full, all))}
+              onForward={(full) => setCompose(buildForward(full))}
               onChanged={() => {
                 qc.invalidateQueries({ queryKey: ['mail', 'list'] });
                 qc.invalidateQueries({ queryKey: ['mail', 'folders'] });
@@ -358,6 +405,7 @@ function MessageReader({
   inTrash,
   onClose,
   onReply,
+  onForward,
   onChanged,
   onActed,
 }: {
@@ -365,6 +413,7 @@ function MessageReader({
   inTrash: boolean;
   onClose: () => void;
   onReply: (m: MailMessageFull, all: boolean) => void;
+  onForward: (m: MailMessageFull) => void;
   onChanged: () => void;
   onActed: (closeAfter: boolean) => void;
 }) {
@@ -446,6 +495,12 @@ function MessageReader({
             <ReplyAll size={13} /> Todos
           </button>
         )}
+        <button
+          onClick={() => onForward(msg)}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+        >
+          <Forward size={13} /> Encaminhar
+        </button>
         <button
           onClick={() => {
             const bodyText = (msg.text || htmlToText(msg.html || '')).slice(0, 5000);
@@ -565,6 +620,9 @@ function MessageReader({
   );
 }
 
+const inputCls =
+  'w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400';
+
 function ComposeModal({
   initial,
   onClose,
@@ -576,27 +634,85 @@ function ComposeModal({
 }) {
   const [to, setTo] = useState(initial.to);
   const [cc, setCc] = useState(initial.cc || '');
+  const [bcc, setBcc] = useState(initial.bcc || '');
+  const [showCc, setShowCc] = useState(!!initial.cc);
+  const [showBcc, setShowBcc] = useState(!!initial.bcc);
   const [subject, setSubject] = useState(initial.subject);
-  const [body, setBody] = useState(initial.body);
+  const [bodyHtml, setBodyHtml] = useState(initial.bodyHtml);
+  const [resetSignal, setResetSignal] = useState(0);
+  const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
+  const [uploading, setUploading] = useState(0);
   const [error, setError] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+  const templates = useMemo(() => getTemplates(), []);
+
   const split = (s: string) =>
     s
       .split(/[,;]/)
       .map((x) => x.trim())
       .filter(Boolean);
 
+  // Payload comum a enviar e salvar rascunho. O HTML é sanitizado (remove
+  // <script> etc.) e o texto plano é derivado para o fallback multipart.
+  const buildPayload = () => ({
+    to: split(to),
+    cc: split(cc),
+    bcc: split(bcc),
+    subject,
+    html: DOMPurify.sanitize(bodyHtml),
+    text: htmlToText(bodyHtml),
+    inReplyTo: initial.inReplyTo,
+    attachments: attachments.map((a) => ({ aid: a.aid })),
+    forwardParts: initial.forwardParts,
+  });
+
   const sendMut = useMutation({
-    mutationFn: () =>
-      mailApi.send({
-        to: split(to),
-        cc: split(cc),
-        subject,
-        text: body,
-        inReplyTo: initial.inReplyTo,
-      }),
+    mutationFn: () => mailApi.send(buildPayload()),
     onSuccess: onSent,
     onError: (e: any) => setError(e?.response?.data?.error || 'Falha ao enviar.'),
   });
+
+  const draftMut = useMutation({
+    mutationFn: () => mailApi.saveDraft(buildPayload()),
+    onSuccess: onSent,
+    onError: (e: any) => setError(e?.response?.data?.error || 'Falha ao salvar rascunho.'),
+  });
+
+  const busy = sendMut.isPending || draftMut.isPending;
+
+  const onFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setError('');
+    for (const file of Array.from(files)) {
+      setUploading((n) => n + 1);
+      try {
+        const up = await mailApi.uploadAttachment(file);
+        setAttachments((list) => [...list, up]);
+      } catch (e: any) {
+        setError(e?.response?.data?.error || `Falha ao anexar ${file.name}.`);
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const removeAttachment = (aid: string) =>
+    setAttachments((list) => list.filter((a) => a.aid !== aid));
+
+  // Insere o corpo do template acima do conteúdo atual (assinatura/citação) e
+  // força o editor a recarregar via resetSignal.
+  const applyTemplate = (t: MailTemplate) => {
+    if (t.subject && !subject.trim()) setSubject(t.subject);
+    setBodyHtml((prev) => t.bodyHtml + prev);
+    setResetSignal((n) => n + 1);
+  };
+
+  const title = initial.inReplyTo
+    ? 'Responder'
+    : initial.forwardParts
+      ? 'Encaminhar'
+      : 'Nova mensagem';
 
   return (
     <div
@@ -604,13 +720,11 @@ function ComposeModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden"
+        className="w-full max-w-2xl max-h-[92vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 dark:border-slate-800">
-          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-            {initial.inReplyTo ? 'Responder' : 'Nova mensagem'}
-          </h3>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
           <button
             onClick={onClose}
             className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -618,35 +732,129 @@ function ComposeModal({
             <X size={16} />
           </button>
         </div>
-        <div className="p-5 space-y-3">
-          <input
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder="Para (separe por vírgula)"
-            className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-          <input
-            value={cc}
-            onChange={(e) => setCc(e.target.value)}
-            placeholder="Cc (opcional)"
-            className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
+        <div className="p-5 space-y-3 overflow-y-auto">
+          <div className="flex items-center gap-2">
+            <input
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              placeholder="Para (separe por vírgula)"
+              className={inputCls}
+            />
+            {!showCc && (
+              <button
+                type="button"
+                onClick={() => setShowCc(true)}
+                className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+              >
+                Cc
+              </button>
+            )}
+            {!showBcc && (
+              <button
+                type="button"
+                onClick={() => setShowBcc(true)}
+                className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+              >
+                Cco
+              </button>
+            )}
+          </div>
+          {showCc && (
+            <input
+              value={cc}
+              onChange={(e) => setCc(e.target.value)}
+              placeholder="Cc"
+              className={inputCls}
+            />
+          )}
+          {showBcc && (
+            <input
+              value={bcc}
+              onChange={(e) => setBcc(e.target.value)}
+              placeholder="Cco"
+              className={inputCls}
+            />
+          )}
           <input
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="Assunto"
-            className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            className={inputCls}
           />
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Escreva sua mensagem…"
-            rows={10}
-            className="w-full text-sm px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+          {templates.length > 0 && (
+            <div className="flex items-center gap-2">
+              <FileText size={14} className="text-slate-400" />
+              <select
+                value=""
+                onChange={(e) => {
+                  const t = templates.find((x) => x.id === e.target.value);
+                  if (t) applyTemplate(t);
+                }}
+                className={`${inputCls} cursor-pointer`}
+              >
+                <option value="">Inserir modelo…</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <MailComposeEditor
+            value={bodyHtml}
+            onChange={setBodyHtml}
+            resetSignal={resetSignal}
+            autoFocus={!initial.inReplyTo && !initial.forwardParts}
           />
+
+          {/* Anexos */}
+          <div className="space-y-2">
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              onChange={(e) => onFiles(e.target.files)}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              <Paperclip size={13} /> Anexar arquivo
+            </button>
+            {(attachments.length > 0 || uploading > 0) && (
+              <div className="flex flex-wrap gap-2">
+                {attachments.map((a) => (
+                  <span
+                    key={a.aid}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-300"
+                  >
+                    <Paperclip size={12} />
+                    <span className="truncate max-w-[160px]">{a.filename}</span>
+                    <span className="text-slate-400">{Math.round(a.size / 1024)}KB</span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(a.aid)}
+                      className="text-slate-400 hover:text-red-500"
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+                {uploading > 0 && (
+                  <span className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400">
+                    <Loader2 size={12} className="animate-spin" /> Enviando…
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
           {error && <p className="text-xs text-red-500">{error}</p>}
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-100 dark:border-slate-800 flex-shrink-0">
           <button
             onClick={onClose}
             className="px-3 py-1.5 text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
@@ -656,9 +864,24 @@ function ComposeModal({
           <button
             onClick={() => {
               setError('');
+              draftMut.mutate();
+            }}
+            disabled={busy || uploading > 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
+          >
+            {draftMut.isPending ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Save size={14} />
+            )}
+            Salvar rascunho
+          </button>
+          <button
+            onClick={() => {
+              setError('');
               sendMut.mutate();
             }}
-            disabled={!to.trim() || sendMut.isPending}
+            disabled={!to.trim() || busy || uploading > 0}
             className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg transition-colors"
           >
             {sendMut.isPending ? (

@@ -71,15 +71,70 @@ router.post(
   }),
 );
 
-// Enviar e-mail (novo ou resposta).
+// Enviar e-mail (novo, resposta ou encaminhamento).
 router.post(
   '/mail/send',
   handle(async (req, res) => {
-    const { to, cc, subject, text, html, inReplyTo } = req.body || {};
+    const { to, cc, bcc, subject, text, html, inReplyTo, attachments, forwardParts } =
+      req.body || {};
     if (!to || (Array.isArray(to) && to.length === 0)) {
       return res.status(400).json({ error: 'destinatário (to) obrigatório' });
     }
-    res.json(await zimbra.sendMessage(req, { to, cc, subject, text, html, inReplyTo }));
+    res.json(
+      await zimbra.sendMessage(req, {
+        to,
+        cc,
+        bcc,
+        subject,
+        text,
+        html,
+        inReplyTo,
+        attachments,
+        forwardParts,
+      }),
+    );
+  }),
+);
+
+// Salvar como rascunho (não envia). Mesmo payload do /mail/send.
+router.post(
+  '/mail/draft',
+  handle(async (req, res) => {
+    const { to, cc, bcc, subject, text, html, inReplyTo, attachments, forwardParts } =
+      req.body || {};
+    res.json(
+      await zimbra.saveDraft(req, {
+        to,
+        cc,
+        bcc,
+        subject,
+        text,
+        html,
+        inReplyTo,
+        attachments,
+        forwardParts,
+      }),
+    );
+  }),
+);
+
+// Upload de anexo para o Zimbra (retorna um `aid` a incluir no /mail/send).
+// Recebe os bytes crus no corpo (molde de drive.js). Teto de 25 MB.
+const MAIL_ATTACH_MAX_BYTES = 25 * 1024 * 1024;
+router.post(
+  '/mail/upload',
+  express.raw({ type: '*/*', limit: '25mb' }),
+  handle(async (req, res) => {
+    // Headers podem chegar como array se repetidos — coage a string (type confusion).
+    const header = (h) => String((Array.isArray(h) ? h[0] : h) ?? '');
+    const filename = decodeURIComponent(header(req.headers['x-filename']) || `anexo_${Date.now()}`);
+    const contentType = header(req.headers['x-content-type']) || 'application/octet-stream';
+    const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
+    if (!buffer.length) return res.status(400).json({ error: 'Arquivo vazio.' });
+    if (buffer.length > MAIL_ATTACH_MAX_BYTES) {
+      return res.status(413).json({ error: 'Anexo excede o limite de 25 MB.' });
+    }
+    res.json(await zimbra.uploadAttachment(req, { filename, contentType, buffer }));
   }),
 );
 

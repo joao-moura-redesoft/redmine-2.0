@@ -327,18 +327,125 @@ async function actOnMessage(req, id, op, target) {
   return { success: true };
 }
 
-async function sendMessage(req, { to, cc, subject, text, html, inReplyTo }) {
+// Normaliza um campo de destinatários (string única ou array) para lista limpa.
+function addrList(v) {
+  return (Array.isArray(v) ? v : v ? [v] : []).filter(Boolean);
+}
+
+// Monta o objeto <m> do Zimbra compartilhado por SendMsg e SaveDraft.
+//   - Corpo em multipart/alternative (texto + HTML) quando há `html`; senão,
+//     um único text/plain. Isso garante fallback para clientes texto-plano.
+//   - `attachments`: aids vindos de /service/upload (upload prévio).
+//   - `forwardParts`: partes de outra mensagem reanexadas por (mid, part),
+//     sem re-upload (usado no Encaminhar).
+function buildMessagePart({
+  to,
+  cc,
+  bcc,
+  subject,
+  text,
+  html,
+  inReplyTo,
+  attachments,
+  forwardParts,
+}) {
   const e = [];
-  for (const addr of (Array.isArray(to) ? to : [to]).filter(Boolean)) e.push({ t: 't', a: addr });
-  for (const addr of (Array.isArray(cc) ? cc : cc ? [cc] : []).filter(Boolean))
-    e.push({ t: 'c', a: addr });
-  const mp = html
-    ? { ct: 'text/html', content: { _content: html } }
+  for (const addr of addrList(to)) e.push({ t: 't', a: addr });
+  for (const addr of addrList(cc)) e.push({ t: 'c', a: addr });
+  for (const addr of addrList(bcc)) e.push({ t: 'b', a: addr });
+
+  const body = html
+    ? {
+        ct: 'multipart/alternative',
+        mp: [
+          { ct: 'text/plain', content: { _content: text || '' } },
+          { ct: 'text/html', content: { _content: html } },
+        ],
+      }
     : { ct: 'text/plain', content: { _content: text || '' } };
-  const m = { e, su: { _content: subject || '' }, mp: [mp] };
+
+  const m = { e, su: { _content: subject || '' }, mp: [body] };
   if (inReplyTo) m.irt = { _content: inReplyTo };
+
+  const attach = {};
+  const aids = (attachments || []).map((a) => a.aid).filter(Boolean);
+  if (aids.length) attach.aid = aids.join(',');
+  const parts = (forwardParts || []).filter((p) => p && p.mid && p.part);
+  if (parts.length) attach.mp = parts.map((p) => ({ mid: String(p.mid), part: String(p.part) }));
+  if (attach.aid || attach.mp) m.attach = attach;
+
+  return m;
+}
+
+async function sendMessage(req, payload) {
+  const m = buildMessagePart(payload);
   await mailSoap(req, 'urn:zimbraMail', 'SendMsgRequest', { m });
   return { success: true };
+}
+
+// Salva a mensagem como rascunho (pasta Rascunhos do Zimbra) sem enviar.
+async function saveDraft(req, payload) {
+  const m = buildMessagePart(payload);
+  const resp = await mailSoap(req, 'urn:zimbraMail', 'SaveDraftRequest', { m });
+  const draft = resp.m?.[0] || resp.m;
+  return { success: true, id: draft?.id != null ? String(draft.id) : null };
+}
+
+// Faz upload de um anexo para o Zimbra e devolve o `aid` (attachment id) que
+// depois é referenciado no SendMsg/SaveDraft. É REST (não SOAP), como o
+// download em fetchAttachment. A resposta do servlet tem a forma:
+//   200,'null',[{"aid":"...","filename":"...","ct":"...","s":123}]
+async function uploadAttachment(req, { filename, contentType, buffer }) {
+  const { host, user, password } = await tokenFor(req);
+  const safeName = String(filename || 'anexo').replace(/["\r\n]/g, '');
+  const url = `https://${host}/service/upload?fmt=extended&requestId=0`;
+
+  const post = (tok) =>
+    axios.post(url, buffer, {
+      responseType: 'text',
+      timeout: 60000,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      headers: {
+        Cookie: `ZM_AUTH_TOKEN=${tok}`,
+        'Content-Type': contentType || 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${safeName}"`,
+      },
+    });
+
+  let token = await authenticate(host, user, password);
+  let resp;
+  try {
+    resp = await post(token);
+  } catch (e) {
+    // 401/440 = token caiu: reautentica com as mesmas credenciais (padrão de fetchAttachment).
+    if (e.response?.status !== 401 && e.response?.status !== 440) throw e;
+    tokenCache.delete(`${host}:${user}`);
+    token = await authenticate(host, user, password);
+    resp = await post(token);
+  }
+
+  const raw = typeof resp.data === 'string' ? resp.data : String(resp.data || '');
+  // Extrai o array JSON após o segundo separador ",'null',".
+  const jsonStart = raw.indexOf('[');
+  const jsonEnd = raw.lastIndexOf(']');
+  if (jsonStart === -1 || jsonEnd === -1) {
+    throw new Error(`Resposta de upload do Zimbra inesperada: ${raw.slice(0, 120)}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
+  } catch {
+    throw new Error('Falha ao interpretar a resposta de upload do Zimbra.');
+  }
+  const item = Array.isArray(parsed) ? parsed[0] : null;
+  if (!item?.aid) throw new Error('Upload do Zimbra não retornou aid.');
+  return {
+    aid: item.aid,
+    filename: item.filename || safeName,
+    size: Number(item.s) || buffer.length,
+    contentType: item.ct || contentType || 'application/octet-stream',
+  };
 }
 
 // === Calendário (appointments) =========================================
@@ -617,6 +724,8 @@ module.exports = {
   searchMessages,
   actOnMessage,
   sendMessage,
+  saveDraft,
+  uploadAttachment,
   unreadCount,
   fetchAttachment,
   listAppointments,

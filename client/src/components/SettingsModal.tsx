@@ -14,6 +14,8 @@ import {
   Mail,
   BookOpen,
   Shield,
+  Plus,
+  Pencil,
 } from 'lucide-react';
 import {
   getConfiguredProviders,
@@ -36,9 +38,15 @@ import {
   clearMailConfig,
   DEFAULT_HOST,
   getMailHost,
+  getSignature,
+  saveSignature,
+  getTemplates,
+  saveTemplates,
+  type MailTemplate,
 } from '../utils/mailConfig';
 import { getStoredAuth, redmineApi, type AIUsage } from '../api/redmine';
 import { mailApi } from '../api/mail';
+import { MailComposeEditor } from './MailComposeEditor';
 import {
   adConfigured,
   saveADCreds,
@@ -883,8 +891,165 @@ function MailSection() {
               {testState === 'error' && <span className="text-xs text-red-500">{testError}</span>}
             </div>
           )}
+
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+            <MailPersonalization />
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Assinatura (rodapé) e modelos de e-mail — configuração local por-usuário
+// (localStorage, como o host). O corpo usa o mesmo editor rico do compositor.
+function MailPersonalization() {
+  const [signature, setSignature] = useState(() => getSignature());
+  const [sigReset, setSigReset] = useState(0);
+  const [sigSaved, setSigSaved] = useState(false);
+  const [templates, setTemplates] = useState<MailTemplate[]>(() => getTemplates());
+  const [editing, setEditing] = useState<MailTemplate | null>(null);
+
+  const persistSignature = () => {
+    saveSignature(signature);
+    setSigSaved(true);
+    setTimeout(() => setSigSaved(false), 2000);
+  };
+
+  const persistTemplates = (list: MailTemplate[]) => {
+    setTemplates(list);
+    saveTemplates(list);
+  };
+
+  const newTemplate = () =>
+    setEditing({ id: `t_${Date.now()}`, name: '', subject: '', bodyHtml: '' });
+
+  const saveTemplate = () => {
+    if (!editing) return;
+    const name = editing.name.trim() || 'Sem nome';
+    const t = { ...editing, name };
+    const exists = templates.some((x) => x.id === t.id);
+    persistTemplates(exists ? templates.map((x) => (x.id === t.id ? t : x)) : [...templates, t]);
+    setEditing(null);
+  };
+
+  const removeTemplate = (id: string) => persistTemplates(templates.filter((x) => x.id !== id));
+
+  return (
+    <div className="space-y-4">
+      {/* Assinatura */}
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Assinatura</p>
+        <p className="text-[11px] text-slate-400 dark:text-slate-500">
+          Aplicada automaticamente ao escrever uma nova mensagem.
+        </p>
+        <MailComposeEditor
+          value={signature}
+          onChange={setSignature}
+          resetSignal={sigReset}
+          minHeight={120}
+          placeholder="Sua assinatura (nome, cargo, contato, logo…)"
+        />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={persistSignature}
+            className="flex items-center gap-1 px-3 py-1.5 text-xs bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-lg font-medium transition-colors"
+          >
+            {sigSaved ? <Check size={11} /> : null} Salvar assinatura
+          </button>
+          {signature && (
+            <button
+              onClick={() => {
+                setSignature('');
+                setSigReset((n) => n + 1);
+                saveSignature('');
+              }}
+              className="text-xs text-slate-400 hover:text-red-500"
+            >
+              Limpar
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Modelos */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Modelos</p>
+          <button
+            onClick={newTemplate}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+          >
+            <Plus size={12} /> Novo modelo
+          </button>
+        </div>
+        {templates.length === 0 && !editing && (
+          <p className="text-[11px] text-slate-400 dark:text-slate-500">
+            Nenhum modelo. Crie modelos reutilizáveis para o compositor.
+          </p>
+        )}
+        {templates.map((t) => (
+          <div
+            key={t.id}
+            className="flex items-center justify-between px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
+          >
+            <span className="text-xs text-slate-700 dark:text-slate-200 truncate">{t.name}</span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setEditing(t)}
+                className="p-1 text-slate-400 hover:text-blue-500"
+                title="Editar"
+              >
+                <Pencil size={12} />
+              </button>
+              <button
+                onClick={() => removeTemplate(t.id)}
+                className="p-1 text-slate-400 hover:text-red-500"
+                title="Remover"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          </div>
+        ))}
+
+        {editing && (
+          <div className="space-y-2 p-3 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-900/10">
+            <input
+              value={editing.name}
+              onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+              placeholder="Nome do modelo"
+              className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <input
+              value={editing.subject || ''}
+              onChange={(e) => setEditing({ ...editing, subject: e.target.value })}
+              placeholder="Assunto (opcional)"
+              className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <MailComposeEditor
+              value={editing.bodyHtml}
+              onChange={(html) => setEditing((cur) => (cur ? { ...cur, bodyHtml: html } : cur))}
+              minHeight={120}
+              placeholder="Corpo do modelo…"
+            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={saveTemplate}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+              >
+                <Check size={11} /> Salvar modelo
+              </button>
+              <button
+                onClick={() => setEditing(null)}
+                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
