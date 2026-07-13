@@ -1,12 +1,14 @@
-name: 'Security CI'
+name: 'CodeQL'
 
+# Lint/test/audit/build ficam no ci.yml. Aqui só a análise de segurança CodeQL,
+# que roda também num agendamento semanal.
 on:
   push:
     branches: ['main', 'master']
   pull_request:
     branches: ['main', 'master']
   schedule:
-    - cron: '0 0 * * 0' # Run weekly on Sundays
+    - cron: '0 0 * * 0' # semanal, domingos
 
 jobs:
   codeql-analyze:
@@ -30,42 +32,8 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          # If you wish to specify custom queries, you can do so here or in a config file.
-          # queries: security-extended,security-and-quality
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
           category: '/language:${{matrix.language}}'
-
-  dependency-audit-and-build:
-    name: NPM Audit & Build Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20 # Node 20 LTS: global Web Crypto (usado por serialize-javascript no build) e Node 18 está EOL
-
-      - name: Install Root/Server Dependencies
-        run: npm install # Using install instead of ci in case package-lock is out of sync initially
-
-      - name: Run npm audit (Root/Server)
-        # Fails only on high or critical vulnerabilities
-        run: npm audit --audit-level=high
-
-      - name: Install Client Dependencies
-        run: npm install
-        working-directory: ./client
-
-      - name: Run npm audit (Client)
-        # Fails only on high/critical, omitting devDependencies (like Vite/esbuild) since they don't go to production bundle
-        run: npm audit --audit-level=high --omit=dev
-        working-directory: ./client
-
-      - name: Verify Client Build
-        run: npm run build
-        working-directory: ./client

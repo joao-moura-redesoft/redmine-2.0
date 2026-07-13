@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: ['main', 'master']
+  pull_request:
+    branches: ['main', 'master']
+
+# Nenhum destes jobs escreve no repo — só leitura (mínimo necessário).
+permissions:
+  contents: read
+
+# Pushes seguidos na mesma branch/PR cancelam runs antigos (economiza minutos).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (ESLint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+      - name: Install (root)
+        run: npm install
+      - name: Lint (server)
+        run: npm run lint
+      - name: Install (client)
+        run: npm install
+        working-directory: ./client
+      - name: Lint (client)
+        run: npm run lint
+        working-directory: ./client
+
+  test:
+    name: Tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+      - name: Install (root)
+        run: npm install
+      - name: Run tests
+        run: npm test
+
+  audit:
+    name: NPM Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+      - name: Install (root)
+        run: npm install
+      - name: Audit (root/server) — falha só em high/critical
+        run: npm audit --audit-level=high
+      - name: Install (client)
+        run: npm install
+        working-directory: ./client
+      - name: Audit (client) — sem devDeps (não vão pro bundle de produção)
+        run: npm audit --audit-level=high --omit=dev
+        working-directory: ./client
+
+  build:
+    name: Build (client)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+      - name: Install (client)
+        run: npm install
+        working-directory: ./client
+      # `build` = `tsc && vite build`, então isto também faz o typecheck.
+      - name: Build
+        run: npm run build
+        working-directory: ./client

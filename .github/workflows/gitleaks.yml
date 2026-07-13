@@ -7,6 +7,10 @@ on:
     branches: ['main', 'master']
   workflow_dispatch:
 
+# Só lê o histórico para escanear segredos — sem escrita.
+permissions:
+  contents: read
+
 jobs:
   gitleaks:
     name: Gitleaks
