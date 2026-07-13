@@ -28,6 +28,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '../hooks/useNotes';
 import { useNcNotes, useUpdateNcNote, useDeleteNcNote, usePushNoteToNc } from '../hooks/useNcNotes';
 import type { NcPatch } from '../api/ncnotes';
+import { htmlToMarkdown } from '../utils/ncNoteHtml';
 import { useProjects, useEditFields } from '../hooks/useRedmine';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
 import { fuzzyBest } from '../utils/fuzzy';
@@ -129,8 +130,15 @@ const NC_COLORS = [
 
 function noteTitle(n: Note): string {
   if (n.title.trim()) return n.title.trim();
-  const firstLine = n.body.split('\n').find((l) => l.trim());
-  return firstLine?.replace(/^#+\s*/, '').trim() || 'Sem título';
+  // Notas do NC guardam o corpo em HTML — remove tags antes de derivar o título.
+  const plain = n.source === 'nextcloud' ? n.body.replace(/<[^>]+>/g, ' ') : n.body;
+  const firstLine = plain.split('\n').find((l) => l.trim());
+  return (
+    firstLine
+      ?.replace(/^#+\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim() || 'Sem título'
+  );
 }
 
 // ─── Busca de tarefa para vincular ────────────────────────────────────────────
@@ -423,7 +431,8 @@ function NoteEditor({
   );
 
   const exportMarkdown = () => {
-    const content = (title.trim() ? `# ${title.trim()}\n\n` : '') + body;
+    const mdBody = isNc ? htmlToMarkdown(body) : body;
+    const content = (title.trim() ? `# ${title.trim()}\n\n` : '') + mdBody;
     const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -769,6 +778,7 @@ function NoteEditor({
             onChange={onBody}
             onIssueClick={onIssueClick}
             editable={!ncReadonly}
+            format={isNc ? 'html' : 'markdown'}
           />
 
           {/* Checklist espelhada da tarefa vinculada (mesma do modal da tarefa) */}
@@ -1019,9 +1029,10 @@ export function NotesView({
     // Com busca: ranking fuzzy (título pesa mais que corpo/tags)
     return base
       .map((n) => {
+        const bodyText = n.source === 'nextcloud' ? n.body.replace(/<[^>]+>/g, ' ') : n.body;
         const score = Math.max(
           fuzzyBest(q, noteTitle(n)),
-          fuzzyBest(q, n.body) - 30,
+          fuzzyBest(q, bodyText) - 30,
           fuzzyBest(q, n.tags.join(' ')) - 10,
         );
         return { n, score };
@@ -1092,10 +1103,12 @@ export function NotesView({
   };
 
   // Bridge: importa uma nota do Nextcloud como nota local (aí ganha tags/cor/vínculo).
+  // O corpo do NC é HTML → converte para markdown, formato das notas locais.
   const handleImportToLocal = (n: Note) => {
     const id = newNoteId();
     setSelectedId(id);
-    createNote.mutate({ id, title: n.title, body: n.body });
+    const body = n.source === 'nextcloud' ? htmlToMarkdown(n.body) : n.body;
+    createNote.mutate({ id, title: n.title, body });
   };
 
   const confirmDelete = () => {
@@ -1286,8 +1299,9 @@ export function NotesView({
                   </span>
                 </span>
                 <span className="block text-[11px] text-slate-400 truncate mt-0.5">
-                  {n.body
+                  {(n.source === 'nextcloud' ? n.body.replace(/<[^>]+>/g, ' ') : n.body)
                     .replace(/[#*_`>-]/g, '')
+                    .replace(/\s+/g, ' ')
                     .trim()
                     .slice(0, 60) || 'Vazia'}
                 </span>

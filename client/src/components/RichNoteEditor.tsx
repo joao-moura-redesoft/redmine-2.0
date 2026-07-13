@@ -6,6 +6,9 @@ import Placeholder from '@tiptap/extension-placeholder';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import { TableKit } from '@tiptap/extension-table';
+import { TextStyle } from '@tiptap/extension-text-style';
+import { Color } from '@tiptap/extension-color';
+import { Highlight } from '@tiptap/extension-highlight';
 import { Markdown } from 'tiptap-markdown';
 import { SlashCommand } from './noteSlashCommand';
 import { IssueMention } from './noteIssueMention';
@@ -13,28 +16,38 @@ import {
   Bold,
   Italic,
   Strikethrough,
+  Underline as UnderlineIcon,
   Code,
   Heading1,
   Heading2,
   List,
   ListOrdered,
   Quote,
+  Baseline,
+  Highlighter,
 } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 
+// Paletas do modo HTML (notas do Nextcloud): cor de texto e realce.
+const TEXT_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
+const HL_COLORS = ['#fde68a', '#bbf7d0', '#bfdbfe', '#fbcfe8', '#e9d5ff'];
+
 interface Props {
-  value: string; // markdown inicial
-  onChange: (markdown: string) => void;
+  value: string; // conteúdo inicial (markdown, ou HTML quando format='html')
+  onChange: (content: string) => void;
   noteId: string; // recarrega o conteúdo ao trocar de nota
   placeholder?: string;
   onIssueClick?: (id: number) => void; // abre tarefa ao clicar em #1234
-  editable?: boolean; // false = somente-leitura (ex.: nota do Nextcloud sem app Notes)
+  editable?: boolean; // false = somente-leitura
+  // 'markdown' (padrão): lê/grava markdown (notas locais). 'html': lê/grava HTML e
+  // habilita cor de texto/realce (notas do Nextcloud/QuickNotes, que guardam HTML).
+  format?: 'markdown' | 'html';
 }
 
 /**
- * Editor WYSIWYG estilo Notion: a formatação Markdown é renderizada em tempo real
- * enquanto se digita (## vira título, - vira lista, **x** vira negrito…). O
- * conteúdo é lido/gravado como Markdown, mantendo compatibilidade com o resto do app.
+ * Editor WYSIWYG estilo Notion: a formatação é renderizada em tempo real enquanto se
+ * digita. Em modo 'markdown' o conteúdo é lido/gravado como Markdown (notas locais);
+ * em modo 'html' é lido/gravado como HTML e ganha cor de texto/realce (Nextcloud).
  */
 export function RichNoteEditor({
   value,
@@ -43,7 +56,9 @@ export function RichNoteEditor({
   placeholder = 'Comece a escrever…',
   onIssueClick,
   editable = true,
+  format = 'markdown',
 }: Props) {
+  const isHtml = format === 'html';
   const settingContent = useRef(false);
   const issueClickRef = useRef(onIssueClick);
   issueClickRef.current = onIssueClick;
@@ -60,7 +75,18 @@ export function RichNoteEditor({
       TableKit.configure({ table: { resizable: true } }),
       SlashCommand,
       IssueMention.configure({ onIssueClick: (id) => issueClickRef.current?.(id) }),
-      Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
+      // Modo HTML: cor de texto (TextStyle+Color) e realce; o parse/serialize de
+      // string vira HTML nativo do tiptap. Modo markdown: a extensão Markdown.
+      ...(isHtml
+        ? [TextStyle, Color, Highlight.configure({ multicolor: true })]
+        : [
+            Markdown.configure({
+              html: false,
+              linkify: true,
+              breaks: true,
+              transformPastedText: true,
+            }),
+          ]),
     ],
     content: value,
     editable,
@@ -69,8 +95,12 @@ export function RichNoteEditor({
     },
     onUpdate: ({ editor }) => {
       if (settingContent.current) return;
-      const storage = editor.storage as unknown as { markdown: { getMarkdown: () => string } };
-      onChange(storage.markdown.getMarkdown());
+      if (isHtml) {
+        onChange(editor.getHTML());
+      } else {
+        const storage = editor.storage as unknown as { markdown: { getMarkdown: () => string } };
+        onChange(storage.markdown.getMarkdown());
+      }
     },
   });
 
@@ -88,7 +118,7 @@ export function RichNoteEditor({
     <>
       {editor && (
         <BubbleMenu editor={editor}>
-          <NoteBubbleMenu editor={editor} />
+          <NoteBubbleMenu editor={editor} showColor={isHtml} />
         </BubbleMenu>
       )}
       <EditorContent editor={editor} />
@@ -96,8 +126,9 @@ export function RichNoteEditor({
   );
 }
 
-// Barra flutuante que aparece ao selecionar texto (estilo Notion)
-function NoteBubbleMenu({ editor }: { editor: Editor }) {
+// Barra flutuante que aparece ao selecionar texto (estilo Notion). `showColor`
+// habilita os controles de cor de texto/realce/sublinhado (modo HTML — Nextcloud).
+function NoteBubbleMenu({ editor, showColor }: { editor: Editor; showColor?: boolean }) {
   const Btn = ({
     onClick,
     active,
@@ -194,6 +225,75 @@ function NoteBubbleMenu({ editor }: { editor: Editor }) {
       >
         <Quote size={14} />
       </Btn>
+
+      {showColor && (
+        <>
+          <span className="w-px h-5 bg-slate-200 dark:bg-slate-600 mx-0.5" />
+          <Btn
+            title="Sublinhado (Ctrl+U)"
+            active={editor.isActive('underline')}
+            onClick={() => editor.chain().focus().toggleUnderline().run()}
+          >
+            <UnderlineIcon size={14} />
+          </Btn>
+          {/* Cor do texto */}
+          <div className="flex items-center gap-0.5 px-1">
+            <Baseline size={13} className="text-slate-400 flex-shrink-0" />
+            {TEXT_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                title={`Cor ${c}`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  editor.chain().focus().setColor(c).run();
+                }}
+                style={{ backgroundColor: c }}
+                className="w-3.5 h-3.5 rounded-full border border-black/10 hover:scale-125 transition-transform"
+              />
+            ))}
+            <button
+              type="button"
+              title="Sem cor"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                editor.chain().focus().unsetColor().run();
+              }}
+              className="text-[11px] leading-none text-slate-400 hover:text-slate-600 px-0.5"
+            >
+              ✕
+            </button>
+          </div>
+          {/* Realce */}
+          <div className="flex items-center gap-0.5 px-1">
+            <Highlighter size={13} className="text-slate-400 flex-shrink-0" />
+            {HL_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                title={`Realce ${c}`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  editor.chain().focus().toggleHighlight({ color: c }).run();
+                }}
+                style={{ backgroundColor: c }}
+                className="w-3.5 h-3.5 rounded-sm border border-black/10 hover:scale-125 transition-transform"
+              />
+            ))}
+            <button
+              type="button"
+              title="Sem realce"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                editor.chain().focus().unsetHighlight().run();
+              }}
+              className="text-[11px] leading-none text-slate-400 hover:text-slate-600 px-0.5"
+            >
+              ✕
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

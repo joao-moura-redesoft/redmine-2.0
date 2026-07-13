@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type { Note } from './notes';
-import { htmlToMarkdown, markdownToHtml } from '../utils/ncNoteHtml';
+import { markdownToHtml } from '../utils/ncNoteHtml';
 
 // Notas do Nextcloud (app QuickNotes) — sempre com source:'nextcloud'. Reutiliza o
 // shape de Note para poder mesclar na mesma lista/UI das notas locais (ver useNcNotes).
@@ -27,13 +27,16 @@ export type NcPatch = {
 };
 
 // ─── API ─────────────────────────────────────────────────────────────────────────
+// O `body` das notas do NC circula como HTML de ponta a ponta: o editor edita em modo
+// HTML (RichNoteEditor format='html'), preservando cor de texto/realce que markdown
+// não representa. A conversão markdown↔HTML só acontece nas bordas do bridge
+// (push local→NC aqui; import NC→local no NotesView, via htmlToMarkdown).
 export async function fetchNcNotes(): Promise<NcNote[]> {
   const { data } = await api.get<NcNote[]>('/ncnotes');
-  // Converte o HTML do QuickNotes para markdown (o backend entrega `body` em HTML).
-  return data.map((n) => ({ ...n, body: htmlToMarkdown(n.body) }));
+  return data; // body já é HTML
 }
 
-// Atualiza título/corpo/pino/cor/tags. O corpo (markdown) vira HTML antes de ir.
+// Atualiza título/corpo/pino/cor/tags. O corpo já é HTML (editor em modo html).
 export async function updateNcNote(ncId: number, patch: NcPatch): Promise<NcNote> {
   const payload: {
     title?: string;
@@ -43,12 +46,12 @@ export async function updateNcNote(ncId: number, patch: NcPatch): Promise<NcNote
     tags?: string[];
   } = {};
   if (patch.title !== undefined) payload.title = patch.title;
-  if (patch.body !== undefined) payload.content = markdownToHtml(patch.body);
+  if (patch.body !== undefined) payload.content = patch.body; // HTML
   if (patch.pinned !== undefined) payload.pinned = patch.pinned;
   if (patch.ncColor !== undefined) payload.color = patch.ncColor;
   if (patch.tags !== undefined) payload.tags = patch.tags;
   const { data } = await api.put<NcNote>(`/ncnotes/${ncId}`, payload);
-  return { ...data, body: htmlToMarkdown(data.body) };
+  return data;
 }
 
 export async function deleteNcNote(ncId: number): Promise<void> {
@@ -61,5 +64,5 @@ export async function pushNoteToNc(title: string, body: string): Promise<NcNote>
     title,
     content: markdownToHtml(body),
   });
-  return { ...data, body: htmlToMarkdown(data.body) };
+  return data; // body é HTML
 }
