@@ -13,6 +13,14 @@ export interface Note {
   linkedProjectId: number | null;
   createdAt: number;
   updatedAt: number;
+  // Notas vindas do Nextcloud (app Notes) são mescladas na mesma lista com estes
+  // campos extras. Ausentes/'local' nas notas locais — o código local os ignora.
+  source?: 'local' | 'nextcloud';
+  ncId?: number | null; // id numérico no Nextcloud
+  etag?: string; // reservado p/ controle de concorrência (não usado no QuickNotes)
+  readonly?: boolean; // notas do Nextcloud somente-leitura (se aplicável)
+  category?: string; // reservado (sem equivalente no QuickNotes)
+  ncColor?: string | null; // cor real (hex) da nota no QuickNotes
 }
 
 export type NotePatch = Partial<

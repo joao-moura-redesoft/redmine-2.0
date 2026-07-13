@@ -20,9 +20,14 @@ import {
   CalendarDays,
   CheckSquare,
   AlertCircle,
+  Cloud,
+  UploadCloud,
+  DownloadCloud,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useNotes, useCreateNote, useUpdateNote, useDeleteNote } from '../hooks/useNotes';
+import { useNcNotes, useUpdateNcNote, useDeleteNcNote, usePushNoteToNc } from '../hooks/useNcNotes';
+import type { NcPatch } from '../api/ncnotes';
 import { useProjects, useEditFields } from '../hooks/useRedmine';
 import { localChecklists, useChecklist } from '../utils/localChecklists';
 import { fuzzyBest } from '../utils/fuzzy';
@@ -104,6 +109,23 @@ const COLORS: { key: string; dot: string; stripe: string }[] = [
   { key: 'violet', dot: 'bg-violet-400', stripe: 'bg-violet-400' },
 ];
 const stripeFor = (key: string | null) => COLORS.find((c) => c.key === key)?.stripe ?? '';
+
+// Paleta de cores do QuickNotes (hex) — usada nas notas do Nextcloud, que guardam a
+// cor real em vez da chave de paleta local.
+const NC_COLORS = [
+  '#F7EB96',
+  '#F7D96A',
+  '#F7B96A',
+  '#F79E96',
+  '#F796C6',
+  '#C696F7',
+  '#96AEF7',
+  '#96D7F7',
+  '#96F7C6',
+  '#B4F796',
+  '#E0E0E0',
+  '#FFFFFF',
+];
 
 function noteTitle(n: Note): string {
   if (n.title.trim()) return n.title.trim();
@@ -225,6 +247,7 @@ function NoteEditor({
   projectName,
   onDuplicate,
   onAutoDeleteEmpty,
+  onImportToLocal,
   allNotes,
   onSelectNote,
 }: {
@@ -233,10 +256,18 @@ function NoteEditor({
   projectName?: string;
   onDuplicate: (note: Note) => void;
   onAutoDeleteEmpty: (id: string) => void;
+  onImportToLocal: (note: Note) => void;
   allNotes: Note[];
   onSelectNote: (id: string) => void;
 }) {
+  // Nota do Nextcloud (app Notes): modelo mais pobre (só corpo markdown), então
+  // escondemos tags/cor/vínculo/checklist e roteamos o autosave para o endpoint NC.
+  const isNc = note.source === 'nextcloud';
+  const ncReadonly = isNc && !!note.readonly; // fallback WebDAV é somente-leitura
   const updateNote = useUpdateNote();
+  const updateNc = useUpdateNcNote();
+  const pushToNc = usePushNoteToNc();
+  const [pushState, setPushState] = useState<'idle' | 'pushing' | 'done' | 'error'>('idle');
   const checklist = useChecklist(note.linkedIssueId ?? -1);
   const [clInput, setClInput] = useState('');
   const [title, setTitle] = useState(note.title);
@@ -319,6 +350,15 @@ function NoteEditor({
 
   const save = (p: NotePatch) => {
     setSaving(true);
+    if (isNc) {
+      // QuickNotes tem título e corpo separados; a paleta/vínculo local não se aplicam.
+      if (ncReadonly || note.ncId == null) return setSaving(false);
+      const ncPatch: { title?: string; body?: string } = {};
+      if (p.title !== undefined) ncPatch.title = p.title;
+      if (p.body !== undefined) ncPatch.body = p.body;
+      updateNc.mutate({ ncId: note.ncId, patch: ncPatch }, { onSettled: () => setSaving(false) });
+      return;
+    }
     updateNote.mutate({ id: note.id, patch: p }, { onSettled: () => setSaving(false) });
   };
 
@@ -350,6 +390,16 @@ function NoteEditor({
       if (saveTimer.current) clearTimeout(saveTimer.current);
       if (titleTimer.current) clearTimeout(titleTimer.current);
       const n = noteRef.current;
+      if (n.source === 'nextcloud') {
+        // Notas do Nextcloud nunca são auto-excluídas; só persistimos o que ficou no debounce.
+        if (!n.readonly && n.ncId != null) {
+          const p: { title?: string; body?: string } = {};
+          if (pendingTitle.current !== null) p.title = pendingTitle.current;
+          if (pendingBody.current !== null) p.body = pendingBody.current;
+          if (Object.keys(p).length) updateNc.mutate({ ncId: n.ncId, patch: p });
+        }
+        return;
+      }
       const lt = latestTitle.current;
       const lb = latestBody.current;
       const empty = !lt.trim() && !lb.trim() && n.tags.length === 0 && !n.linkedIssueId;
@@ -367,6 +417,8 @@ function NoteEditor({
       if (pendingBody.current !== null) flush.body = pendingBody.current;
       if (Object.keys(flush).length) updateNote.mutate({ id: n.id, patch: flush });
     },
+    // Só roda na desmontagem; usa refs para ler o estado mais recente (mutações são estáveis).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -381,16 +433,42 @@ function NoteEditor({
     URL.revokeObjectURL(url);
   };
 
+  // Bridge: envia esta nota local para o Nextcloud (unidirecional; leva só título+corpo).
+  const handlePushToNc = () => {
+    if (!title.trim() && !body.trim()) return;
+    setPushState('pushing');
+    pushToNc.mutate(
+      { title: title.trim(), body },
+      {
+        onSuccess: () => {
+          setPushState('done');
+          setTimeout(() => setPushState('idle'), 2500);
+        },
+        onError: () => {
+          setPushState('error');
+          setTimeout(() => setPushState('idle'), 3000);
+        },
+      },
+    );
+  };
+
+  // Atualiza campos exclusivos de nota do Nextcloud (pino/cor/tags) direto no QuickNotes.
+  const ncUpdate = (p: NcPatch) => {
+    if (note.ncId == null) return;
+    updateNc.mutate({ ncId: note.ncId, patch: p });
+  };
+  const setTags = (tags: string[]) => (isNc ? ncUpdate({ tags }) : patch({ tags }));
+
   const addTag = () => {
     const t = tagInput.trim().replace(/^#/, '');
     if (!t || note.tags.includes(t)) {
       setTagInput('');
       return;
     }
-    patch({ tags: [...note.tags, t] });
+    setTags([...note.tags, t]);
     setTagInput('');
   };
-  const removeTag = (t: string) => patch({ tags: note.tags.filter((x) => x !== t) });
+  const removeTag = (t: string) => setTags(note.tags.filter((x) => x !== t));
 
   const sendAsComment = async () => {
     if (!note.linkedIssueId || !body.trim()) return;
@@ -454,6 +532,12 @@ function NoteEditor({
     <div className="flex flex-col h-full min-h-0">
       {/* Controles discretos no topo */}
       <div className="flex items-center justify-end gap-0.5 px-3 pt-2.5 pb-1">
+        {isNc && (
+          <span className="ml-2 inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-sky-50 text-sky-600 dark:bg-sky-900/20 dark:text-sky-300">
+            <Cloud size={11} /> Nextcloud
+            {ncReadonly && ' · leitura'}
+          </span>
+        )}
         <span className="mr-auto pl-2 flex items-center gap-1 text-[11px] text-slate-300 dark:text-slate-600">
           {saving ? (
             <>
@@ -482,7 +566,39 @@ function NoteEditor({
           <Copy size={14} />
         </button>
 
-        {/* Cor */}
+        {/* Bridge: importar nota do Nextcloud para local, ou enviar local para o Nextcloud */}
+        {isNc ? (
+          <button
+            onClick={() => onImportToLocal(note)}
+            title="Importar como nota local (ganha tags, cor e vínculo com tarefa)"
+            className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          >
+            <DownloadCloud size={14} />
+          </button>
+        ) : (
+          <button
+            onClick={handlePushToNc}
+            disabled={pushState === 'pushing'}
+            title="Enviar para o Nextcloud (cria uma nota no QuickNotes)"
+            className={`p-1.5 rounded-md transition-colors disabled:opacity-50 ${
+              pushState === 'done'
+                ? 'text-green-500'
+                : pushState === 'error'
+                  ? 'text-red-500'
+                  : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            {pushState === 'pushing' ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : pushState === 'done' ? (
+              <Check size={14} />
+            ) : (
+              <UploadCloud size={14} />
+            )}
+          </button>
+        )}
+
+        {/* Cor — paleta local (chave) nas notas locais; hex do QuickNotes nas do NC */}
         <div className="relative">
           <button
             onClick={() => setShowColors((v) => !v)}
@@ -491,29 +607,51 @@ function NoteEditor({
           >
             <Palette size={14} />
           </button>
-          {showColors && (
-            <div className="absolute z-30 top-full right-0 mt-1 flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2">
-              {COLORS.map((c) => (
-                <button
-                  key={c.key}
-                  title={c.key}
-                  onClick={() => {
-                    patch({ color: note.color === c.key ? null : c.key });
-                    setShowColors(false);
-                  }}
-                  className={`w-4 h-4 rounded-full ${c.dot} transition-transform hover:scale-125 ${
-                    note.color === c.key
-                      ? 'ring-2 ring-offset-1 ring-slate-400 dark:ring-offset-slate-800'
-                      : ''
-                  }`}
-                />
-              ))}
-            </div>
-          )}
+          {showColors &&
+            (isNc ? (
+              <div className="absolute z-30 top-full right-0 mt-1 grid grid-cols-6 gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2">
+                {NC_COLORS.map((hex) => (
+                  <button
+                    key={hex}
+                    title={hex}
+                    onClick={() => {
+                      ncUpdate({ ncColor: hex });
+                      setShowColors(false);
+                    }}
+                    style={{ backgroundColor: hex }}
+                    className={`w-4 h-4 rounded-full border border-black/10 transition-transform hover:scale-125 ${
+                      (note.ncColor || '').toUpperCase() === hex
+                        ? 'ring-2 ring-offset-1 ring-slate-400 dark:ring-offset-slate-800'
+                        : ''
+                    }`}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="absolute z-30 top-full right-0 mt-1 flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-2">
+                {COLORS.map((c) => (
+                  <button
+                    key={c.key}
+                    title={c.key}
+                    onClick={() => {
+                      patch({ color: note.color === c.key ? null : c.key });
+                      setShowColors(false);
+                    }}
+                    className={`w-4 h-4 rounded-full ${c.dot} transition-transform hover:scale-125 ${
+                      note.color === c.key
+                        ? 'ring-2 ring-offset-1 ring-slate-400 dark:ring-offset-slate-800'
+                        : ''
+                    }`}
+                  />
+                ))}
+              </div>
+            ))}
         </div>
 
         <button
-          onClick={() => patch({ pinned: !note.pinned })}
+          onClick={() =>
+            isNc ? ncUpdate({ pinned: !note.pinned }) : patch({ pinned: !note.pinned })
+          }
           title={note.pinned ? 'Desafixar' : 'Fixar'}
           className={`p-1.5 rounded-md transition-colors ${note.pinned ? 'text-amber-500' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
         >
@@ -524,7 +662,8 @@ function NoteEditor({
       {/* Documento centralizado */}
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
         <div className="max-w-2xl mx-auto px-8 pb-16 pt-2">
-          {/* Título */}
+          {/* Título — editável tanto nas locais quanto nas do Nextcloud (QuickNotes
+              tem título próprio); o save é roteado por origem. */}
           <input
             value={title}
             onChange={(e) => onTitle(e.target.value)}
@@ -532,43 +671,47 @@ function NoteEditor({
             className="w-full text-3xl font-bold bg-transparent focus:outline-none text-slate-800 dark:text-slate-100 placeholder-slate-300 dark:placeholder-slate-600 mb-2"
           />
 
-          {/* Propriedades discretas: tarefa + tags */}
+          {/* Propriedades: tarefa/projeto (só locais) + tags (locais e do Nextcloud) */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-5 text-slate-400">
-            {note.linkedIssueId ? (
-              <LinkedIssueChip
-                id={note.linkedIssueId}
-                onOpen={onIssueClick}
-                onUnlink={() => patch({ linkedIssueId: null, linkedProjectId: null })}
-              />
-            ) : (
-              <div className="relative">
-                <button
-                  onClick={() => setLinking((v) => !v)}
-                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-blue-600 transition-colors"
-                >
-                  <Link2 size={12} /> Vincular tarefa
-                </button>
-                {linking && (
-                  <IssueLinker
-                    onClose={() => setLinking(false)}
-                    onPick={(issue) => {
-                      patch({ linkedIssueId: issue.id });
-                      setLinking(false);
-                      // Busca o projeto da tarefa para habilitar o filtro por projeto
-                      redmineApi
-                        .getIssue(issue.id)
-                        .then((full) => patch({ linkedProjectId: full.project.id }))
-                        .catch(() => {});
-                    }}
+            {!isNc && (
+              <>
+                {note.linkedIssueId ? (
+                  <LinkedIssueChip
+                    id={note.linkedIssueId}
+                    onOpen={onIssueClick}
+                    onUnlink={() => patch({ linkedIssueId: null, linkedProjectId: null })}
                   />
+                ) : (
+                  <div className="relative">
+                    <button
+                      onClick={() => setLinking((v) => !v)}
+                      className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-blue-600 transition-colors"
+                    >
+                      <Link2 size={12} /> Vincular tarefa
+                    </button>
+                    {linking && (
+                      <IssueLinker
+                        onClose={() => setLinking(false)}
+                        onPick={(issue) => {
+                          patch({ linkedIssueId: issue.id });
+                          setLinking(false);
+                          // Busca o projeto da tarefa para habilitar o filtro por projeto
+                          redmineApi
+                            .getIssue(issue.id)
+                            .then((full) => patch({ linkedProjectId: full.project.id }))
+                            .catch(() => {});
+                        }}
+                      />
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
 
-            {projectName && (
-              <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                <Folder size={11} /> {projectName}
-              </span>
+                {projectName && (
+                  <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                    <Folder size={11} /> {projectName}
+                  </span>
+                )}
+              </>
             )}
 
             {note.tags.length > 0 && <span className="text-slate-200 dark:text-slate-700">·</span>}
@@ -625,6 +768,7 @@ function NoteEditor({
             value={note.body}
             onChange={onBody}
             onIssueClick={onIssueClick}
+            editable={!ncReadonly}
           />
 
           {/* Checklist espelhada da tarefa vinculada (mesma do modal da tarefa) */}
@@ -775,9 +919,15 @@ export function NotesView({
   focus?: { nonce: number; issueId: number } | null;
 }) {
   const { data: notes = [], isLoading } = useNotes();
+  const { data: ncNotes = [] } = useNcNotes();
   const { data: projects = [] } = useProjects();
   const createNote = useCreateNote();
   const deleteNote = useDeleteNote();
+  const deleteNcNote = useDeleteNcNote();
+
+  // Notas locais + notas do Nextcloud mescladas numa lista só (cada uma com seu
+  // badge de origem). Derivações de tags/projeto ficam só nas locais (o NC não tem).
+  const allNotes = useMemo(() => [...notes, ...ncNotes], [notes, ncNotes]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -845,7 +995,7 @@ export function NotesView({
 
   const filtered = useMemo(() => {
     const q = search.trim();
-    const base = notes
+    const base = allNotes
       .filter((n) => !pinnedOnly || n.pinned)
       .filter((n) => !activeTag || n.tags.includes(activeTag))
       .filter((n) => !activeProject || n.linkedProjectId === activeProject)
@@ -868,16 +1018,16 @@ export function NotesView({
       .filter((x) => x.score >= 0)
       .sort((a, b) => b.score - a.score)
       .map((x) => x.n);
-  }, [notes, search, pinnedOnly, activeTag, activeProject, activeIssue]);
+  }, [allNotes, search, pinnedOnly, activeTag, activeProject, activeIssue]);
 
   // Mantém uma seleção válida
   useEffect(() => {
-    if (selectedId && notes.some((n) => n.id === selectedId)) return;
+    if (selectedId && allNotes.some((n) => n.id === selectedId)) return;
     setSelectedId(filtered[0]?.id ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, filtered.length]);
+  }, [allNotes, filtered.length]);
 
-  const selected = notes.find((n) => n.id === selectedId) ?? null;
+  const selected = allNotes.find((n) => n.id === selectedId) ?? null;
 
   const handleNew = (patch: NotePatch = {}) => {
     const id = newNoteId();
@@ -911,17 +1061,31 @@ export function NotesView({
     });
   };
 
-  // Auto-exclui notas vazias ao sair delas (evita acúmulo de notas em branco)
+  // Auto-exclui notas vazias ao sair delas (evita acúmulo de notas em branco).
+  // Só notas locais — as do Nextcloud nunca são auto-excluídas (guardado no editor).
   const handleAutoDeleteEmpty = (id: string) => {
     deleteNote.mutate(id);
     setSelectedId((prev) => (prev === id ? null : prev));
   };
 
+  // Bridge: importa uma nota do Nextcloud como nota local (aí ganha tags/cor/vínculo).
+  const handleImportToLocal = (n: Note) => {
+    const id = newNoteId();
+    setSelectedId(id);
+    createNote.mutate({ id, title: n.title, body: n.body });
+  };
+
   const confirmDelete = () => {
     if (!pendingDelete) return;
-    const id = pendingDelete.id;
-    deleteNote.mutate(id);
-    if (selectedId === id) setSelectedId(null);
+    const n = pendingDelete;
+    // Roteia a exclusão pela origem: notas do Nextcloud vão para a lixeira de lá
+    // (recuperável); readonly (fallback WebDAV) não é excluível por aqui.
+    if (n.source === 'nextcloud') {
+      if (n.ncId != null) deleteNcNote.mutate(n.ncId);
+    } else {
+      deleteNote.mutate(n.id);
+    }
+    if (selectedId === n.id) setSelectedId(null);
     setPendingDelete(null);
   };
 
@@ -1030,7 +1194,9 @@ export function NotesView({
             <div className="flex flex-col items-center justify-center py-12 text-slate-400 px-4 text-center">
               <StickyNote size={28} className="mb-2 opacity-30" />
               <p className="text-xs">
-                {notes.length === 0 ? 'Nenhuma nota ainda. Crie a primeira!' : 'Nada encontrado.'}
+                {allNotes.length === 0
+                  ? 'Nenhuma nota ainda. Crie a primeira!'
+                  : 'Nada encontrado.'}
               </p>
             </div>
           )}
@@ -1044,10 +1210,21 @@ export function NotesView({
                   : 'hover:bg-slate-50 dark:hover:bg-slate-800'
               }`}
             >
-              <span className={`w-1 flex-shrink-0 ${stripeFor(n.color)}`} />
+              {n.source === 'nextcloud' && n.ncColor ? (
+                <span className="w-1 flex-shrink-0" style={{ backgroundColor: n.ncColor }} />
+              ) : (
+                <span className={`w-1 flex-shrink-0 ${stripeFor(n.color)}`} />
+              )}
               <span className="flex-1 min-w-0 px-3 py-2.5">
                 <span className="flex items-center gap-1.5">
                   {n.pinned && <Pin size={11} className="text-amber-500 flex-shrink-0" />}
+                  {n.source === 'nextcloud' && (
+                    <Cloud
+                      size={11}
+                      className="text-sky-400 flex-shrink-0"
+                      aria-label="Nota do Nextcloud"
+                    />
+                  )}
                   <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">
                     {noteTitle(n)}
                   </span>
@@ -1072,16 +1249,19 @@ export function NotesView({
                   ))}
                 </span>
               </span>
-              <span
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setPendingDelete(n);
-                }}
-                className="px-2 flex items-center text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                title="Excluir"
-              >
-                <Trash2 size={13} />
-              </span>
+              {/* Nota do Nextcloud somente-leitura (fallback sem app Notes) não é excluível daqui */}
+              {!(n.source === 'nextcloud' && n.readonly) && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPendingDelete(n);
+                  }}
+                  className="px-2 flex items-center text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  title="Excluir"
+                >
+                  <Trash2 size={13} />
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -1097,7 +1277,8 @@ export function NotesView({
             projectName={projectName(selected.linkedProjectId)}
             onDuplicate={handleDuplicate}
             onAutoDeleteEmpty={handleAutoDeleteEmpty}
-            allNotes={notes}
+            onImportToLocal={handleImportToLocal}
+            allNotes={allNotes}
             onSelectNote={setSelectedId}
           />
         ) : (

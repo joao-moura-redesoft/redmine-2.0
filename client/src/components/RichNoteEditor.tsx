@@ -28,6 +28,7 @@ interface Props {
   noteId: string; // recarrega o conteúdo ao trocar de nota
   placeholder?: string;
   onIssueClick?: (id: number) => void; // abre tarefa ao clicar em #1234
+  editable?: boolean; // false = somente-leitura (ex.: nota do Nextcloud sem app Notes)
 }
 
 /**
@@ -41,6 +42,7 @@ export function RichNoteEditor({
   noteId,
   placeholder = 'Comece a escrever…',
   onIssueClick,
+  editable = true,
 }: Props) {
   const settingContent = useRef(false);
   const issueClickRef = useRef(onIssueClick);
@@ -61,6 +63,7 @@ export function RichNoteEditor({
       Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
     ],
     content: value,
+    editable,
     editorProps: {
       attributes: { class: 'note-doc focus:outline-none' },
     },
