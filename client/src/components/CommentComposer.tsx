@@ -34,6 +34,8 @@ interface Props {
   injectText?: string;
   /** Contexto da issue para o "Revisar com IA" */
   aiContext?: { subject: string; statusName: string };
+  /** Avisa o pai quando há texto/anexos ainda não enviados (para confirmar antes de fechar) */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 function fmtSize(bytes: number): string {
@@ -74,6 +76,7 @@ export function CommentComposer({
   members = [],
   injectText,
   aiContext,
+  onDirtyChange,
 }: Props) {
   const [text, setText] = useState('');
   const [files, setFiles] = useState<File[]>([]);
@@ -138,6 +141,13 @@ export function CommentComposer({
       /* quota */
     }
   }, [text, storageKey]);
+
+  // Reporta ao pai se há conteúdo não enviado (usado para confirmar antes de fechar o modal)
+  useEffect(() => {
+    onDirtyChange?.(text.trim().length > 0 || files.length > 0);
+  }, [text, files, onDirtyChange]);
+  // Ao desmontar, deixa de estar "sujo" para não travar o fechamento
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
   const mentionMatches = mention
     ? members.filter((m) => m.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)

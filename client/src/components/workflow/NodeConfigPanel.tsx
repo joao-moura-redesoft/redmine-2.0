@@ -141,12 +141,23 @@ function VarHint({ ctx, outputs }: { ctx: TriggerContext; outputs: Set<string> }
   if (ctx.issue) tokens.push('{{issue.id}}', '{{issue.subject}}', '{{issue.status.name}}');
   if (ctx.talk) tokens.push('{{message.text}}', '{{message.actor}}', '{{room.name}}');
   if (ctx.comment) tokens.push('{{comment.text}}', '{{comment.author}}');
+  if (ctx.email) tokens.push('{{email.subject}}', '{{email.from}}', '{{email.snippet}}');
   if (ctx.eventFields.has('from_status')) tokens.push('{{event.fromStatus}}');
   if (ctx.eventFields.has('to_status')) tokens.push('{{event.toStatus}}');
   // Saídas publicadas por nós anteriores.
-  for (const o of ['ai.label', 'ai.text', 'webhook.status', 'created.id']) {
+  for (const o of [
+    'ai.label',
+    'ai.text',
+    'ai.summary',
+    'webhook.status',
+    'created.id',
+    'assigned.id',
+    'timer.hours',
+    'totp.code',
+  ]) {
     if (outputs.has(o)) tokens.push(`{{${o}}}`);
   }
+  if (outputs.has('ai.data')) tokens.push('{{ai.data.campo}}');
   tokens.push('{{now}}');
 
   return (
@@ -550,7 +561,9 @@ export function NodeConfigPanel({
         </>
       )}
 
-      {(node.type === 'schedule' || node.type === 'issue.scan') && (
+      {(node.type === 'schedule' ||
+        node.type === 'issue.scan' ||
+        node.type === 'time.budget_exceeded') && (
         <>
           <Field label="Modo">
             <Select
@@ -596,7 +609,7 @@ export function NodeConfigPanel({
               />
             </Field>
           )}
-          {node.type === 'issue.scan' && (
+          {(node.type === 'issue.scan' || node.type === 'time.budget_exceeded') && (
             <>
               <Field label="Tarefas a varrer">
                 <Select
@@ -648,7 +661,13 @@ export function NodeConfigPanel({
               <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
                 Se mais tarefas casarem, o excedente fica para a próxima execução — nada é perdido.
               </p>
-              {onPreview && (
+              {node.type === 'time.budget_exceeded' && (
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+                  Só considera tarefas com estimativa &gt; 0; dispara quando as horas apontadas
+                  passam das estimadas.
+                </p>
+              )}
+              {onPreview && node.type === 'issue.scan' && (
                 <button
                   type="button"
                   onClick={onPreview}
@@ -663,6 +682,43 @@ export function NodeConfigPanel({
         </>
       )}
 
+      {node.type === 'workflow.manual' && (
+        <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+          Este gatilho não dispara sozinho — você o executa por um botão (ex.: no card da tarefa).
+          Ao rodar a partir de um card, os campos e ações de tarefa usam aquela tarefa.
+        </p>
+      )}
+
+      {node.type === 'app.startup' && (
+        <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+          Dispara uma vez quando o backend do Bluemine inicia, e novamente a cada reinício. Bom para
+          rotinas de “bom dia” ou verificações de arranque. Não produz uma tarefa.
+        </p>
+      )}
+
+      {node.type === 'email.received' && (
+        <>
+          <Field label="Remetente contém (opcional)">
+            <Text
+              value={str('fromContains')}
+              onChange={(v) => patch({ fromContains: v })}
+              placeholder="ex.: @cliente.com"
+            />
+          </Field>
+          <Field label="Assunto contém (opcional)">
+            <Text
+              value={str('subjectContains')}
+              onChange={(v) => patch({ subjectContains: v })}
+              placeholder="ex.: fatura"
+            />
+          </Field>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+            Monitora e-mails não lidos via Zimbra (reaproveita seu login). Só o assunto, remetente e
+            um trecho ficam disponíveis — não o corpo completo.
+          </p>
+        </>
+      )}
+
       {/* ---------- Filtro / Se-senão ---------- */}
       {(node.type === 'filter' || node.type === 'if') && (
         <FilterEditor
@@ -674,6 +730,64 @@ export function NodeConfigPanel({
           outputs={outputs}
           aiLabels={aiLabels}
         />
+      )}
+
+      {node.type === 'filter.is_business_hours' && (
+        <>
+          <div className="flex gap-2">
+            <Field label="Hora início">
+              <input
+                type="number"
+                min={0}
+                max={23}
+                className={inputCls}
+                value={str('startHour') || '8'}
+                onChange={(e) => patch({ startHour: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="Hora fim">
+              <input
+                type="number"
+                min={1}
+                max={24}
+                className={inputCls}
+                value={str('endHour') || '18'}
+                onChange={(e) => patch({ endHour: Number(e.target.value) })}
+              />
+            </Field>
+          </div>
+          <Field label="Dias úteis">
+            <div className="flex flex-wrap gap-1">
+              {WEEKDAYS.map((d) => {
+                const days = Array.isArray(c.days) ? (c.days as number[]) : [1, 2, 3, 4, 5];
+                const on = days.includes(Number(d.id));
+                return (
+                  <button
+                    type="button"
+                    key={d.id}
+                    onClick={() => {
+                      const set = new Set(days);
+                      if (on) set.delete(Number(d.id));
+                      else set.add(Number(d.id));
+                      patch({ days: [...set].sort((a, b) => a - b) });
+                    }}
+                    className={`px-2 py-0.5 rounded-full text-xs ${
+                      on
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    {d.name.slice(0, 3)}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+            Segue o ramo <strong>verdadeiro</strong> quando agora está dentro da janela; senão, o
+            <strong> falso</strong>. Usa o relógio do servidor.
+          </p>
+        </>
       )}
 
       {/* ---------- Ações ---------- */}
@@ -715,6 +829,189 @@ export function NodeConfigPanel({
             <Area value={str('message')} onChange={(v) => patch({ message: v })} />
           </Field>
           <VarHint ctx={tctx} outputs={outputs} />
+        </>
+      )}
+
+      {node.type === 'talk.change_status' && (
+        <>
+          <Field label="Status">
+            <Select
+              value={str('statusType') || 'dnd'}
+              onChange={(v) => patch({ statusType: v })}
+              options={[
+                { id: 'online', name: 'Disponível' },
+                { id: 'away', name: 'Ausente' },
+                { id: 'dnd', name: 'Não perturbe (Em foco)' },
+                { id: 'invisible', name: 'Invisível' },
+              ]}
+            />
+          </Field>
+          <Field label="Mensagem (opcional)">
+            <Text value={str('message')} onChange={(v) => patch({ message: v })} />
+          </Field>
+          <VarHint ctx={tctx} outputs={outputs} />
+        </>
+      )}
+
+      {node.type === 'sound.play' && (
+        <>
+          <Field label="Som">
+            <Select
+              value={str('sound') || 'alert'}
+              onChange={(v) => patch({ sound: v })}
+              options={[
+                { id: 'alert', name: 'Alerta' },
+                { id: 'success', name: 'Sucesso' },
+                { id: 'error', name: 'Erro' },
+              ]}
+            />
+          </Field>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+            Toca nos alto-falantes da máquina que roda o Bluemine.
+          </p>
+        </>
+      )}
+
+      {node.type === 'issue.assign_next' && (
+        <>
+          <UsersPicker
+            value={Array.isArray(c.users) ? (c.users as number[]) : []}
+            onChange={(users) => patch({ users })}
+            options={meFirst}
+          />
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+            A cada execução, atribui a tarefa à próxima pessoa da lista (rodízio). O id escolhido
+            fica em <code className="font-mono">{'{{assigned.id}}'}</code>.
+          </p>
+        </>
+      )}
+
+      {node.type === 'issue.link_issues' && (
+        <>
+          <Field label="Tipo de relação">
+            <Select
+              value={str('relationType') || 'relates'}
+              onChange={(v) => patch({ relationType: v })}
+              options={[
+                { id: 'relates', name: 'Relaciona-se com' },
+                { id: 'blocks', name: 'Bloqueia' },
+                { id: 'blocked', name: 'Bloqueada por' },
+                { id: 'precedes', name: 'Precede' },
+                { id: 'follows', name: 'Sucede' },
+                { id: 'duplicates', name: 'Duplica' },
+                { id: 'duplicated', name: 'Duplicada por' },
+                { id: 'copied_to', name: 'Copiada para' },
+                { id: 'copied_from', name: 'Copiada de' },
+              ]}
+            />
+          </Field>
+          <Field label="Tarefa alvo (id)">
+            <Text
+              value={str('targetIssueId')}
+              onChange={(v) => patch({ targetIssueId: v })}
+              placeholder="ex.: 1234 ou {{created.id}}"
+            />
+          </Field>
+          <VarHint ctx={tctx} outputs={outputs} />
+          {!tctx.issue && (
+            <p className="flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
+              <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
+              Este gatilho não produz uma tarefa — a relação parte da tarefa do evento. Use um
+              gatilho de tarefa.
+            </p>
+          )}
+        </>
+      )}
+
+      {node.type === 'time.log_timer' && (
+        <>
+          <Field label="Atividade">
+            <Select
+              value={str('activity_id')}
+              onChange={(v) => patch({ activity_id: v })}
+              options={activityOpts}
+              emptyLabel="— selecione —"
+            />
+          </Field>
+          <Field label="Comentário">
+            <Text value={str('comments')} onChange={(v) => patch({ comments: v })} />
+          </Field>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+            1ª execução marca o início; a 2ª calcula o tempo decorrido e aponta as horas na tarefa
+            do evento. Um cronômetro por tarefa. As horas ficam em{' '}
+            <code className="font-mono">{'{{timer.hours}}'}</code>.
+          </p>
+          {!tctx.issue && (
+            <p className="flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
+              <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
+              Este gatilho não produz uma tarefa — use um gatilho de tarefa.
+            </p>
+          )}
+        </>
+      )}
+
+      {node.type === 'ai.extract_data' && (
+        <>
+          <Field label="O que analisar / instruções">
+            <Area value={str('prompt')} onChange={(v) => patch({ prompt: v })} rows={4} />
+          </Field>
+          <LabelsEditor
+            labels={Array.isArray(c.fields) ? (c.fields as string[]) : []}
+            onChange={(fields) => patch({ fields })}
+            title="Campos a extrair (chaves do JSON)"
+            placeholder="ex.: valor"
+          />
+          <VarHint ctx={tctx} outputs={outputs} />
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+            A IA responde só com JSON. Use <code className="font-mono">{'{{ai.data.campo}}'}</code>{' '}
+            nos nós seguintes (ex.: num comentário ou numa condição).
+          </p>
+        </>
+      )}
+
+      {node.type === 'ai.summarize' && (
+        <>
+          <Field label="O que resumir">
+            <Select
+              value={str('source') || 'comments'}
+              onChange={(v) => patch({ source: v })}
+              options={[
+                { id: 'comments', name: 'Comentários da tarefa' },
+                { id: 'text', name: 'Um texto (abaixo)' },
+              ]}
+            />
+          </Field>
+          {str('source') === 'text' && (
+            <Field label="Texto">
+              <Area value={str('text')} onChange={(v) => patch({ text: v })} rows={4} />
+            </Field>
+          )}
+          {(str('source') || 'comments') === 'comments' && !tctx.issue && (
+            <p className="flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
+              <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
+              Este gatilho não produz uma tarefa — escolha “um texto” ou use um gatilho de tarefa.
+            </p>
+          )}
+          <VarHint ctx={tctx} outputs={outputs} />
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+            O resumo fica em <code className="font-mono">{'{{ai.summary}}'}</code>.
+          </p>
+        </>
+      )}
+
+      {node.type === 'totp.fetch' && (
+        <>
+          <Field label="Conta (nome no cofre)">
+            <Text
+              value={str('service')}
+              onChange={(v) => patch({ service: v })}
+              placeholder="ex.: b2click (vazio = única conta)"
+            />
+          </Field>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">
+            Gera o código atual da conta TOTP cadastrada em Configurações › Segredos. Fica em{' '}
+            <code className="font-mono">{'{{totp.code}}'}</code>.
+          </p>
         </>
       )}
 
@@ -1013,8 +1310,79 @@ export function NodeConfigPanel({
   );
 }
 
+// Lista ORDENADA de pessoas do round-robin (issue.assign_next). Só ids numéricos
+// (exclui o "Eu (mim)" simbólico); mostra os escolhidos como chips e um select
+// para adicionar o próximo.
+function UsersPicker({
+  value,
+  onChange,
+  options,
+}: {
+  value: number[];
+  onChange: (v: number[]) => void;
+  options: Opt[];
+}) {
+  const numeric = options.filter((o) => Number(o.id) > 0);
+  const nameFor = (id: number) => numeric.find((o) => Number(o.id) === id)?.name ?? `#${id}`;
+  const available = numeric.filter((o) => !value.includes(Number(o.id)));
+  return (
+    <div className="space-y-1">
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+        Pessoas (na ordem do rodízio)
+      </span>
+      <div className="flex flex-wrap gap-1">
+        {value.map((id, i) => (
+          <span
+            key={id}
+            className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+          >
+            <span className="opacity-60">{i + 1}.</span>
+            {nameFor(id)}
+            <button
+              type="button"
+              onClick={() => onChange(value.filter((x) => x !== id))}
+              className="text-slate-400 hover:text-red-500"
+              title="Remover pessoa"
+            >
+              <Trash2 size={11} />
+            </button>
+          </span>
+        ))}
+        {value.length === 0 && <span className="text-xs text-slate-400">Nenhuma pessoa</span>}
+      </div>
+      {available.length > 0 && (
+        <select
+          className={inputCls}
+          value=""
+          onChange={(e) => {
+            const id = Number(e.target.value);
+            if (id > 0 && !value.includes(id)) onChange([...value, id]);
+          }}
+        >
+          <option value="">— adicionar pessoa —</option>
+          {available.map((o) => (
+            <option key={o.id} value={String(o.id)}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
 // Lista editável de rótulos do `ai.classify` (chips + adicionar/remover).
-function LabelsEditor({ labels, onChange }: { labels: string[]; onChange: (l: string[]) => void }) {
+function LabelsEditor({
+  labels,
+  onChange,
+  title = 'Rótulos possíveis',
+  placeholder = 'ex.: urgente',
+}: {
+  labels: string[];
+  onChange: (l: string[]) => void;
+  title?: string;
+  placeholder?: string;
+}) {
   const [draft, setDraft] = useState('');
   const add = () => {
     const v = draft.trim();
@@ -1024,9 +1392,7 @@ function LabelsEditor({ labels, onChange }: { labels: string[]; onChange: (l: st
   };
   return (
     <div className="space-y-1">
-      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-        Rótulos possíveis
-      </span>
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{title}</span>
       <div className="flex flex-wrap gap-1">
         {labels.map((l) => (
           <span
@@ -1050,7 +1416,7 @@ function LabelsEditor({ labels, onChange }: { labels: string[]; onChange: (l: st
         <input
           className={inputCls}
           value={draft}
-          placeholder="ex.: urgente"
+          placeholder={placeholder}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {

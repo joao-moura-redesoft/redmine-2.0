@@ -56,6 +56,10 @@ import { MeetingsView } from './components/MeetingsView';
 import { DriveView } from './components/drive/DriveView';
 import { MyDayView } from './components/MyDayView';
 import { FlowView } from './components/FlowView';
+import { TrendsView } from './components/TrendsView';
+import { SlaView } from './components/SlaView';
+import { ProjectView } from './components/ProjectView';
+import { MeView } from './components/MeView';
 import { FocusWidget } from './components/FocusWidget';
 import { TimesheetView } from './components/TimesheetView';
 import { QuickAddModal } from './components/QuickAddModal';
@@ -76,6 +80,10 @@ import {
   BellOff,
   X,
   BarChart3,
+  TrendingUp,
+  Target,
+  FolderKanban,
+  Gauge,
   Activity,
   Star,
   Sun,
@@ -127,7 +135,11 @@ import type { Issue } from './types/redmine';
 type Tab =
   | 'inbox'
   | 'dashboard'
+  | 'me'
   | 'flow'
+  | 'trends'
+  | 'sla'
+  | 'project'
   | 'myday'
   | 'kanban'
   | 'sprints'
@@ -151,6 +163,9 @@ type Tab =
   | 'timesheet'
   | 'workflows'
   | 'totp';
+
+// Views de analytics agrupadas no submenu "Dashboards" da barra lateral.
+const DASHBOARD_IDS: Tab[] = ['dashboard', 'me', 'flow', 'trends', 'sla', 'project'];
 
 export function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!getStoredAuth());
@@ -249,6 +264,29 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     dueDate?: string;
   } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [dashOpen, setDashOpen] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem('dashboardsMenuOpen');
+      return v === null ? true : v === '1';
+    } catch {
+      return true;
+    }
+  });
+  const dashActive = DASHBOARD_IDS.some((id) => location.pathname === `/${id}`);
+  // Abre o submenu ao navegar para um dashboard (para o item ativo ficar visível).
+  useEffect(() => {
+    if (dashActive) setDashOpen(true);
+  }, [dashActive]);
+  const toggleDash = () =>
+    setDashOpen((o) => {
+      const next = !o;
+      try {
+        localStorage.setItem('dashboardsMenuOpen', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
   const watchedIds = useLocalWatches();
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -418,7 +456,11 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
   const tabs: { id: Tab; label: string; icon: React.ReactNode; count?: number }[] = [
     { id: 'inbox', label: 'Aguardando você', icon: <Inbox size={15} />, count: inboxCount },
     { id: 'dashboard', label: 'Dashboard', icon: <BarChart3 size={15} /> },
+    { id: 'me', label: 'Meu desempenho', icon: <Gauge size={15} /> },
     { id: 'flow', label: 'Fluxo', icon: <Activity size={15} /> },
+    { id: 'trends', label: 'Tendências', icon: <TrendingUp size={15} /> },
+    { id: 'sla', label: 'Prazos & SLA', icon: <Target size={15} /> },
+    { id: 'project', label: 'Projeto', icon: <FolderKanban size={15} /> },
     { id: 'myday', label: 'Meu Dia', icon: <Sun size={15} /> },
     { id: 'kanban', label: 'Minhas Tarefas', icon: <LayoutGrid size={15} /> },
     { id: 'sprints', label: 'Sprints', icon: <CalendarRange size={15} /> },
@@ -477,11 +519,10 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
     { id: 'totp', label: 'Autenticação 2FA', icon: <ShieldCheck size={15} /> },
   ];
 
-  const tabGroups: { label: string | null; ids: Tab[] }[] = [
-    {
-      label: null,
-      ids: ['inbox', 'dashboard', 'flow', 'myday', 'kanban', 'sprints', 'roadmap', 'calendar'],
-    },
+  const tabGroups: { label: string | null; ids: Tab[]; submenu?: boolean }[] = [
+    { label: null, ids: ['inbox'] },
+    { label: 'Dashboards', ids: DASHBOARD_IDS, submenu: true },
+    { label: null, ids: ['myday', 'kanban', 'sprints', 'roadmap', 'calendar'] },
     {
       label: 'Fila',
       ids: [
@@ -578,15 +619,47 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
         <nav className="flex-1 overflow-y-auto py-2 px-2 scrollbar-thin space-y-0.5">
           {tabGroups.map((group, gi) => (
             <div key={gi} className={gi > 0 ? 'pt-2' : ''}>
-              {group.label && !sidebarCollapsed && (
-                <p className="px-3 pb-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                  {group.label}
-                </p>
+              {/* Submenu recolhível "Dashboards" (só no modo expandido) */}
+              {group.submenu && !sidebarCollapsed ? (
+                <>
+                  <button
+                    onClick={toggleDash}
+                    aria-expanded={dashOpen}
+                    className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-left transition-colors ${
+                      !dashOpen && dashActive
+                        ? 'text-blue-700 dark:text-blue-400 font-medium'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
+                    }`}
+                  >
+                    <span className="flex-shrink-0">
+                      <BarChart3 size={15} />
+                    </span>
+                    <span className="flex-1 truncate">{group.label}</span>
+                    {dashOpen ? (
+                      <ChevronDown size={14} className="flex-shrink-0 text-slate-400" />
+                    ) : (
+                      <ChevronRight size={14} className="flex-shrink-0 text-slate-400" />
+                    )}
+                  </button>
+                  {dashOpen && (
+                    <div className="mt-0.5 space-y-0.5 ml-4 pl-1 border-l border-slate-100 dark:border-slate-800">
+                      {group.ids.map((id) => tabMap[id] && <NavItem key={id} tab={tabMap[id]} />)}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {group.label && !group.submenu && !sidebarCollapsed && (
+                    <p className="px-3 pb-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                      {group.label}
+                    </p>
+                  )}
+                  {gi > 0 && sidebarCollapsed && (
+                    <div className="border-t border-slate-100 dark:border-slate-800 my-1.5" />
+                  )}
+                  {group.ids.map((id) => tabMap[id] && <NavItem key={id} tab={tabMap[id]} />)}
+                </>
               )}
-              {gi > 0 && sidebarCollapsed && (
-                <div className="border-t border-slate-100 dark:border-slate-800 my-1.5" />
-              )}
-              {group.ids.map((id) => tabMap[id] && <NavItem key={id} tab={tabMap[id]} />)}
             </div>
           ))}
         </nav>
@@ -872,9 +945,19 @@ function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/inbox" element={<InboxView onIssueClick={openIssue} />} />
             <Route path="/dashboard" element={<Dashboard onIssueClick={openIssue} />} />
+            <Route path="/me" element={<MeView onIssueClick={openIssue} />} />
             <Route
               path="/flow"
               element={<FlowView projectId={selectedProject} onIssueClick={openIssue} />}
+            />
+            <Route path="/trends" element={<TrendsView projectId={selectedProject} />} />
+            <Route
+              path="/sla"
+              element={<SlaView projectId={selectedProject} onIssueClick={openIssue} />}
+            />
+            <Route
+              path="/project"
+              element={<ProjectView projectId={selectedProject} onIssueClick={openIssue} />}
             />
             <Route path="/myday" element={<MyDayView onIssueClick={openIssue} />} />
             <Route path="/people" element={<PeopleView onIssueClick={openIssue} />} />

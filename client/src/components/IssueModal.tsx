@@ -73,6 +73,7 @@ import { wikiLinks, type WikiLink } from '../utils/wikiLinks';
 import { WikiLinkSearch } from './WikiView';
 import { Markdown } from './Markdown';
 import { ActivityLog, JournalAttachments } from './ActivityLog';
+import { ManualWorkflowButton } from './workflow/ManualWorkflowButton';
 import { getMissingFields } from '../utils/alerts';
 
 function isClosedName(name: string): boolean {
@@ -1696,8 +1697,18 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
   const linkedNotesCount = allNotes.filter((n) => n.linkedIssueId === issueId).length;
   const addNote = useAddNote();
   const updateJournal = useUpdateJournal(issueId);
-  const [editingJournal, setEditingJournal] = useState<{ id: number; text: string } | null>(null);
+  const [editingJournal, setEditingJournal] = useState<{
+    id: number;
+    text: string;
+    original: string;
+  } | null>(null);
   const [editingDescription, setEditingDescription] = useState<string | null>(null);
+  // Texto original da descrição ao abrir o editor — para saber se houve alteração real.
+  const descBaselineRef = useRef('');
+  // Composer tem estado interno; ele avisa aqui quando há texto/anexos não enviados.
+  const [composerDirty, setComposerDirty] = useState(false);
+  // Confirmação antes de fechar quando há edição não salva (perderia o rascunho).
+  const [confirmingClose, setConfirmingClose] = useState(false);
   const updateIssue = useUpdateIssue();
   const watchedIds = useLocalWatches();
   const [pendingNotes, setPendingNotes] = useState<PendingNote[]>([]);
@@ -1730,14 +1741,33 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
     }
   };
 
-  // Esc fecha o modal
+  // Há edição em andamento que seria perdida ao fechar? (descrição, comentário ou nova nota)
+  const descDirty = editingDescription !== null && editingDescription !== descBaselineRef.current;
+  const journalDirty = editingJournal !== null && editingJournal.text !== editingJournal.original;
+  const hasUnsavedEdits = descDirty || journalDirty || composerDirty;
+
+  // Fecha, mas pede confirmação se houver rascunho não salvo.
+  const requestClose = () => {
+    if (hasUnsavedEdits) setConfirmingClose(true);
+    else onClose();
+  };
+  // Refs para o handler de Esc sempre enxergar o estado atual sem re-registrar o listener.
+  const requestCloseRef = useRef(requestClose);
+  requestCloseRef.current = requestClose;
+  const confirmingRef = useRef(confirmingClose);
+  confirmingRef.current = confirmingClose;
+
+  // Esc fecha o modal (com confirmação se houver rascunho). Se a confirmação já
+  // está aberta, Esc apenas volta a editar (cancela o fechamento).
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      if (confirmingRef.current) setConfirmingClose(false);
+      else requestCloseRef.current();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, []);
 
   // Recarrega o aviso de campos obrigatórios ao trocar de tarefa.
   useEffect(() => {
@@ -1968,7 +1998,7 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
     <>
       <div
         className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={requestClose}
       >
         <div
           className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col"
@@ -2003,6 +2033,9 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
               )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Automações manuais (gatilho workflow.manual) nesta tarefa */}
+              {issue && <ManualWorkflowButton issueId={issue.id} />}
+
               {/* Sala da Tarefa (vídeo Jitsi dedicado a esta issue) */}
               {issue &&
                 (() => {
@@ -2105,7 +2138,7 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                 })()}
 
               <button
-                onClick={onClose}
+                onClick={requestClose}
                 className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
               >
                 <X size={18} className="text-slate-500" />
@@ -2451,7 +2484,9 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                     open={showDescription}
                     onToggle={() => setShowDescription((v) => !v)}
                     onEdit={() => {
-                      setEditingDescription(textileToMarkdown(issue.description ?? ''));
+                      const md = textileToMarkdown(issue.description ?? '');
+                      descBaselineRef.current = md;
+                      setEditingDescription(md);
                       setShowDescription(true);
                     }}
                   />
@@ -2616,6 +2651,7 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                                               setEditingJournal({
                                                 id: journal.id,
                                                 text: journal.notes,
+                                                original: journal.notes,
                                               })
                                             }
                                             className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
@@ -2717,7 +2753,11 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                                 {isMine && !isEditing && (
                                   <button
                                     onClick={() =>
-                                      setEditingJournal({ id: journal.id, text: journal.notes })
+                                      setEditingJournal({
+                                        id: journal.id,
+                                        text: journal.notes,
+                                        original: journal.notes,
+                                      })
                                     }
                                     className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
                                     title="Editar comentário"
@@ -2878,6 +2918,7 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
                     members={members ?? []}
                     injectText={aiDraftNote}
                     aiContext={{ subject: issue.subject, statusName: issue.status.name }}
+                    onDirtyChange={setComposerDirty}
                   />
                 </div>
               </div>
@@ -2901,6 +2942,47 @@ export function IssueModal({ issueId, onClose, onNavigate, onNewNote, onViewNote
           onCancel={() => setPendingRequired(null)}
           onSubmit={(values) => updateField({ ...pendingRequired.baseFields, ...values })}
         />
+      )}
+      {confirmingClose && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40"
+          onClick={() => setConfirmingClose(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={18} className="text-amber-600" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-slate-800">Sair sem salvar?</h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Você tem uma edição em andamento que ainda não foi salva. Se sair agora, o
+                  rascunho será perdido.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                onClick={() => setConfirmingClose(false)}
+                className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg"
+              >
+                Continuar editando
+              </button>
+              <button
+                onClick={() => {
+                  setConfirmingClose(false);
+                  onClose();
+                }}
+                className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg"
+              >
+                Sair sem salvar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

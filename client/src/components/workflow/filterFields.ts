@@ -57,11 +57,18 @@ export const FILTER_FIELD_DEFS: FieldDef[] = [
   { id: 'room.name', name: 'Nome da sala', type: 'text', group: 'Mensagem (Talk)' },
   { id: 'comment.text', name: 'Texto do comentário', type: 'text', group: 'Comentário' },
   { id: 'comment.author', name: 'Autor do comentário', type: 'text', group: 'Comentário' },
+  { id: 'email.subject', name: 'Assunto do e-mail', type: 'text', group: 'E-mail' },
+  { id: 'email.from', name: 'Remetente (endereço)', type: 'text', group: 'E-mail' },
+  { id: 'email.snippet', name: 'Trecho do e-mail', type: 'text', group: 'E-mail' },
   // Saídas publicadas por nós ANTERIORES (ver ACTION_OUTPUTS).
   { id: 'ai.label', name: 'IA › Rótulo', type: 'aiLabel', group: G_OUTPUT },
   { id: 'ai.text', name: 'IA › Texto', type: 'text', group: G_OUTPUT },
+  { id: 'ai.summary', name: 'IA › Resumo', type: 'text', group: G_OUTPUT },
   { id: 'webhook.status', name: 'Webhook › Status HTTP', type: 'number', group: G_OUTPUT },
   { id: 'created.id', name: 'Tarefa criada › Id', type: 'number', group: G_OUTPUT },
+  { id: 'assigned.id', name: 'Atribuído a › Id', type: 'number', group: G_OUTPUT },
+  { id: 'timer.hours', name: 'Cronômetro › Horas', type: 'number', group: G_OUTPUT },
+  { id: 'totp.code', name: 'TOTP › Código', type: 'text', group: G_OUTPUT },
   { id: 'now.hour', name: 'Hora do dia (0–23)', type: 'number', group: 'Horário' },
   { id: 'now.weekday', name: 'Dia da semana', type: 'weekday', group: 'Horário' },
 ];
@@ -72,6 +79,7 @@ export const FIELD_GROUPS = [
   G_EVENT,
   'Mensagem (Talk)',
   'Comentário',
+  'E-mail',
   G_OUTPUT,
   'Horário',
 ];
@@ -127,6 +135,8 @@ export function fieldAvailable(
       return ctx.talk;
     case 'Comentário':
       return ctx.comment;
+    case 'E-mail':
+      return ctx.email;
     case G_OUTPUT:
       return outputs.has(fieldId);
     case 'Horário':

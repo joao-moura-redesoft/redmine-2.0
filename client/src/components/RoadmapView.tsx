@@ -102,16 +102,24 @@ export function RoadmapView({ onIssueClick }: Props) {
   }, [myIssues, devIssues]);
 
   // Uma raia por projeto consultado que tem ≥1 versão (respeitando o toggle de
-  // versões fechadas). Versões compartilhadas aparecem em cada projeto.
+  // versões fechadas). Uma versão compartilhada é listada só na raia do projeto
+  // DONO (version.project.id) — assim ela não aparece idêntica em todo projeto.
+  // Guarda: se o dono não estiver entre os projetos consultados, mantém a versão
+  // onde ela veio para não sumir.
+  const projectIdSet = useMemo(() => new Set(projectIds), [projectIds]);
   const projectsWithVersions = useMemo(() => {
     return byProject
       .map((bp) => ({
         projectId: bp.projectId,
         projectName: projectName.get(bp.projectId) ?? `Projeto ${bp.projectId}`,
-        versions: bp.versions.filter((v) => showClosedVersions || v.status !== 'closed'),
+        versions: bp.versions.filter((v) => {
+          if (!showClosedVersions && v.status === 'closed') return false;
+          const ownerId = v.project?.id;
+          return ownerId == null || ownerId === bp.projectId || !projectIdSet.has(ownerId);
+        }),
       }))
       .filter((bp) => bp.versions.length > 0);
-  }, [byProject, showClosedVersions, projectName]);
+  }, [byProject, showClosedVersions, projectName, projectIdSet]);
 
   const visibleLanes = useMemo(
     () =>

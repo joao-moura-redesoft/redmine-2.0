@@ -5,6 +5,7 @@ import {
   updateWorkflow,
   deleteWorkflow,
   fetchWorkflowRuns,
+  triggerWorkflow,
   type Workflow,
   type WorkflowPatch,
 } from '../api/workflows';
@@ -78,6 +79,20 @@ export function useUpdateWorkflow() {
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(KEY, ctx.prev);
+    },
+  });
+}
+
+// Dispara manualmente um workflow com gatilho `workflow.manual` (execução REAL:
+// respeita filtros e executa as ações). `issueId` opcional injeta a tarefa do
+// card no contexto. Ao concluir, atualiza o histórico de execuções.
+export function useTriggerWorkflow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, issueId }: { id: string; issueId?: number }) => triggerWorkflow(id, issueId),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['workflow-runs', id] });
+      qc.invalidateQueries({ queryKey: KEY });
     },
   });
 }

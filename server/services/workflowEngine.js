@@ -15,11 +15,13 @@ const { sanitizeIssueBody, toLatin1Safe } = require('../lib/latin1');
 const { mapLimit } = require('../lib/pagination');
 const { safeAgents } = require('../lib/ssrfGuard');
 const keyboard = require('./keyboardNotify');
+const soundNotify = require('./soundNotify');
 const talkStore = require('./talkStore');
 const zimbra = require('../zimbra');
 const { resolveInput } = require('../lib/variableResolver');
 const {
-  evalFilter,
+  evalCondition,
+  isOverBudget,
   triggerMatches,
   scheduleDue,
   scanIssues,
@@ -32,11 +34,17 @@ const {
 } = require('../lib/workflowRules');
 const { listWorkflows, saveWorkflows } = require('./workflowStore');
 const { getState, saveState } = require('./workflowState');
+const { getTotp } = require('./secretsStore');
+const { generateTOTP } = require('../lib/totp');
 const workflowRuns = require('./workflowRuns');
 const ai = require('./ai');
 const { providerFor } = require('./digest');
 
 const ISSUE_TRIGGERS = ['issue.created', 'issue.status_changed', 'issue.assigned_changed'];
+
+// Marca do processo atual: o gatilho `app.startup` dispara uma vez por boot (por
+// workflow). Como o estado é persistido, um restart muda o BOOT_TS e dispara de novo.
+const BOOT_TS = Date.now();
 
 // ── entrada do loop ─────────────────────────────────────────────────────────
 let running = false;
@@ -112,12 +120,14 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
   const needComments = triggerTypes.has('issue.commented');
   const needIssues = ISSUE_TRIGGERS.some((t) => triggerTypes.has(t)) || needComments;
   const needScan = triggerTypes.has('issue.scan');
+  const needBudget = triggerTypes.has('time.budget_exceeded');
   const needTalk = triggerTypes.has('talk.message');
+  const needEmail = triggerTypes.has('email.received');
 
   const events = [];
   let issuesData = null; // { issues: Map, seen } — usado por eventos E pela varredura
 
-  if (needIssues || needScan) {
+  if (needIssues || needScan || needBudget) {
     const { collectPushState } = require('./push'); // lazy: evita ciclo de require
     issuesData = await collectPushState(
       rec.url,
@@ -144,12 +154,45 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
     if (r.changed) dirty = true;
   }
 
+  if (needEmail) {
+    const r = await detectEmailEvents(state, rec);
+    events.push(...r.events);
+    if (r.changed) dirty = true;
+  }
+
   const user = { id: uid };
   // (workflowsDirty declarado no topo — workflows.json é reescrito 1x por tick.)
 
   for (const w of workflows) {
     const trigger = w.nodes.find((n) => n.kind === 'trigger');
     if (!trigger) continue;
+
+    // app.startup: dispara UMA VEZ por boot do backend (por workflow). Após um
+    // restart, BOOT_TS muda e dispara de novo.
+    if (trigger.type === 'app.startup') {
+      if (state.appStartup[w.id] !== BOOT_TS) {
+        state.appStartup[w.id] = BOOT_TS;
+        dirty = true;
+        const ctx = {
+          issue: null,
+          room: null,
+          message: null,
+          event: { type: 'app.startup' },
+          user,
+          now: nowIso(),
+        };
+        const run = { actions: [] };
+        await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
+        const o = await applyRunOutcome(uid, state, w, trigger, 'app.startup', run, {
+          rec,
+          sendPush,
+          subscriptions,
+        });
+        if (o.dirty) dirty = true;
+        if (o.workflowsDirty) workflowsDirty = true;
+      }
+      continue;
+    }
 
     // Schedule é por-nó (não depende de evento externo).
     if (trigger.type === 'schedule') {
@@ -185,62 +228,46 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
     if (trigger.type === 'issue.scan') {
       if (issuesData && scheduleDue(state, trigger)) {
         dirty = true;
-        const run = { actions: [] };
-        const cfg = trigger.config || {};
-        const scoped = scanIssues(issuesData, cfg.scope);
-        if (!state.scanFired[w.id]) state.scanFired[w.id] = {};
-        const fired = state.scanFired[w.id];
-        const now = Date.now();
+        const scoped = scanIssues(issuesData, (trigger.config || {}).scope);
+        const run = await runScanWorkflow(w, trigger, scoped, state, {
+          rec,
+          sendPush,
+          subscriptions,
+          user,
+          eventType: 'issue.scan',
+        });
+        const o = await applyRunOutcome(uid, state, w, trigger, 'issue.scan', run, {
+          rec,
+          sendPush,
+          subscriptions,
+        });
+        if (o.dirty) dirty = true;
+        if (o.workflowsDirty) workflowsDirty = true;
+      }
+      continue;
+    }
 
-        // Teto de segurança: limita quantas tarefas sofrem AÇÃO por execução.
-        // Ao bater o teto, `break` — as restantes não são marcadas em `fired`,
-        // então entram na próxima execução. O teto é rate limit, não perda.
-        const cap = scanCap(cfg);
-        let acted = 0;
-
-        for (let i = 0; i < scoped.length; i++) {
-          const issue = scoped[i];
-          // Política 'once'/'cooldown': não age de novo na mesma tarefa.
-          if (!scanRepeatAllows(fired, issue.id, cfg, now)) continue;
-          if (acted >= cap) {
-            run.truncated = scoped.length - i; // sobrou para a próxima execução
-            break;
-          }
-          const ctx = {
-            issue,
-            room: null,
-            message: null,
-            event: { type: 'issue.scan' },
-            user,
-            now: nowIso(),
-          };
-          const before = run.actions.length;
-          await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
-          // Só marca se alguma ação REALMENTE rodou — caso contrário uma tarefa
-          // barrada pelo filtro seria contada como "já avisada".
-          if (run.actions.length > before) {
-            fired[issue.id] = now;
-            acted++;
-          }
-        }
-
-        // Poda tarefas que saíram do escopo (evita o mapa crescer para sempre).
-        // Nota: com repeat='once', uma tarefa que sai e volta ao escopo é avisada
-        // de novo — é o preço de não guardar histórico infinito.
-        const inScope = new Set(scoped.map((i) => String(i.id)));
-        for (const id of Object.keys(fired)) if (!inScope.has(id)) delete fired[id];
-
-        if (absorbPending(state, run)) dirty = true;
-        if (touchWorkflow(w, run)) workflowsDirty = true;
-        {
-          const fr = trackFailure(uid, state, w, run);
-          if (fr.stateChanged) dirty = true;
-          if (fr.paused) {
-            workflowsDirty = true;
-            await notifyAutoPaused(w, rec, sendPush, subscriptions);
-          }
-        }
-        recordRun(uid, w, trigger, 'auto', 'issue.scan', run);
+    // Orçamento de horas estourado: no horário definido, varre o escopo, enriquece
+    // com spent_hours e roda o grafo por tarefa que passou das horas estimadas.
+    if (trigger.type === 'time.budget_exceeded') {
+      if (issuesData && scheduleDue(state, trigger)) {
+        dirty = true;
+        const scoped = scanIssues(issuesData, (trigger.config || {}).scope);
+        const over = await filterOverBudget(rec, scoped);
+        const run = await runScanWorkflow(w, trigger, over, state, {
+          rec,
+          sendPush,
+          subscriptions,
+          user,
+          eventType: 'time.budget_exceeded',
+        });
+        const o = await applyRunOutcome(uid, state, w, trigger, 'time.budget_exceeded', run, {
+          rec,
+          sendPush,
+          subscriptions,
+        });
+        if (o.dirty) dirty = true;
+        if (o.workflowsDirty) workflowsDirty = true;
       }
       continue;
     }
@@ -257,6 +284,7 @@ async function tickUser(uid, rec, sendPush, subscriptions) {
         room: ev.ctx?.room ?? null,
         message: ev.ctx?.message ?? null,
         comment: ev.ctx?.comment ?? null,
+        email: ev.ctx?.email ?? null,
         // Os dados do evento (de/para status, categoria, novo responsável) ficam
         // disponíveis nas condições e em {{event.*}} — antes eram descartados.
         event: {
@@ -305,6 +333,106 @@ function absorbPending(state, run) {
     state.pending.splice(0, state.pending.length - MAX_PENDING);
   }
   return true;
+}
+
+// Varre um conjunto de tarefas rodando o grafo UMA VEZ POR TAREFA, com o teto de
+// segurança e a política de repetição por tarefa (once/cooldown). Compartilhado
+// por `issue.scan` e `time.budget_exceeded`. Devolve o `run` acumulado.
+async function runScanWorkflow(
+  w,
+  trigger,
+  scoped,
+  state,
+  { rec, sendPush, subscriptions, user, eventType },
+) {
+  const run = { actions: [] };
+  const cfg = trigger.config || {};
+  if (!state.scanFired[w.id]) state.scanFired[w.id] = {};
+  const fired = state.scanFired[w.id];
+  const now = Date.now();
+
+  // Teto de segurança: limita quantas tarefas sofrem AÇÃO por execução. Ao bater
+  // o teto, `break` — as restantes não são marcadas em `fired`, então entram na
+  // próxima execução. O teto é rate limit, não perda.
+  const cap = scanCap(cfg);
+  let acted = 0;
+
+  for (let i = 0; i < scoped.length; i++) {
+    const issue = scoped[i];
+    // Política 'once'/'cooldown': não age de novo na mesma tarefa.
+    if (!scanRepeatAllows(fired, issue.id, cfg, now)) continue;
+    if (acted >= cap) {
+      run.truncated = scoped.length - i; // sobrou para a próxima execução
+      break;
+    }
+    const ctx = {
+      issue,
+      room: null,
+      message: null,
+      event: { type: eventType },
+      user,
+      now: nowIso(),
+    };
+    const before = run.actions.length;
+    await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
+    // Só marca se alguma ação REALMENTE rodou — caso contrário uma tarefa barrada
+    // pelo filtro seria contada como "já avisada".
+    if (run.actions.length > before) {
+      fired[issue.id] = now;
+      acted++;
+    }
+  }
+
+  // Poda tarefas que saíram do escopo (evita o mapa crescer para sempre). Nota:
+  // com repeat='once', uma tarefa que sai e volta ao escopo é avisada de novo —
+  // é o preço de não guardar histórico infinito.
+  const inScope = new Set(scoped.map((i) => String(i.id)));
+  for (const id of Object.keys(fired)) if (!inScope.has(id)) delete fired[id];
+
+  return run;
+}
+
+// Pós-processamento comum de uma varredura: absorve esperas, marca a execução,
+// aplica o auto-pause e grava no run log. Devolve o que o chamador deve persistir.
+async function applyRunOutcome(
+  uid,
+  state,
+  w,
+  trigger,
+  eventType,
+  run,
+  { rec, sendPush, subscriptions },
+) {
+  let dirty = false;
+  let workflowsDirty = false;
+  if (absorbPending(state, run)) dirty = true;
+  if (touchWorkflow(w, run)) workflowsDirty = true;
+  const fr = trackFailure(uid, state, w, run);
+  if (fr.stateChanged) dirty = true;
+  if (fr.paused) {
+    workflowsDirty = true;
+    await notifyAutoPaused(w, rec, sendPush, subscriptions);
+  }
+  recordRun(uid, w, trigger, 'auto', eventType, run);
+  return { dirty, workflowsDirty };
+}
+
+// Enriquece as tarefas com spent_hours (o list do Redmine nem sempre traz) e
+// devolve só as que estouraram o orçamento. Busca o detalhe só de quem TEM
+// estimativa, com concorrência limitada — não puxa detalhe de tudo.
+async function filterOverBudget(rec, issues) {
+  const candidates = issues.filter((i) => Number(i.estimated_hours) > 0);
+  const detailed = await mapLimit(candidates, 4, async (i) => {
+    if (i.spent_hours != null) return i; // já veio no list
+    try {
+      const { data } = await redmineClient(rec).get(`/issues/${i.id}.json`);
+      return data.issue;
+    } catch (e) {
+      console.warn('[workflow] budget: falha ao ler', i.id, e.response?.status || e.message);
+      return null;
+    }
+  });
+  return detailed.filter((i) => i && isOverBudget(i));
 }
 
 // Retoma as esperas vencidas (resumeAt <= agora). Para cada uma:
@@ -524,6 +652,54 @@ async function detectTalkEvents(state, uid) {
   return { events, changed };
 }
 
+// E-mails não lidos (gatilho email.received) via Zimbra SOAP. Os ids do Zimbra são
+// inteiros crescentes; guardamos o maior já visto e disparamos só para os maiores
+// que ele. No primeiro tick faz baseline sem disparar (não retroativo). Sem
+// credenciais de e-mail / Zimbra offline → silencioso (não derruba o tick).
+async function detectEmailEvents(state, rec) {
+  let messages;
+  try {
+    const r = await zimbra.searchMessages(reqShim(rec), 'is:unread', { limit: 25 });
+    messages = r.messages || [];
+  } catch (e) {
+    console.warn('[workflow] email.received: sem e-mail/Zimbra:', e.response?.status || e.message);
+    return { events: [], changed: false };
+  }
+
+  const firstRun = !state.emailInit;
+  const lastId = Number(state.emailSeenId) || 0;
+  let maxId = lastId;
+  const events = [];
+  for (const m of messages) {
+    const id = Number(m.id);
+    if (!Number.isFinite(id)) continue;
+    if (id > maxId) maxId = id;
+    if (!firstRun && id > lastId) {
+      events.push({
+        type: 'email.received',
+        emailId: id,
+        from: m.from?.address || '',
+        subject: m.subject || '',
+        ctx: {
+          email: {
+            id: m.id,
+            subject: m.subject || '',
+            from: m.from?.address || '',
+            fromName: m.from?.name || '',
+            snippet: m.snippet || '',
+            date: m.date || 0,
+          },
+        },
+      });
+    }
+  }
+
+  const changed = firstRun || maxId !== lastId;
+  state.emailSeenId = maxId;
+  state.emailInit = true;
+  return { events, changed };
+}
+
 // ── caminhada no grafo ──────────────────────────────────────────────────────
 // `bypassFilters` (teste manual) faz filtros passarem e branch seguir o ramo
 // "verdadeiro". `dryRun` (prévia) avalia os filtros DE VERDADE mas não executa
@@ -570,14 +746,14 @@ async function runGraph(
 
     if (node.kind === 'filter') {
       if (undecidable(node)) return void mark(id, 'stopped');
-      const pass = bypassFilters || evalFilter(node.config, ctx, rec.uid);
+      const pass = bypassFilters || evalCondition(node, ctx, rec.uid);
       mark(id, pass ? 'passed' : 'stopped');
       if (!pass) return; // para o ramo
     } else if (node.kind === 'branch') {
       // Se/senão: segue nextIds (verdadeiro) ou elseIds (falso). Não cai no walk
       // genérico de nextIds embaixo (senão o ramo verdadeiro rodaria em dobro).
       if (undecidable(node)) return void mark(id, 'stopped');
-      const pass = bypassFilters || evalFilter(node.config, ctx, rec.uid);
+      const pass = bypassFilters || evalCondition(node, ctx, rec.uid);
       mark(id, pass ? 'true' : 'false');
       for (const t of pass ? node.nextIds || [] : node.elseIds || []) await walk(t);
       return;
@@ -603,7 +779,7 @@ async function runGraph(
         mark(id, 'ok');
       } else {
         try {
-          await execAction(node, ctx, rec, sendPush, subscriptions);
+          await execAction(node, ctx, rec, sendPush, subscriptions, { test: !!bypassFilters });
           if (run) run.actions.push({ type: node.type, ok: true });
           mark(id, 'ok');
         } catch (e) {
@@ -632,7 +808,7 @@ async function runGraph(
 }
 
 // ── dispatch de ações ───────────────────────────────────────────────────────
-async function execAction(node, ctx, rec, sendPush, subscriptions) {
+async function execAction(node, ctx, rec, sendPush, subscriptions, { test } = {}) {
   const cfg = resolveInput(node.config || {}, ctx); // resolve {{ }} em todo o config
 
   switch (node.type) {
@@ -657,8 +833,18 @@ async function execAction(node, ctx, rec, sendPush, subscriptions) {
     case 'k86.screen':
       keyboard.notify({ type: 'summary', title: cfg.title || '', subtitle: cfg.subtitle || '' });
       return;
+    case 'sound.play':
+      // Efeito local (alto-falantes da máquina que roda o Bluemine), como o K86.
+      soundNotify.play(cfg.sound || 'alert');
+      return;
     case 'talk.send':
       await talkStore.sendTalkMessage(rec.uid, cfg.roomToken, cfg.message);
+      return;
+    case 'talk.change_status':
+      await talkStore.setUserStatus(rec.uid, {
+        statusType: cfg.statusType || 'dnd',
+        message: cfg.message || '',
+      });
       return;
     case 'issue.update': {
       const id = ctx.issue?.id;
@@ -677,6 +863,67 @@ async function execAction(node, ctx, rec, sendPush, subscriptions) {
       const id = ctx.issue?.id;
       if (!id || !cfg.body) return;
       await redmineWrite(rec, id, { issue: { notes: String(cfg.body) } });
+      return;
+    }
+    case 'issue.assign_next': {
+      // Round-robin: escolhe o próximo da lista e avança o índice (durável, por nó).
+      const users = (Array.isArray(cfg.users) ? cfg.users : []).map(Number).filter((n) => n > 0);
+      if (users.length === 0) return;
+      const state = getState(rec.uid);
+      const idx = Number(state.roundRobin[node.id]) || 0;
+      const pick = users[idx % users.length];
+      if (!test) {
+        state.roundRobin[node.id] = (idx + 1) % users.length;
+        saveState();
+      }
+      ctx.assigned = { id: pick }; // disponível como {{assigned.id}}
+      const id = ctx.issue?.id;
+      if (!id) return; // sem tarefa (ou teste): escolheu, mas não há onde escrever
+      await redmineWrite(rec, id, { issue: { assigned_to_id: pick } });
+      return;
+    }
+    case 'issue.link_issues': {
+      const id = ctx.issue?.id;
+      const target = Number(cfg.targetIssueId);
+      if (!id || !target) return;
+      const relationType = String(cfg.relationType || 'relates');
+      await redmineClient(rec).post(`/issues/${id}/relations.json`, {
+        relation: { issue_to_id: target, relation_type: relationType },
+      });
+      return;
+    }
+    case 'time.log_timer': {
+      // 1ª execução: marca o início. 2ª: calcula o delta e aponta as horas reais.
+      // Estado durável por nó+tarefa (cronômetros independentes por tarefa).
+      const id = ctx.issue?.id;
+      if (!id) return;
+      const state = getState(rec.uid);
+      const key = `${node.id}:${id}`;
+      const startedAt = state.timers[key];
+      const now = Date.now();
+      if (!startedAt) {
+        if (!test) {
+          state.timers[key] = now;
+          saveState();
+        }
+        ctx.timer = { started: true, hours: 0 };
+        return;
+      }
+      const hours = Math.round(((now - startedAt) / 3600000) * 100) / 100;
+      if (!test) {
+        delete state.timers[key];
+        saveState();
+      }
+      ctx.timer = { started: false, hours };
+      if (hours <= 0 || !cfg.activity_id) return;
+      const entry = {
+        issue_id: id,
+        hours,
+        activity_id: Number(cfg.activity_id),
+        spent_on: localYmd(new Date()),
+      };
+      if (cfg.comments) entry.comments = toLatin1Safe(String(cfg.comments));
+      await redmineClient(rec).post('/time_entries.json', { time_entry: entry });
       return;
     }
     case 'webhook': {
@@ -783,6 +1030,90 @@ async function execAction(node, ctx, rec, sendPush, subscriptions) {
       // Sem match: é um erro real (respeita o onError do nó) — melhor falhar alto
       // do que ramificar silenciosamente pelo "falso".
       if (!label) throw new Error(`IA devolveu "${raw}", fora dos rótulos [${labels.join(', ')}]`);
+      return;
+    }
+    case 'ai.extract_data': {
+      if (!cfg.prompt) return;
+      const prov = providerFor(rec.uid);
+      if (!prov) {
+        console.warn('[workflow] ai.extract_data: IA não configurada p/ uid', rec.uid);
+        ctx.ai = { ...(ctx.ai || {}), data: {} };
+        return;
+      }
+      const fields = (Array.isArray(cfg.fields) ? cfg.fields : [])
+        .map((f) => String(f).trim())
+        .filter(Boolean);
+      const keys = fields.length
+        ? `com EXATAMENTE estas chaves: ${fields.join(', ')}`
+        : 'com as chaves relevantes';
+      const raw = await ai.aiComplete(prov.provider, prov.key, {
+        system:
+          `Extraia informações da entrada e responda SOMENTE com um objeto JSON válido ${keys}. ` +
+          'Sem markdown, sem cercas de código, sem explicação. Use null quando um campo não existir.',
+        user: String(cfg.prompt),
+        maxTokens: 600,
+        uid: rec.uid,
+      });
+      // Disponibiliza {{ai.data.<chave>}} para os nós seguintes.
+      ctx.ai = { ...(ctx.ai || {}), data: parseJsonLoose(raw) || {} };
+      return;
+    }
+    case 'ai.summarize': {
+      const prov = providerFor(rec.uid);
+      if (!prov) {
+        console.warn('[workflow] ai.summarize: IA não configurada p/ uid', rec.uid);
+        ctx.ai = { ...(ctx.ai || {}), summary: '' };
+        return;
+      }
+      let input = '';
+      if ((cfg.source || 'comments') === 'comments' && ctx.issue?.id) {
+        try {
+          const { data } = await redmineClient(rec).get(`/issues/${ctx.issue.id}.json`, {
+            params: { include: 'journals' },
+          });
+          input = (data.issue.journals || [])
+            .filter((j) => j.notes && String(j.notes).trim())
+            .map((j) => `${j.user?.name || ''}: ${j.notes}`)
+            .join('\n\n');
+        } catch (e) {
+          console.warn('[workflow] ai.summarize: falha ao ler journals:', e.message);
+        }
+      } else {
+        input = String(cfg.text || '');
+      }
+      if (!input.trim()) {
+        ctx.ai = { ...(ctx.ai || {}), summary: '' };
+        return;
+      }
+      const text = await ai.aiComplete(prov.provider, prov.key, {
+        system:
+          'Resuma o conteúdo a seguir em português, de forma concisa e objetiva. ' +
+          'Use bullet points quando fizer sentido.',
+        user: input,
+        maxTokens: 600,
+        uid: rec.uid,
+      });
+      // Disponibiliza {{ai.summary}} para os nós seguintes.
+      ctx.ai = { ...(ctx.ai || {}), summary: text || '' };
+      return;
+    }
+    case 'totp.fetch': {
+      // Busca a semente TOTP no cofre (DPAPI) e gera o código atual. Sem serviço
+      // e com exatamente uma conta cadastrada, usa essa conta.
+      const service = String(cfg.service || '')
+        .trim()
+        .toLowerCase();
+      const accounts = getTotp(rec.uid);
+      const acct =
+        accounts.find((a) => String(a.name).trim().toLowerCase() === service) ||
+        (!service && accounts.length === 1 ? accounts[0] : null);
+      if (!acct) {
+        console.warn('[workflow] totp.fetch: conta não encontrada:', cfg.service);
+        ctx.totp = { code: '' };
+        return;
+      }
+      // Disponibiliza {{totp.code}} para os nós seguintes.
+      ctx.totp = { code: generateTOTP(acct.secret) };
       return;
     }
     case 'issue.create': {
@@ -1000,6 +1331,47 @@ async function runWorkflowManual(uid, w, rec, sendPush, subscriptions) {
   recordRun(uid, w, trigger, 'manual', trigger.type, run);
 }
 
+// ── execução manual REAL (POST /workflows/:id/trigger) ──────────────────────
+// Diferente do "Testar" (/run): RESPEITA os filtros e EXECUTA as ações de verdade
+// — é o gatilho `workflow.manual`, disparado por um botão na UI. Se vier um
+// `issueId` (lançado a partir de um card), busca a tarefa e a injeta no contexto;
+// sem ele, roda sem tarefa (ações de issue viram no-op, como em qualquer gatilho
+// que não produz tarefa). Honra nós de Espera absorvendo o pending no estado.
+async function runWorkflowNow(uid, w, rec, sendPush, subscriptions, { issueId } = {}) {
+  const trigger = w.nodes.find((n) => n.kind === 'trigger');
+  if (!trigger) return;
+
+  let issue = null;
+  if (issueId) {
+    try {
+      const { data } = await redmineClient(rec).get(`/issues/${issueId}.json`);
+      issue = data.issue;
+    } catch (e) {
+      console.warn(
+        '[workflow] runWorkflowNow: falha ao buscar issue',
+        issueId,
+        e.response?.status || e.message,
+      );
+    }
+  }
+
+  const ctx = {
+    issue,
+    room: null,
+    message: null,
+    event: { type: 'workflow.manual' },
+    user: { id: uid },
+    now: nowIso(),
+  };
+  const run = { actions: [] };
+  await runGraph(w, trigger, ctx, rec, sendPush, subscriptions, { run });
+
+  const state = getState(uid);
+  if (absorbPending(state, run)) saveState();
+  if (touchWorkflow(w, run)) saveWorkflows();
+  recordRun(uid, w, trigger, 'manual', 'workflow.manual', run);
+}
+
 // ── prévia da varredura (POST /workflows/:id/preview) ───────────────────────
 // Avalia as CONDIÇÕES contra as tarefas reais, sem executar nenhuma ação. É o
 // inverso do "Testar" (que ignora filtros e executa as ações).
@@ -1079,6 +1451,14 @@ function sampleContext(trigger, uid) {
     room: { token: '', name: 'Sala Exemplo' },
     message: { text: 'mensagem de exemplo', actor: 'Fulano', id: 0, mention: false },
     comment: { text: 'comentário de exemplo', author: 'Fulano', authorId: 0 },
+    email: {
+      id: 0,
+      subject: '[Exemplo] Assunto do e-mail',
+      from: 'fulano@exemplo.com',
+      fromName: 'Fulano',
+      snippet: 'trecho do e-mail de exemplo',
+      date: 0,
+    },
     event: {
       type: trigger.type,
       fromStatus: 0,
@@ -1086,9 +1466,12 @@ function sampleContext(trigger, uid) {
       category: 'assigned',
       newAssignee: uid,
     },
-    ai: { text: '', label: '' },
+    ai: { text: '', label: '', summary: '', data: {} },
     webhook: { status: 0, body: null },
     created: { id: 0, subject: '' },
+    assigned: { id: uid },
+    timer: { started: false, hours: 0 },
+    totp: { code: '000000' },
     user: { id: uid },
     now: nowIso(),
   };
@@ -1098,6 +1481,29 @@ function sampleContext(trigger, uid) {
 // (as regras puras — fieldValue/evalRule/scheduleDue/scanIssues — vivem em
 //  lib/workflowRules.js, onde são cobertas por testes.)
 const nowIso = () => new Date().toISOString();
+
+// Parse tolerante do JSON devolvido pela IA: remove cercas ```json e, se ainda
+// não parsear, tenta o primeiro { ... último }. Devolve null se não der.
+function parseJsonLoose(raw) {
+  if (raw == null) return null;
+  let s = String(raw).trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  try {
+    return JSON.parse(s);
+  } catch {
+    /* tenta recortar o objeto abaixo */
+  }
+  const a = s.indexOf('{');
+  const b = s.lastIndexOf('}');
+  if (a >= 0 && b > a) {
+    try {
+      return JSON.parse(s.slice(a, b + 1));
+    } catch {
+      /* desiste */
+    }
+  }
+  return null;
+}
 
 function resolveMessageText(msg) {
   if (!msg) return '';
@@ -1113,4 +1519,4 @@ function resolveMessageText(msg) {
 
 // runGraph é exportado para teste de integração da caminhada no grafo (filter/
 // branch/wait/rastro) — usa ações no-op (k86) para não tocar a rede.
-module.exports = { tick, runWorkflowManual, previewScan, runGraph };
+module.exports = { tick, runWorkflowManual, runWorkflowNow, previewScan, runGraph };

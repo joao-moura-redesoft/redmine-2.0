@@ -160,7 +160,6 @@ function WikiCredentialsNeeded() {
 // --- WikiView principal ---
 
 export function WikiView() {
-  if (!isWikiAvailable()) return <WikiCredentialsNeeded />;
   const [searchTerm, setSearchTerm] = useState('');
   const [activeSearch, setActiveSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -172,8 +171,10 @@ export function WikiView() {
     queryKey: ['wiki', 'search', activeSearch],
     queryFn: () => wikiApi.search(activeSearch),
     staleTime: 60_000,
-    enabled: hasSearch,
+    enabled: hasSearch && isWikiAvailable(),
   });
+
+  if (!isWikiAvailable()) return <WikiCredentialsNeeded />;
 
   const items: WikiSearchResult[] = searchQuery.data ?? [];
   const loading = searchQuery.isLoading;

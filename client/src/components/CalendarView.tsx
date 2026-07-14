@@ -154,6 +154,7 @@ function IssueChip({
   closed,
   showAssignee,
   showType,
+  weekMode = false,
   onIssueClick,
 }: {
   issue: Issue;
@@ -162,6 +163,7 @@ function IssueChip({
   closed: boolean;
   showAssignee: boolean;
   showType: boolean;
+  weekMode?: boolean;
   onIssueClick: (id: number) => void;
 }) {
   // O id do arrastável carrega o tipo p/ que o drop atualize o campo certo.
@@ -171,17 +173,80 @@ function IssueChip({
   const TypeIcon = TYPE_META[type].icon;
   // Cor de fundo: atraso domina (vermelho); senão, tom por tipo (revisão = violeta).
   const bg = overdue
-    ? 'bg-red-50 hover:bg-red-100'
+    ? 'bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50'
     : type === 'review'
-      ? 'bg-violet-50 hover:bg-violet-100'
-      : 'bg-slate-50 hover:bg-blue-50';
+      ? 'bg-violet-50 hover:bg-violet-100 dark:bg-violet-900/30 dark:hover:bg-violet-900/50'
+      : 'bg-slate-50 hover:bg-blue-50 dark:bg-slate-700/40 dark:hover:bg-blue-900/40';
+  const title = `${TYPE_META[type].label} · #${issue.id} ${issue.subject} — ${issue.status.name}${issue.assigned_to ? ` · ${issue.assigned_to.name}` : ''}`;
+  const subjectColor = closed
+    ? 'text-slate-400 dark:text-slate-500 line-through'
+    : overdue
+      ? 'text-red-600 dark:text-red-400'
+      : type === 'review'
+        ? 'text-violet-700 group-hover:text-violet-800 dark:text-violet-300 dark:group-hover:text-violet-200'
+        : 'text-slate-600 group-hover:text-blue-700 dark:text-slate-300 dark:group-hover:text-blue-300';
+
+  // Card rico da visão semanal: aproveita o espaço vertical para dar mais
+  // contexto (status, responsável, #, assunto em 2 linhas).
+  if (weekMode) {
+    const accent = overdue
+      ? 'border-l-red-400 dark:border-l-red-500'
+      : type === 'review'
+        ? 'border-l-violet-400 dark:border-l-violet-500'
+        : 'border-l-blue-400 dark:border-l-blue-500';
+    return (
+      <button
+        ref={setNodeRef}
+        {...listeners}
+        {...attributes}
+        onClick={() => onIssueClick(issue.id)}
+        title={title}
+        className={`group flex flex-col gap-1 w-full text-left rounded-md border-l-4 px-2 py-1.5 transition-colors cursor-grab active:cursor-grabbing touch-none select-none ${
+          isDragging ? 'opacity-30' : ''
+        } ${bg} ${accent}`}
+      >
+        <div className="flex items-center gap-1.5 text-[10px]">
+          <TypeIcon
+            size={11}
+            className={`flex-shrink-0 ${type === 'review' ? 'text-violet-500 dark:text-violet-400' : 'text-slate-400 dark:text-slate-500'}`}
+          />
+          <span className="font-medium text-slate-400 dark:text-slate-500">#{issue.id}</span>
+          <span className="flex-1" />
+          <span
+            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${closed ? 'bg-slate-300' : (PRIORITY_DOT[issue.priority.name] ?? 'bg-slate-300')}`}
+            title={issue.priority.name}
+          />
+        </div>
+        <span className={`text-xs font-medium leading-snug line-clamp-2 ${subjectColor}`}>
+          {issue.subject}
+        </span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="rounded px-1.5 py-0.5 text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 max-w-full truncate">
+            {issue.status.name}
+          </span>
+          {showAssignee && issue.assigned_to && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 min-w-0">
+              <span
+                className="w-4 h-4 rounded-full bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-200 text-[8px] font-bold flex items-center justify-center flex-shrink-0"
+                title={issue.assigned_to.name}
+              >
+                {initials(issue.assigned_to.name)}
+              </span>
+              <span className="truncate">{issue.assigned_to.name}</span>
+            </span>
+          )}
+        </div>
+      </button>
+    );
+  }
+
   return (
     <button
       ref={setNodeRef}
       {...listeners}
       {...attributes}
       onClick={() => onIssueClick(issue.id)}
-      title={`${TYPE_META[type].label} · #${issue.id} ${issue.subject} — ${issue.status.name}${issue.assigned_to ? ` · ${issue.assigned_to.name}` : ''}`}
+      title={title}
       className={`group flex items-center gap-1 text-left rounded px-1 py-0.5 text-[11px] transition-colors cursor-grab active:cursor-grabbing touch-none select-none ${
         isDragging ? 'opacity-30' : ''
       } ${bg}`}
@@ -189,7 +254,7 @@ function IssueChip({
       {showType && (
         <TypeIcon
           size={10}
-          className={`flex-shrink-0 ${type === 'review' ? 'text-violet-500' : 'text-slate-400'}`}
+          className={`flex-shrink-0 ${type === 'review' ? 'text-violet-500 dark:text-violet-400' : 'text-slate-400 dark:text-slate-500'}`}
         />
       )}
       <span
@@ -203,19 +268,7 @@ function IssueChip({
           {initials(issue.assigned_to.name)}
         </span>
       )}
-      <span
-        className={`truncate ${
-          closed
-            ? 'text-slate-400 line-through'
-            : overdue
-              ? 'text-red-600'
-              : type === 'review'
-                ? 'text-violet-700 group-hover:text-violet-800'
-                : 'text-slate-600 group-hover:text-blue-700'
-        }`}
-      >
-        {issue.subject}
-      </span>
+      <span className={`truncate ${subjectColor}`}>{issue.subject}</span>
     </button>
   );
 }
@@ -399,7 +452,7 @@ function rsvpHeading(ptst: string): string {
   return 'Responder convite';
 }
 
-function EventChip({ ev }: { ev: CalendarEvent }) {
+function EventChip({ ev, weekMode = false }: { ev: CalendarEvent; weekMode?: boolean }) {
   const [open, setOpen] = useState(false);
   const closePop = useCallback(() => setOpen(false), []);
   const { btnRef, popRef, coords } = useAnchoredPopover<HTMLButtonElement>(open, closePop);
@@ -443,29 +496,44 @@ function EventChip({ ev }: { ev: CalendarEvent }) {
         ref={btnRef}
         onClick={() => setOpen((o) => !o)}
         title={`${time} · ${ev.subject}`}
-        className={
+        className={`w-full text-left rounded text-[11px] transition-colors ${
+          weekMode
+            ? 'flex flex-col gap-0.5 px-2 py-1.5 border-l-4'
+            : 'flex items-center gap-1 px-1 py-0.5 border-l-2'
+        } ${
           ev.local
-            ? 'w-full flex items-center gap-1 text-left rounded px-1 py-0.5 text-[11px] bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border-l-2 border-l-indigo-400 transition-colors'
-            : `w-full flex items-center gap-1 text-left rounded px-1 py-0.5 text-[11px] bg-teal-50 dark:bg-teal-900/30 hover:bg-teal-100 dark:hover:bg-teal-900/50 border-l-2 ${PTST_BORDER[ev.ptst] ?? 'border-l-teal-400'} transition-colors`
-        }
+            ? 'bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border-l-indigo-400'
+            : `bg-teal-50 dark:bg-teal-900/30 hover:bg-teal-100 dark:hover:bg-teal-900/50 ${PTST_BORDER[ev.ptst] ?? 'border-l-teal-400'}`
+        }`}
       >
-        {ev.local ? (
-          <Video size={9} className="text-indigo-500 flex-shrink-0" />
-        ) : (
-          <Clock size={9} className="text-teal-500 flex-shrink-0" />
-        )}
-        {!ev.allDay && (
+        <span className={`flex items-center gap-1 ${weekMode ? 'text-[10px]' : 'min-w-0'}`}>
+          {ev.local ? (
+            <Video size={9} className="text-indigo-500 flex-shrink-0" />
+          ) : (
+            <Clock size={9} className="text-teal-500 flex-shrink-0" />
+          )}
+          {(weekMode || !ev.allDay) && (
+            <span
+              className={`font-medium flex-shrink-0 ${ev.local ? 'text-indigo-600 dark:text-indigo-400' : 'text-teal-600 dark:text-teal-400'}`}
+            >
+              {weekMode ? range : time}
+            </span>
+          )}
+          {!weekMode && (
+            <span
+              className={`truncate ${ev.local ? 'text-indigo-800 dark:text-indigo-200' : 'text-teal-800 dark:text-teal-200'} ${canceled ? 'line-through opacity-60' : ''}`}
+            >
+              {ev.subject}
+            </span>
+          )}
+        </span>
+        {weekMode && (
           <span
-            className={`font-medium flex-shrink-0 ${ev.local ? 'text-indigo-600 dark:text-indigo-400' : 'text-teal-600 dark:text-teal-400'}`}
+            className={`text-xs font-medium leading-snug line-clamp-2 ${ev.local ? 'text-indigo-800 dark:text-indigo-200' : 'text-teal-800 dark:text-teal-200'} ${canceled ? 'line-through opacity-60' : ''}`}
           >
-            {time}
+            {ev.subject}
           </span>
         )}
-        <span
-          className={`truncate ${ev.local ? 'text-indigo-800 dark:text-indigo-200' : 'text-teal-800 dark:text-teal-200'} ${canceled ? 'line-through opacity-60' : ''}`}
-        >
-          {ev.subject}
-        </span>
       </button>
 
       {open &&
@@ -1646,7 +1714,7 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
 
                       <div className="flex flex-col gap-1">
                         {(byEvent.get(dayStr) ?? []).map((ev) => (
-                          <EventChip key={`${ev.id}-${ev.start}`} ev={ev} />
+                          <EventChip key={`${ev.id}-${ev.start}`} ev={ev} weekMode={weekMode} />
                         ))}
                         {visible.map(({ issue, type }) => {
                           const closed = isClosed(issue);
@@ -1660,6 +1728,7 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
                               closed={closed}
                               showAssignee={personId != null}
                               showType={field === 'all'}
+                              weekMode={weekMode}
                               onIssueClick={onIssueClick}
                             />
                           );
@@ -1762,16 +1831,16 @@ export function CalendarView({ projectId, onIssueClick }: Props) {
                 const TypeIcon = TYPE_META[dragging.type].icon;
                 return (
                   <div
-                    className={`flex items-center gap-1 rounded px-1.5 py-1 text-[11px] bg-white shadow-lg border ${dragging.type === 'review' ? 'border-violet-200' : 'border-blue-200'}`}
+                    className={`flex items-center gap-1 rounded px-1.5 py-1 text-[11px] bg-white dark:bg-slate-800 shadow-lg border ${dragging.type === 'review' ? 'border-violet-200 dark:border-violet-700/50' : 'border-blue-200 dark:border-blue-700/50'}`}
                   >
                     <TypeIcon
                       size={10}
-                      className={dragging.type === 'review' ? 'text-violet-500' : 'text-slate-400'}
+                      className={dragging.type === 'review' ? 'text-violet-500 dark:text-violet-400' : 'text-slate-400 dark:text-slate-500'}
                     />
                     <span
                       className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PRIORITY_DOT[dragging.issue.priority.name] ?? 'bg-slate-300'}`}
                     />
-                    <span className="truncate max-w-40 text-slate-700">
+                    <span className="truncate max-w-40 text-slate-700 dark:text-slate-200">
                       {dragging.issue.subject}
                     </span>
                   </div>

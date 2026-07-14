@@ -11,7 +11,10 @@ describe('fromQuickNote (normalização QuickNotes → shape do front)', () => {
     isPinned: true,
     timestamp: 1783965186,
     color: '#F7EB96',
-    tags: [{ id: 4, name: 'alpha' }, { id: 5, name: 'beta' }],
+    tags: [
+      { id: 4, name: 'alpha' },
+      { id: 5, name: 'beta' },
+    ],
     attachments: [],
   };
 

@@ -96,6 +96,14 @@ function fieldValue(field, ctx, now = Date.now()) {
     case 'comment.author':
       return ctx.comment?.author;
 
+    // E-mail não lido (gatilho email.received).
+    case 'email.subject':
+      return ctx.email?.subject;
+    case 'email.from':
+      return ctx.email?.from;
+    case 'email.snippet':
+      return ctx.email?.snippet;
+
     // Saídas de ações anteriores (namespaces nomeados).
     case 'ai.text':
       return ctx.ai?.text;
@@ -105,6 +113,14 @@ function fieldValue(field, ctx, now = Date.now()) {
       return ctx.webhook?.status;
     case 'created.id':
       return ctx.created?.id;
+    case 'assigned.id':
+      return ctx.assigned?.id;
+    case 'timer.hours':
+      return ctx.timer?.hours;
+    case 'ai.summary':
+      return ctx.ai?.summary;
+    case 'totp.code':
+      return ctx.totp?.code;
 
     case 'now.hour':
       return new Date(now).getHours();
@@ -158,6 +174,40 @@ function evalFilter(config, ctx, uid, now = Date.now()) {
   return op === 'or' ? results.some(Boolean) : results.every(Boolean);
 }
 
+// Horário comercial: `now` cai num dia útil e dentro da janela [startHour, endHour).
+// Defaults: seg-sex, 08h–18h. Puro — usado pelo nó branch `filter.is_business_hours`.
+const BUSINESS_DEFAULTS = { startHour: 8, endHour: 18, days: [1, 2, 3, 4, 5] };
+function isBusinessHours(config = {}, now = Date.now()) {
+  const num = (v, def) => (Number.isFinite(Number(v)) && v !== '' ? Number(v) : def);
+  const startHour = num(config.startHour, BUSINESS_DEFAULTS.startHour);
+  const endHour = num(config.endHour, BUSINESS_DEFAULTS.endHour);
+  const days =
+    Array.isArray(config.days) && config.days.length
+      ? config.days.map(Number)
+      : BUSINESS_DEFAULTS.days;
+  const d = new Date(now);
+  if (!days.includes(d.getDay())) return false;
+  const h = d.getHours();
+  return h >= startHour && h < endHour;
+}
+
+// Decide se um nó de CONDIÇÃO (filter/branch) passa. Despacha os predicados
+// especiais (ex.: horário comercial) e cai no filtro por regras genérico.
+function evalCondition(node, ctx, uid, now = Date.now()) {
+  if (node?.type === 'filter.is_business_hours') return isBusinessHours(node.config, now);
+  return evalFilter(node?.config, ctx, uid, now);
+}
+
+// Tarefa acima do orçamento: horas apontadas passaram das estimadas. Exige uma
+// estimativa > 0 (sem estimativa não há orçamento a estourar). Puro — usado pelo
+// gatilho `time.budget_exceeded`.
+function isOverBudget(issue) {
+  const est = Number(issue?.estimated_hours);
+  const spent = Number(issue?.spent_hours);
+  if (!(est > 0) || !Number.isFinite(spent)) return false;
+  return spent > est;
+}
+
 // ── matching de gatilho contra um evento detectado ──────────────────────────
 function triggerMatches(trigger, ev, uid) {
   const c = trigger.config || {};
@@ -183,6 +233,17 @@ function triggerMatches(trigger, ev, uid) {
       // "Somente de outras pessoas": ignora comentários feitos pelo próprio dono.
       if (c.fromOthers && String(ev.authorId) === String(uid)) return false;
       return true;
+    case 'email.received': {
+      if (ev.type !== 'email.received') return false;
+      const has = (hay, needle) =>
+        !needle ||
+        String(hay || '')
+          .toLowerCase()
+          .includes(String(needle).toLowerCase());
+      if (!has(ev.from, c.fromContains)) return false;
+      if (!has(ev.subject, c.subjectContains)) return false;
+      return true;
+    }
     default:
       return false;
   }
@@ -241,7 +302,7 @@ function scanCap(config = {}) {
 
 // Saídas publicadas por ações (ver ACTION_OUTPUTS no cliente). Numa PRÉVIA as
 // ações não rodam, então esses valores não existem no contexto.
-const OUTPUT_PREFIXES = ['ai.', 'webhook.', 'created.'];
+const OUTPUT_PREFIXES = ['ai.', 'webhook.', 'created.', 'assigned.', 'timer.', 'totp.'];
 
 // Uma condição que depende da saída de uma ação é INDECIDÍVEL numa prévia: fingir
 // que é falsa mentiria (o ramo "verdadeiro" sumiria da prévia). Quem chama deve
@@ -313,6 +374,9 @@ module.exports = {
   fieldValue,
   evalRule,
   evalFilter,
+  isBusinessHours,
+  evalCondition,
+  isOverBudget,
   triggerMatches,
   scheduleDue,
   scanIssues,

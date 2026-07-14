@@ -24,6 +24,19 @@ import {
   Timer,
   MessageSquareText,
   Hourglass,
+  Briefcase,
+  Volume2,
+  CircleDot,
+  MousePointerClick,
+  Gauge,
+  Shuffle,
+  Link,
+  TimerReset,
+  Power,
+  Inbox,
+  Braces,
+  ScrollText,
+  KeyRound,
   type LucideIcon,
 } from 'lucide-react';
 import type { NodeKind, WorkflowNode } from '../../api/workflows';
@@ -116,6 +129,51 @@ export const TRIGGERS: NodeDescriptor[] = [
       maxIssues: 20,
     }),
   },
+  {
+    kind: 'trigger',
+    type: 'time.budget_exceeded',
+    label: 'Orçamento de horas estourado',
+    description:
+      'Na varredura agendada, dispara para tarefas cujas horas apontadas passaram das estimadas.',
+    icon: Gauge,
+    accent: TRIGGER_ACCENT,
+    defaultConfig: () => ({
+      mode: 'daily',
+      hour: 8,
+      minute: 0,
+      everyMinutes: 60,
+      scope: 'assigned',
+      maxIssues: 20,
+      repeat: 'once',
+    }),
+  },
+  {
+    kind: 'trigger',
+    type: 'workflow.manual',
+    label: 'Manual (sob demanda)',
+    description: 'Não dispara sozinho — você executa por um botão (ex.: no card da tarefa).',
+    icon: MousePointerClick,
+    accent: TRIGGER_ACCENT,
+    defaultConfig: () => ({}),
+  },
+  {
+    kind: 'trigger',
+    type: 'app.startup',
+    label: 'Ao iniciar o app',
+    description: 'Dispara uma vez quando o backend do Bluemine inicia (e a cada reinício).',
+    icon: Power,
+    accent: TRIGGER_ACCENT,
+    defaultConfig: () => ({}),
+  },
+  {
+    kind: 'trigger',
+    type: 'email.received',
+    label: 'E-mail recebido',
+    description: 'Dispara quando chega um e-mail não lido (via Zimbra), opcionalmente filtrado.',
+    icon: Inbox,
+    accent: TRIGGER_ACCENT,
+    defaultConfig: () => ({ fromContains: '', subjectContains: '' }),
+  },
 ];
 
 export const FILTERS: NodeDescriptor[] = [
@@ -136,6 +194,15 @@ export const FILTERS: NodeDescriptor[] = [
     icon: GitBranch,
     accent: FILTER_ACCENT,
     defaultConfig: () => ({ op: 'and', rules: [] }),
+  },
+  {
+    kind: 'branch',
+    type: 'filter.is_business_hours',
+    label: 'Horário comercial?',
+    description: 'Ramifica: saída "verdadeiro" dentro do horário comercial, senão "falso".',
+    icon: Briefcase,
+    accent: FILTER_ACCENT,
+    defaultConfig: () => ({ startHour: 8, endHour: 18, days: [1, 2, 3, 4, 5] }),
   },
 ];
 
@@ -175,6 +242,80 @@ export const ACTIONS: NodeDescriptor[] = [
     icon: Send,
     accent: ACTION_ACCENT,
     defaultConfig: () => ({ roomToken: '', message: '' }),
+  },
+  {
+    kind: 'action',
+    type: 'talk.change_status',
+    label: 'Mudar status no Talk',
+    description: 'Altera seu status no Nextcloud Talk (ex.: Em foco, Ausente).',
+    icon: CircleDot,
+    accent: ACTION_ACCENT,
+    defaultConfig: () => ({ statusType: 'dnd', message: '' }),
+  },
+  {
+    kind: 'action',
+    type: 'sound.play',
+    label: 'Tocar som',
+    description: 'Emite um aviso sonoro nos alto-falantes desta máquina.',
+    icon: Volume2,
+    accent: ACTION_ACCENT,
+    defaultConfig: () => ({ sound: 'alert' }),
+  },
+  {
+    kind: 'action',
+    type: 'issue.assign_next',
+    label: 'Atribuir ao próximo (rodízio)',
+    description: 'Distribui a tarefa por round-robin entre as pessoas da lista.',
+    icon: Shuffle,
+    accent: ACTION_ACCENT,
+    defaultConfig: () => ({ users: [] }),
+  },
+  {
+    kind: 'action',
+    type: 'issue.link_issues',
+    label: 'Vincular tarefas',
+    description: 'Cria uma relação no Redmine (bloqueia, relaciona, duplica…) com outra tarefa.',
+    icon: Link,
+    accent: ACTION_ACCENT,
+    defaultConfig: () => ({ relationType: 'relates', targetIssueId: '' }),
+  },
+  {
+    kind: 'action',
+    type: 'time.log_timer',
+    label: 'Cronômetro de horas',
+    description:
+      'Na 1ª execução marca o início; na 2ª calcula o tempo decorrido e aponta as horas.',
+    icon: TimerReset,
+    accent: ACTION_ACCENT,
+    defaultConfig: () => ({ activity_id: '', comments: '' }),
+  },
+  {
+    kind: 'action',
+    type: 'ai.extract_data',
+    label: 'Extrair dados (IA → JSON)',
+    description:
+      'A IA extrai campos estruturados em JSON. Disponíveis como {{ai.data.campo}} nos nós seguintes.',
+    icon: Braces,
+    accent: ACTION_ACCENT,
+    defaultConfig: () => ({ prompt: '', fields: [] }),
+  },
+  {
+    kind: 'action',
+    type: 'ai.summarize',
+    label: 'Resumir com IA',
+    description: 'Resume comentários da tarefa (ou um texto) e disponibiliza como {{ai.summary}}.',
+    icon: ScrollText,
+    accent: ACTION_ACCENT,
+    defaultConfig: () => ({ source: 'comments', text: '' }),
+  },
+  {
+    kind: 'action',
+    type: 'totp.fetch',
+    label: 'Buscar código TOTP',
+    description: 'Gera o código TOTP atual de uma conta do cofre; fica em {{totp.code}}.',
+    icon: KeyRound,
+    accent: ACTION_ACCENT,
+    defaultConfig: () => ({ service: '' }),
   },
   {
     kind: 'action',
@@ -305,15 +446,23 @@ export interface TriggerContext {
   issue: boolean;
   talk: boolean; // message + room
   comment: boolean; // comment.* (gatilho issue.commented)
+  email: boolean; // email.* (gatilho email.received)
   /** Campos de `event.*` que ESTE gatilho produz (from_status, category, …). */
   eventFields: Set<string>;
 }
 
 export function triggerContext(type: string | undefined): TriggerContext {
-  const base = (issue: boolean, talk: boolean, comment: boolean, eventFields: string[] = []) => ({
+  const base = (
+    issue: boolean,
+    talk: boolean,
+    comment: boolean,
+    eventFields: string[] = [],
+    email = false,
+  ) => ({
     issue,
     talk,
     comment,
+    email,
     eventFields: new Set(eventFields),
   });
   switch (type) {
@@ -326,10 +475,17 @@ export function triggerContext(type: string | undefined): TriggerContext {
     case 'issue.commented':
       return base(true, false, true);
     case 'issue.scan':
+    case 'time.budget_exceeded':
       return base(true, false, false); // varredura não tem "mudança", só a tarefa
+    case 'workflow.manual':
+      // Otimista: normalmente lançado a partir de um card, então oferece a tarefa.
+      // Sem tarefa no disparo, regras/ações de issue falham graciosamente.
+      return base(true, false, false);
     case 'talk.message':
       return base(false, true, false);
-    default: // schedule, ou sem gatilho
+    case 'email.received':
+      return base(false, false, false, [], true);
+    default: // schedule, app.startup, ou sem gatilho
       return base(false, false, false);
   }
 }
@@ -344,7 +500,10 @@ export const WRITE_ACTIONS = new Set([
   'issue.update',
   'issue.comment',
   'issue.create',
+  'issue.assign_next',
+  'issue.link_issues',
   'time.log',
+  'time.log_timer',
   'talk.send',
   'email.send',
   'webhook',
@@ -358,6 +517,11 @@ export const ACTION_OUTPUTS: Record<string, string[]> = {
   'ai.classify': ['ai.text', 'ai.label'],
   webhook: ['webhook.status'],
   'issue.create': ['created.id'],
+  'issue.assign_next': ['assigned.id'],
+  'time.log_timer': ['timer.hours'],
+  'ai.extract_data': ['ai.data'],
+  'ai.summarize': ['ai.summary'],
+  'totp.fetch': ['totp.code'],
 };
 
 // ---------------------------------------------------------------------------
@@ -373,7 +537,8 @@ export function summarize(node: WorkflowNode): string {
 
   switch (node.type) {
     case 'schedule':
-    case 'issue.scan': {
+    case 'issue.scan':
+    case 'time.budget_exceeded': {
       const when =
         (s('mode') || 'daily') === 'interval'
           ? `a cada ${s('everyMinutes') || '60'} min`
@@ -383,7 +548,8 @@ export function summarize(node: WorkflowNode): string {
         { assigned: 'atribuídas', review: 'para revisão', monitored: 'monitoradas', all: 'todas' }[
           s('scope') || 'assigned'
         ] ?? '';
-      return `${when} · ${scope}`;
+      const suffix = node.type === 'time.budget_exceeded' ? ' · acima do orçamento' : '';
+      return `${when} · ${scope}${suffix}`;
     }
     case 'issue.created':
       return s('category') ? `categoria: ${s('category')}` : 'qualquer nova tarefa';
@@ -402,6 +568,16 @@ export function summarize(node: WorkflowNode): string {
         : s('roomToken')
           ? 'sala escolhida'
           : 'qualquer sala';
+    case 'workflow.manual':
+      return 'sob demanda (botão)';
+    case 'app.startup':
+      return 'ao iniciar o app';
+    case 'email.received': {
+      const parts = [];
+      if (s('fromContains')) parts.push(`de "${s('fromContains')}"`);
+      if (s('subjectContains')) parts.push(`assunto "${s('subjectContains')}"`);
+      return parts.length ? parts.join(' · ') : 'qualquer e-mail não lido';
+    }
 
     case 'filter':
     case 'if': {
@@ -409,10 +585,25 @@ export function summarize(node: WorkflowNode): string {
       if (n === 0) return 'sem regras (sempre passa)';
       return `${n} ${n === 1 ? 'regra' : 'regras'} (${(s('op') || 'and') === 'or' ? 'OU' : 'E'})`;
     }
+    case 'filter.is_business_hours':
+      return `dentro de ${s('startHour') || '8'}h–${s('endHour') || '18'}h`;
 
     case 'notify':
     case 'k86.screen':
       return s('title');
+    case 'sound.play':
+      return (
+        { alert: 'Alerta', success: 'Sucesso', error: 'Erro' }[s('sound') || 'alert'] ?? s('sound')
+      );
+    case 'talk.change_status':
+      return (
+        {
+          online: 'Disponível',
+          away: 'Ausente',
+          dnd: 'Em foco',
+          invisible: 'Invisível',
+        }[s('statusType') || 'dnd'] ?? ''
+      );
     case 'talk.send':
       return s('roomToken') ? 'envia na sala escolhida' : '';
     case 'issue.comment':
@@ -437,6 +628,35 @@ export function summarize(node: WorkflowNode): string {
     }
     case 'issue.create':
       return s('subject').slice(0, 40);
+    case 'issue.assign_next': {
+      const n = Array.isArray(c.users) ? c.users.length : 0;
+      return n ? `rodízio entre ${n} ${n === 1 ? 'pessoa' : 'pessoas'}` : 'sem pessoas';
+    }
+    case 'issue.link_issues': {
+      const rel =
+        {
+          relates: 'relaciona',
+          blocks: 'bloqueia',
+          blocked: 'bloqueada por',
+          precedes: 'precede',
+          follows: 'sucede',
+          duplicates: 'duplica',
+          duplicated: 'duplicada por',
+          copied_to: 'copiada para',
+          copied_from: 'copiada de',
+        }[s('relationType') || 'relates'] ?? '';
+      return s('targetIssueId') ? `${rel} #${s('targetIssueId')}` : rel;
+    }
+    case 'time.log_timer':
+      return s('activity_id') ? 'cronômetro (início/fim)' : 'cronômetro';
+    case 'ai.extract_data': {
+      const n = Array.isArray(c.fields) ? c.fields.length : 0;
+      return n ? `${n} ${n === 1 ? 'campo' : 'campos'} → JSON` : 'extrai JSON';
+    }
+    case 'ai.summarize':
+      return (s('source') || 'comments') === 'text' ? 'resume um texto' : 'resume comentários';
+    case 'totp.fetch':
+      return s('service') ? `código de ${s('service')}` : 'código TOTP';
     case 'time.log':
       return s('hours') ? `${s('hours')}h` : '';
     case 'wait': {
@@ -511,6 +731,21 @@ export function validateNode(node: WorkflowNode): string[] {
       need('hours', 'horas');
       need('activity_id', 'atividade');
       if (c.issue === 'id') need('issue_id', 'tarefa');
+      break;
+    case 'issue.assign_next':
+      if (!Array.isArray(c.users) || c.users.length === 0) missing.push('pessoas');
+      break;
+    case 'issue.link_issues':
+      need('targetIssueId', 'tarefa alvo');
+      break;
+    case 'time.log_timer':
+      need('activity_id', 'atividade');
+      break;
+    case 'ai.extract_data':
+      need('prompt', 'o que extrair');
+      break;
+    case 'ai.summarize':
+      if (c.source === 'text') need('text', 'texto');
       break;
     case 'issue.update':
       if (!c.status_id && !c.assigned_to_id && !c.priority_id && !c.due_date)

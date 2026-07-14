@@ -3,6 +3,9 @@ import {
   fieldValue,
   evalRule,
   evalFilter,
+  isBusinessHours,
+  evalCondition,
+  isOverBudget,
   triggerMatches,
   scheduleDue,
   scanIssues,
@@ -85,13 +88,25 @@ describe('fieldValue', () => {
   it('resolve saídas de ações anteriores', () => {
     const c = {
       ...ctx,
-      ai: { text: 'oi', label: 'urgente' },
+      ai: { text: 'oi', label: 'urgente', summary: 'resumo', data: { valor: 10 } },
       webhook: { status: 201 },
       created: { id: 99 },
+      totp: { code: '123456' },
     };
     expect(fieldValue('ai.label', c, NOW)).toBe('urgente');
+    expect(fieldValue('ai.summary', c, NOW)).toBe('resumo');
     expect(fieldValue('webhook.status', c, NOW)).toBe(201);
     expect(fieldValue('created.id', c, NOW)).toBe(99);
+    expect(fieldValue('totp.code', c, NOW)).toBe('123456');
+  });
+
+  it('resolve campos de e-mail (gatilho email.received)', () => {
+    const c = { email: { subject: 'Fatura #12', from: 'cobranca@cliente.com', snippet: 'segue' } };
+    expect(fieldValue('email.subject', c, NOW)).toBe('Fatura #12');
+    expect(fieldValue('email.from', c, NOW)).toBe('cobranca@cliente.com');
+    expect(fieldValue('email.snippet', c, NOW)).toBe('segue');
+    // fora do contexto de e-mail → indisponível
+    expect(fieldValue('email.subject', { issue }, NOW)).toBeUndefined();
   });
 
   it('message.mention é booleano só quando há mensagem', () => {
@@ -189,6 +204,68 @@ describe('evalFilter', () => {
   });
 });
 
+describe('isBusinessHours', () => {
+  // 2026-07-06 = segunda(1), 07-08 = quarta(3), 07-11 = sábado(6), 07-12 = domingo(0).
+  const at = (iso) => new Date(iso).getTime();
+
+  it('defaults: seg-sex 08h–18h', () => {
+    expect(isBusinessHours({}, at('2026-07-06T09:00:00'))).toBe(true); // seg 9h
+    expect(isBusinessHours({}, at('2026-07-08T17:59:00'))).toBe(true); // qua 17h59
+    expect(isBusinessHours({}, at('2026-07-08T07:30:00'))).toBe(false); // antes das 8
+    expect(isBusinessHours({}, at('2026-07-08T18:00:00'))).toBe(false); // 18h é o fim (exclusivo)
+    expect(isBusinessHours({}, at('2026-07-11T10:00:00'))).toBe(false); // sábado
+    expect(isBusinessHours({}, at('2026-07-12T10:00:00'))).toBe(false); // domingo
+  });
+
+  it('respeita janela e dias customizados', () => {
+    const cfg = { startHour: 6, endHour: 22, days: [6, 0] }; // fim de semana 6h–22h
+    expect(isBusinessHours(cfg, at('2026-07-11T21:00:00'))).toBe(true); // sábado 21h
+    expect(isBusinessHours(cfg, at('2026-07-06T21:00:00'))).toBe(false); // segunda fora dos dias
+    expect(isBusinessHours(cfg, at('2026-07-12T05:00:00'))).toBe(false); // domingo antes das 6
+  });
+});
+
+describe('evalCondition', () => {
+  it('despacha o predicado de horário comercial pelo type do nó', () => {
+    const node = { type: 'filter.is_business_hours', config: {} };
+    expect(evalCondition(node, {}, 337, new Date('2026-07-06T09:00:00').getTime())).toBe(true);
+    expect(evalCondition(node, {}, 337, new Date('2026-07-11T09:00:00').getTime())).toBe(false);
+  });
+
+  it('cai no filtro por regras para os demais nós', () => {
+    const node = {
+      type: 'if',
+      config: { op: 'and', rules: [{ field: 'status', operand: 'eq', value: '3' }] },
+    };
+    expect(evalCondition(node, ctx, 337, NOW)).toBe(true);
+    const node2 = {
+      ...node,
+      config: { ...node.config, rules: [{ field: 'status', operand: 'eq', value: '9' }] },
+    };
+    expect(evalCondition(node2, ctx, 337, NOW)).toBe(false);
+  });
+});
+
+describe('isOverBudget', () => {
+  it('dispara só quando há estimativa e as horas passaram dela', () => {
+    expect(isOverBudget({ estimated_hours: 8, spent_hours: 9 })).toBe(true);
+    expect(isOverBudget({ estimated_hours: 8, spent_hours: 8 })).toBe(false); // no limite, não passou
+    expect(isOverBudget({ estimated_hours: 8, spent_hours: 3 })).toBe(false);
+  });
+
+  it('sem estimativa (ou zero) nunca estoura', () => {
+    expect(isOverBudget({ spent_hours: 9 })).toBe(false);
+    expect(isOverBudget({ estimated_hours: 0, spent_hours: 9 })).toBe(false);
+    expect(isOverBudget({ estimated_hours: null, spent_hours: 9 })).toBe(false);
+  });
+
+  it('spent ausente/ inválido é tratado como não-estouro', () => {
+    expect(isOverBudget({ estimated_hours: 8 })).toBe(false);
+    expect(isOverBudget({})).toBe(false);
+    expect(isOverBudget(null)).toBe(false);
+  });
+});
+
 describe('triggerMatches', () => {
   const ev = { type: 'status_changed', fromStatus: 1, toStatus: 3, issueId: 42 };
 
@@ -252,6 +329,24 @@ describe('triggerMatches', () => {
     expect(
       triggerMatches({ type: 'issue.commented', config: {} }, { type: 'status_changed' }, 337),
     ).toBe(false);
+  });
+
+  it('email.received filtra por remetente e assunto (contém, sem diferenciar caixa)', () => {
+    const ev = { type: 'email.received', from: 'cobranca@Cliente.com', subject: 'Fatura #12' };
+    expect(triggerMatches({ type: 'email.received', config: {} }, ev, 337)).toBe(true);
+    expect(
+      triggerMatches({ type: 'email.received', config: { fromContains: 'cliente.com' } }, ev, 337),
+    ).toBe(true);
+    expect(
+      triggerMatches({ type: 'email.received', config: { subjectContains: 'fatura' } }, ev, 337),
+    ).toBe(true);
+    expect(
+      triggerMatches({ type: 'email.received', config: { fromContains: 'outro.com' } }, ev, 337),
+    ).toBe(false);
+    // não casa com evento de outro tipo
+    expect(triggerMatches({ type: 'email.received', config: {} }, { type: 'commented' }, 337)).toBe(
+      false,
+    );
   });
 });
 

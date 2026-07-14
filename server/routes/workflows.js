@@ -130,6 +130,24 @@ router.post(
   }),
 );
 
+// Execução manual REAL (gatilho workflow.manual): respeita filtros e EXECUTA as
+// ações de verdade. Diferente do /run (que ignora filtros e não escreve). Aceita
+// um issueId opcional quando lançada a partir de um card da tarefa.
+router.post(
+  '/workflows/:id/trigger',
+  handle(async (req, res) => {
+    const uid = await getMyUserId(req);
+    const wf = listWorkflows(uid).find((w) => w.id === req.params.id);
+    if (!wf) return res.status(404).json({ error: 'automação não encontrada' });
+
+    const { runWorkflowNow } = require('../services/workflowEngine');
+    const { getSubscriptions, sendPush } = require('../services/push');
+    const issueId = Number(req.body?.issueId) || undefined;
+    await runWorkflowNow(uid, wf, recFromReq(req, uid), sendPush, getSubscriptions(), { issueId });
+    res.json({ ok: true });
+  }),
+);
+
 // Prévia da varredura: avalia as CONDIÇÕES contra as tarefas reais SEM executar
 // nenhuma ação e sem tocar o estado do motor. É o inverso do /run.
 router.post(

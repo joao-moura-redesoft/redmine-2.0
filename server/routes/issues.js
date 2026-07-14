@@ -24,7 +24,7 @@ const CF_REVIEWER = `cf_${REDMINE_CF.reviewer}`;
 router.get(
   '/issues',
   handle(async (req, res) => {
-    const { limit, offset, ...rest } = req.query; // ignora limit/offset do cliente; paginamos tudo
+    const { limit: _limit, offset: _offset, ...rest } = req.query; // ignora limit/offset do cliente; paginamos tudo
     const params = { assigned_to_id: 'me', status_id: '*', include: 'children', ...rest };
     const issues = await fetchAllIssues(makeRedmine(req), params);
     res.json({ issues, total_count: issues.length });

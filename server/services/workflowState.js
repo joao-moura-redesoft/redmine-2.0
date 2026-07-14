@@ -27,12 +27,20 @@ function getState(uid) {
       scanFired: {},
       failStreak: {},
       pending: [],
+      roundRobin: {}, // { [nodeId]: índice } — ação issue.assign_next
+      timers: {}, // { [nodeId:issueId]: startTs } — ação time.log_timer
+      appStartup: {}, // { [wfId]: bootTs } — gatilho app.startup (uma vez por boot)
+      emailSeenId: 0, // maior id de e-mail já visto — gatilho email.received
+      emailInit: false,
     };
   }
   // Backfill para estados gravados antes destes campos existirem.
   if (!store[uid].scanFired) store[uid].scanFired = {};
   if (!store[uid].failStreak) store[uid].failStreak = {};
   if (!store[uid].pending) store[uid].pending = [];
+  if (!store[uid].roundRobin) store[uid].roundRobin = {};
+  if (!store[uid].timers) store[uid].timers = {};
+  if (!store[uid].appStartup) store[uid].appStartup = {};
   return store[uid];
 }
 

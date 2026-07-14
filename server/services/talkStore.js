@@ -42,4 +42,33 @@ async function sendTalkMessage(userId, roomToken, text) {
   return true;
 }
 
-module.exports = { getTalkAuth, saveTalkAuth, clearTalkAuth, sendTalkMessage };
+// Altera o status do usuário no Nextcloud (User Status API — a mesma exibida no
+// Talk). Reaproveita as credenciais do cofre. `statusType`: online|away|dnd|
+// invisible|offline. Opcionalmente define uma mensagem personalizada. No-op
+// silencioso se o usuário não tem Talk/Nextcloud configurado.
+async function setUserStatus(userId, { statusType = 'dnd', message = '', clearAt = null } = {}) {
+  const auth = getTalkAuth(userId);
+  if (!(auth?.url && auth?.user && auth?.token)) {
+    console.warn('[talk] setUserStatus: sem credenciais para uid', userId);
+    return false;
+  }
+  const client = axios.create({
+    baseURL: auth.url,
+    auth: { username: auth.user, password: auth.token },
+    headers: { 'OCS-APIRequest': 'true', Accept: 'application/json' },
+  });
+  const base = '/ocs/v2.php/apps/user_status/api/v1/user_status';
+  await client.put(`${base}/status?format=json`, { statusType });
+  if (message) {
+    await client.put(`${base}/message/custom?format=json`, { message: String(message), clearAt });
+  }
+  return true;
+}
+
+module.exports = {
+  getTalkAuth,
+  saveTalkAuth,
+  clearTalkAuth,
+  sendTalkMessage,
+  setUserStatus,
+};

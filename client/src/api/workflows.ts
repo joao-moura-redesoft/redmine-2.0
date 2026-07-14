@@ -62,6 +62,12 @@ export async function runWorkflow(id: string): Promise<void> {
   await api.post(`/workflows/${id}/run`);
 }
 
+// Execução manual REAL (gatilho workflow.manual): respeita filtros e executa as
+// ações de verdade. `issueId` opcional injeta a tarefa do card no contexto.
+export async function triggerWorkflow(id: string, issueId?: number): Promise<void> {
+  await api.post(`/workflows/${id}/trigger`, issueId ? { issueId } : {});
+}
+
 export interface WorkflowRunAction {
   type: string;
   ok: boolean;
